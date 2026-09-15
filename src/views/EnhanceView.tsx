@@ -30,6 +30,7 @@ export function EnhanceView({ onImport }: EnhanceViewProps) {
   const importDisabled = !onImport
   return (
     <div className="pixora-view pixora-view--enhance anim-fade">
+      <h1 className="u-visually-hidden">Enhance</h1>
       <div className="pixora-workflow" aria-label="Workflow">
         {WORKFLOW.map((step, index) => (
           <div className="pixora-workflow__step" key={step.id}>

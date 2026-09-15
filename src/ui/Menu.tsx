@@ -25,14 +25,19 @@ export interface MenuProps {
   trigger: ReactNode
   items: MenuItem[]
   align?: 'start' | 'end'
+  /** Accessible name for the trigger (icon-only triggers have none). */
+  label?: string
 }
 
-export function Menu({ trigger, items, align = 'end' }: MenuProps) {
+export function Menu({ trigger, items, align = 'end', label }: MenuProps) {
   const [open, setOpen] = useState(false)
   const rootRef = useRef<HTMLDivElement>(null)
+  const menuRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
     if (!open) return
+    // Move focus to the first item as the menu opens (desktop convention).
+    menuRef.current?.querySelector<HTMLButtonElement>('.pix-menu__item:not(:disabled)')?.focus()
     function onPointerDown(event: PointerEvent) {
       if (!rootRef.current?.contains(event.target as Node)) setOpen(false)
     }
@@ -40,6 +45,28 @@ export function Menu({ trigger, items, align = 'end' }: MenuProps) {
       if (event.key === 'Escape') {
         event.stopPropagation()
         setOpen(false)
+        rootRef.current?.querySelector<HTMLElement>('.pix-menu-trigger')?.focus()
+        return
+      }
+      if (
+        event.key === 'ArrowDown' ||
+        event.key === 'ArrowUp' ||
+        event.key === 'Home' ||
+        event.key === 'End'
+      ) {
+        const items = Array.from(
+          menuRef.current?.querySelectorAll<HTMLButtonElement>('.pix-menu__item:not(:disabled)') ??
+            [],
+        )
+        if (items.length === 0) return
+        event.preventDefault()
+        const current = items.indexOf(document.activeElement as HTMLButtonElement)
+        let next: number
+        if (event.key === 'Home') next = 0
+        else if (event.key === 'End') next = items.length - 1
+        else if (event.key === 'ArrowDown') next = current < 0 ? 0 : (current + 1) % items.length
+        else next = current <= 0 ? items.length - 1 : current - 1
+        items[next]?.focus()
       }
     }
     document.addEventListener('pointerdown', onPointerDown, true)
@@ -56,6 +83,7 @@ export function Menu({ trigger, items, align = 'end' }: MenuProps) {
         className="pix-menu-trigger"
         role="button"
         tabIndex={0}
+        aria-label={label}
         aria-haspopup="menu"
         aria-expanded={open}
         onClick={() => setOpen((v) => !v)}
@@ -69,7 +97,7 @@ export function Menu({ trigger, items, align = 'end' }: MenuProps) {
         {trigger}
       </span>
       {open && (
-        <div className={cx('pix-menu', `pix-menu--${align}`)} role="menu">
+        <div ref={menuRef} className={cx('pix-menu', `pix-menu--${align}`)} role="menu">
           {items.map((item) => (
             <button
               key={item.id}
@@ -79,6 +107,7 @@ export function Menu({ trigger, items, align = 'end' }: MenuProps) {
               disabled={item.disabled}
               onClick={() => {
                 setOpen(false)
+                rootRef.current?.querySelector<HTMLElement>('.pix-menu-trigger')?.focus()
                 item.onSelect()
               }}
             >

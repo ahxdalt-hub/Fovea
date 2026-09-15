@@ -23,6 +23,7 @@
 .pix-state__dropzone {
   display: grid;
   place-items: center;
+  flex: none;
   width: 108px;
   height: 108px;
   margin-bottom: var(--space-5);

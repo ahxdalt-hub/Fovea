@@ -118,6 +118,42 @@ describe('Pixora shell', () => {
     )
   })
 
+  it('returns focus to the trigger when a dialog closes', async () => {
+    mockSuccessfulCore()
+    renderApp()
+    await screen.findByText(/core connected/i)
+
+    const gear = screen.getByRole('button', { name: 'Settings' })
+    gear.focus()
+    fireEvent.click(gear)
+    const dialog = await screen.findByRole('dialog', { name: 'Settings' })
+    expect(dialog).toContainElement(document.activeElement as HTMLElement | null)
+
+    fireEvent.keyDown(dialog, { key: 'Escape' })
+    await waitFor(() => expect(document.activeElement).toBe(gear))
+  })
+
+  it('suspends navigation shortcuts while a dialog is open', async () => {
+    mockSuccessfulCore()
+    renderApp()
+    await screen.findByText(/core connected/i)
+
+    fireEvent.keyDown(window, { key: ',', ctrlKey: true })
+    await screen.findByRole('dialog', { name: 'Settings' })
+
+    // The workspace must not change underneath the modal.
+    fireEvent.keyDown(window, { key: '2' })
+    expect(screen.queryByRole('heading', { level: 1, name: 'Batch' })).not.toBeInTheDocument()
+  })
+
+  it('labels top-bar menu triggers for assistive tech', async () => {
+    mockSuccessfulCore()
+    renderApp()
+    await screen.findByText(/core connected/i)
+    expect(screen.getByRole('button', { name: 'Theme' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'More options' })).toBeInTheDocument()
+  })
+
   it('shows a retryable error surface when the core is unreachable', async () => {
     invoke.mockImplementation(() =>
       Promise.reject({ code: 'unexpected_error', message: 'core unavailable message' }),

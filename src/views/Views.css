@@ -64,11 +64,13 @@
 
 .pixora-workflow__chevron {
   position: absolute;
-  left: -16px;
+  top: 50%;
+  left: -12px; /* centers the 10px glyph in the 12px gap between step cards */
   width: 10px;
   height: 10px;
   border-top: 1.5px solid var(--border-strong);
   border-right: 1.5px solid var(--border-strong);
+  translate: 0 -50%;
   rotate: 45deg;
 }
 

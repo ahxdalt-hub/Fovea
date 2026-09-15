@@ -63,6 +63,7 @@ export function TopBar({ onOpenSettings, onOpenShortcuts, onOpenAbout, onSetThem
         <StatusDot status={state.coreStatus} />
         <div className="pixora-topbar__divider" aria-hidden="true" />
         <Menu
+          label="Theme"
           trigger={
             <ChromeIcon>
               <ThemeIcon size="sm" />
@@ -81,6 +82,7 @@ export function TopBar({ onOpenSettings, onOpenShortcuts, onOpenAbout, onSetThem
           </button>
         </Tooltip>
         <Menu
+          label="More options"
           trigger={
             <ChromeIcon>
               <IconMore size="sm" />

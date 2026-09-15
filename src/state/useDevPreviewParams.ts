@@ -2,9 +2,9 @@
  * Dev-only URL preview parameters.
  *
  * When running the Vite dev server in a plain browser, `?theme=dark`,
- * `?view=batch|history` and `?dialog=settings|shortcuts|about` can pin the
- * shell's initial state. This exists so visual QA (screenshots of every
- * state) can run headlessly without synthetic clicks. It is inert inside
+ * `?view=batch|history` and `?dialog=settings` can pin the shell's initial
+ * state. This exists so visual QA (screenshots of every state) can run
+ * headlessly without synthetic clicks. It is inert inside
  * Tauri (no such URL), inert in tests, and stripped from release builds —
  * Vite replaces import.meta.env.DEV with false.
  */
