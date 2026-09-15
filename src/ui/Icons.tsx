@@ -216,3 +216,73 @@ export function IconChevronDown(props: IconProps) {
     </Svg>
   )
 }
+
+/** Zoom in: magnifier with a plus. */
+export function IconZoomIn(props: IconProps) {
+  return (
+    <Svg {...props}>
+      <circle cx="10.5" cy="10.5" r="6.5" />
+      <path d="m15.5 15.5 4.5 4.5" />
+      <path d="M10.5 7.8v5.4M7.8 10.5h5.4" />
+    </Svg>
+  )
+}
+
+/** Zoom out: magnifier with a minus. */
+export function IconZoomOut(props: IconProps) {
+  return (
+    <Svg {...props}>
+      <circle cx="10.5" cy="10.5" r="6.5" />
+      <path d="m15.5 15.5 4.5 4.5" />
+      <path d="M7.8 10.5h5.4" />
+    </Svg>
+  )
+}
+
+/** Fit to workspace: a picture framed by corner brackets. */
+export function IconFit(props: IconProps) {
+  return (
+    <Svg {...props}>
+      <path d="M3.5 8V4.5a1 1 0 0 1 1-1H8M16 3.5h3.5a1 1 0 0 1 1 1V8M20.5 16v3.5a1 1 0 0 1-1 1H16M8 20.5H4.5a1 1 0 0 1-1-1V16" />
+      <rect x="7.5" y="7.5" width="9" height="9" rx="1.2" />
+    </Svg>
+  )
+}
+
+/** Compare: a frame split by a center divider. */
+export function IconCompare(props: IconProps) {
+  return (
+    <Svg {...props}>
+      <rect x="3.5" y="4.5" width="17" height="15" rx="2.5" />
+      <path d="M12 4.5v15" />
+      <path d="M6.8 12h2M15.2 12h2" />
+    </Svg>
+  )
+}
+
+/** Fullscreen: arrows pushing apart into corners. */
+export function IconExpand(props: IconProps) {
+  return (
+    <Svg {...props}>
+      <path d="M4 9V4.5a.5.5 0 0 1 .5-.5H9M15 4h4.5a.5.5 0 0 1 .5.5V9M20 15v4.5a.5.5 0 0 1-.5.5H15M9 20H4.5a.5.5 0 0 1-.5-.5V15" />
+    </Svg>
+  )
+}
+
+/** Exit fullscreen: arrows pulling in from corners. */
+export function IconCollapse(props: IconProps) {
+  return (
+    <Svg {...props}>
+      <path d="M9 4v4.5a.5.5 0 0 1-.5.5H4M15 4v4.5a.5.5 0 0 0 .5.5H20M15 20v-4.5a.5.5 0 0 1 .5-.5H20M9 20v-4.5a.5.5 0 0 0-.5-.5H4" />
+    </Svg>
+  )
+}
+
+/** Enhancement result: a calm four-point sparkle (no magic-wand cliché). */
+export function IconSparkle(props: IconProps) {
+  return (
+    <Svg {...props}>
+      <path d="M12 3.5c.6 4.4 2.6 6.9 7 7.5-4.4.6-6.4 3.1-7 7.5-.6-4.4-2.6-6.9-7-7.5 4.4-.6 6.4-3.1 7-7.5Z" />
+    </Svg>
+  )
+}

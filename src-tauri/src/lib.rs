@@ -38,7 +38,8 @@ pub fn run() {
             commands::app::get_system_info,
             commands::app::write_frontend_log,
             commands::import::pick_image_files,
-            commands::import::import_images
+            commands::import::import_images,
+            commands::import::load_image_view
         ])
         .setup(|app| {
             let cfg = config::AppConfig::from_build();

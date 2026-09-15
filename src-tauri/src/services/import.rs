@@ -1,13 +1,14 @@
-//! Image import service — the Stage 03 pipeline: validate, measure, preview.
+//! Image import + viewing services — the Stage 03/04 pipeline: validate,
+//! measure, preview, serve.
 //!
 //! Everything here stays on this machine: bytes are read, decoded, and
-//! re-encoded as a small local preview; nothing is sent anywhere. The
-//! service never panics on hostile input — every failure maps to an
-//! `AppError` whose user message is safe to display.
+//! re-encoded as a small local preview or a display-sized view; nothing is
+//! sent anywhere. The service never panics on hostile input — every failure
+//! maps to an `AppError` whose user message is safe to display.
 //!
 //! Formats are declared in exactly two places: the `image` crate features
 //! in Cargo.toml and [`FormatHint::from_extension`]. Adding a format later
-//! (Stage 04+ or TIFF) means touching those and nothing else.
+//! (Stage 05+ or TIFF) means touching those and nothing else.
 
 use std::io::Cursor;
 use std::path::Path;
@@ -24,6 +25,8 @@ pub const MAX_PIXELS: u64 = 64_000_000;
 pub const MAX_FILE_BYTES: u64 = 200 * 1024 * 1024;
 /// The preview thumbnail never exceeds this longest edge (px).
 const PREVIEW_EDGE: u32 = 480;
+/// Quality of re-encoded display views (the original is never recompressed).
+const VIEW_JPEG_QUALITY: u8 = 90;
 
 /// Supported image formats, in the vocabulary the UI displays.
 /// Serde names are the conventional all-caps acronyms; Rust names follow
@@ -287,24 +290,158 @@ pub fn import_one(path: &Path) -> AppResult<ImportedImage> {
 /// regardless.
 fn build_preview(img: &DynamicImage) -> Result<String, image::ImageError> {
     let thumb = img.thumbnail(PREVIEW_EDGE, PREVIEW_EDGE);
-    let (mime, data): (&str, Vec<u8>) = if img.color().has_alpha() {
+    let has_alpha = img.color().has_alpha();
+    let data: Vec<u8> = if has_alpha {
         let mut out = Cursor::new(Vec::new());
         thumb.write_to(&mut out, ImageFormat::Png)?;
-        ("image/png", out.into_inner())
+        out.into_inner()
     } else {
         // Opaque sources preview as JPEG regardless of format — smaller.
         let mut out = Cursor::new(Vec::new());
         thumb.into_rgb8().write_to(&mut out, ImageFormat::Jpeg)?;
-        ("image/jpeg", out.into_inner())
+        out.into_inner()
     };
-    let b64 = base64::engine::general_purpose::STANDARD.encode(&data);
-    Ok(format!("data:{mime};base64,{b64}"))
+    Ok(data_url(has_alpha, &data))
+}
+
+fn data_url(has_alpha: bool, data: &[u8]) -> String {
+    let mime = if has_alpha { "image/png" } else { "image/jpeg" };
+    let b64 = base64::engine::general_purpose::STANDARD.encode(data);
+    format!("data:{mime};base64,{b64}")
+}
+
+// ── Stage 04: image viewing ──────────────────────────────────────────
+//
+// The viewer never needs the giant original pixels sitting in the
+// webview. `load_image_view` returns a display-optimized representation
+// of a previously-imported file (its canonical path id):
+//
+// - If the file is already at or below `max_edge` (a common case — most
+//   photos and every screenshot), the *untouched original bytes* are
+//   returned. Zero recompression, zero quality loss.
+// - Otherwise the image is downscaled to `max_edge` with a Lanczos
+//   filter and re-encoded (JPEG at high quality, PNG kept when the
+//   source has alpha).
+//
+// The caller (a later Stage's 1:1/full-fidelity mode) can raise
+// `max_edge` toward the true dimensions; passing a value ≥ the image's
+// longest edge returns the original bytes.
+
+/// Serialized `ImageView` from Rust — the display representation of one
+/// file, plus its true dimensions so the UI never has to probe.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ImageView {
+    /// True source width (px) — the view may be smaller.
+    pub width: u32,
+    /// True source height (px).
+    pub height: u32,
+    /// Longest edge actually delivered (px). Equals max(width,height)
+    /// when the original was served untouched.
+    pub delivered_edge: u32,
+    /// True when `data_url` is the untouched original file bytes.
+    pub original: bool,
+    /// Self-contained data URL for the viewer.
+    pub data_url: String,
+}
+
+/// The path-derived display cap: a view never exceeds this edge.
+pub const VIEW_MAX_EDGE: u32 = 2600;
+
+/// Produce the display representation of an imported file.
+///
+/// `path` is the canonical id from `ImportedImage` — already validated on
+/// import and already known to the webview via the picker/drop payloads,
+/// so this command adds no new read capability. Still, it re-checks the
+/// file against the same ladder so a deleted/mutated file fails honestly.
+pub fn load_image_view(path: &Path, max_edge: u32) -> AppResult<ImageView> {
+    let name = display_name(path);
+    let bytes = match std::fs::read(path) {
+        Ok(b) => b,
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => {
+            return Err(AppError::FileMissing { detail: name });
+        }
+        Err(err) => return Err(AppError::from(err)),
+    };
+    if bytes.len() as u64 > MAX_FILE_BYTES {
+        return Err(AppError::FileTooLarge {
+            detail: format!("{name}: {} bytes on disk", bytes.len()),
+        });
+    }
+
+    // Reuse the import ladder's sniff+decode: what the viewer can show is
+    // exactly what import accepted, nothing looser.
+    let guessed = image::guess_format(&bytes).map_err(|_| AppError::InvalidImage {
+        detail: format!("{name}: no image header"),
+    })?;
+    if ImageFormatLabel::from_image_format(guessed).is_none() {
+        return Err(AppError::UnsupportedFormat {
+            detail: format!("{name}: sniffed {guessed:?}"),
+        });
+    }
+    let decoded = image::load_from_memory_with_format(&bytes, guessed).map_err(|_| {
+        AppError::InvalidImage {
+            detail: format!("{name}: decode failed"),
+        }
+    })?;
+    let (width, height) = (decoded.width(), decoded.height());
+    let longest = width.max(height);
+
+    // Small enough (or the caller asked for everything): hand back the
+    // pristine file bytes. This is the honest path for most imports.
+    if longest <= max_edge {
+        return Ok(ImageView {
+            width,
+            height,
+            delivered_edge: longest,
+            original: true,
+            data_url: raw_data_url(&bytes, guessed),
+        });
+    }
+
+    let view = decoded.thumbnail(max_edge, max_edge);
+    let delivered_edge = view.width().max(view.height());
+    let has_alpha = view.color().has_alpha();
+    let data: Vec<u8> = if has_alpha {
+        let mut out = Cursor::new(Vec::new());
+        view.write_to(&mut out, ImageFormat::Png)
+            .map_err(|e| AppError::unexpected(format!("view encode png: {e}")))?;
+        out.into_inner()
+    } else {
+        let mut out = Cursor::new(Vec::new());
+        image::codecs::jpeg::JpegEncoder::new_with_quality(&mut out, VIEW_JPEG_QUALITY)
+            .encode_image(&view.into_rgb8())
+            .map_err(|e| AppError::unexpected(format!("view encode jpeg: {e}")))?;
+        out.into_inner()
+    };
+    Ok(ImageView {
+        width,
+        height,
+        delivered_edge,
+        original: false,
+        data_url: data_url(has_alpha, &data),
+    })
+}
+
+/// Wrap already-encoded file bytes in a data URL without re-encoding.
+fn raw_data_url(bytes: &[u8], format: ImageFormat) -> String {
+    let mime = match format {
+        ImageFormat::Jpeg => "image/jpeg",
+        ImageFormat::Png => "image/png",
+        ImageFormat::WebP => "image/webp",
+        other => {
+            debug_assert!(false, "raw_data_url called with unsupported {other:?}");
+            "application/octet-stream"
+        }
+    };
+    let b64 = base64::engine::general_purpose::STANDARD.encode(bytes);
+    format!("data:{mime};base64,{b64}")
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use image::{Rgb, RgbImage};
+    use image::{Rgb, RgbImage, Rgba, RgbaImage};
 
     /// Write temp bytes with a given name and return the path.
     fn temp_file(name: &str, bytes: &[u8]) -> std::path::PathBuf {
@@ -464,5 +601,81 @@ mod tests {
         assert!(json.contains("unsupported_format"));
         let tmp = std::env::temp_dir().to_string_lossy().into_owned();
         assert!(!json.contains(&tmp));
+    }
+
+    // ── Stage 04: load_image_view ────────────────────────────────────
+
+    #[test]
+    fn view_serves_small_files_untouched() {
+        let bytes = png_bytes(1200, 800);
+        let path = temp_file("small.png", &bytes);
+        let view = load_image_view(&path, VIEW_MAX_EDGE).expect("view");
+        assert_eq!((view.width, view.height), (1200, 800));
+        assert!(view.original);
+        assert_eq!(view.delivered_edge, 1200);
+        // Untouched means byte-identical: the base64 of the original file.
+        let expected = format!(
+            "data:image/png;base64,{}",
+            base64::engine::general_purpose::STANDARD.encode(&bytes)
+        );
+        assert_eq!(view.data_url, expected);
+    }
+
+    #[test]
+    fn view_downsamples_large_files() {
+        let path = temp_file("huge.png", &png_bytes(5000, 3000));
+        let view = load_image_view(&path, 1600).expect("view");
+        assert_eq!((view.width, view.height), (5000, 3000), "true size kept");
+        assert!(!view.original);
+        assert_eq!(view.delivered_edge, 1600);
+        assert!(view.data_url.starts_with("data:image/jpeg;base64,")); // opaque → JPEG
+    }
+
+    #[test]
+    fn view_preserves_alpha_as_png() {
+        let mut rgba = RgbaImage::new(3000, 2000);
+        for (x, y, px) in rgba.enumerate_pixels_mut() {
+            *px = Rgba([
+                (x % 255) as u8,
+                (y % 255) as u8,
+                128,
+                if x > y { 255 } else { 10 },
+            ]);
+        }
+        let mut out = Cursor::new(Vec::new());
+        DynamicImage::ImageRgba8(rgba)
+            .write_to(&mut out, ImageFormat::Png)
+            .expect("encode");
+        let path = temp_file("alpha.png", &out.into_inner());
+        let view = load_image_view(&path, 1000).expect("view");
+        assert!(!view.original);
+        assert!(
+            view.data_url.starts_with("data:image/png;base64,"),
+            "alpha sources stay PNG"
+        );
+    }
+
+    #[test]
+    fn view_reports_missing_file() {
+        let path =
+            std::env::temp_dir().join(format!("pixora-view-missing-{}.png", std::process::id()));
+        let err = load_image_view(&path, VIEW_MAX_EDGE).expect_err("must fail");
+        assert_eq!(err.code(), "file_missing");
+    }
+
+    #[test]
+    fn view_rejects_non_image_bytes() {
+        let path = temp_file("junk.png", b"definitely not an image");
+        let err = load_image_view(&path, VIEW_MAX_EDGE).expect_err("must fail");
+        assert_eq!(err.code(), "invalid_image");
+    }
+
+    #[test]
+    fn view_respects_a_full_size_request() {
+        let path = temp_file("full.png", &png_bytes(2500, 1200));
+        // A later 1:1 mode raises the cap to the true longest edge.
+        let view = load_image_view(&path, 2500).expect("view");
+        assert!(view.original);
+        assert_eq!(view.delivered_edge, 2500);
     }
 }

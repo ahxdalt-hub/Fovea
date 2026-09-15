@@ -2,7 +2,8 @@
  * Import workflow tests: the Enhance view renders the collection it is
  * given, and useImport funnels native outcomes (the same call a drag &
  * drop or picker session makes) into app state with honest per-file
- * feedback.
+ * feedback. Stage 04: a populated collection shows the thumbnail rail
+ * plus the image workspace for the selected image.
  */
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
@@ -41,38 +42,50 @@ describe('EnhanceView collection', () => {
     clearImages: vi.fn(),
   }
 
+  // The view reads selection from app state (Stage 04) — render in the
+  // provider like the real shell does.
+  function renderView(props: { importApi: ImportApi; images: ImportedImageDto[] }) {
+    return render(
+      <AppStateProvider>
+        <EnhanceView {...props} />
+      </AppStateProvider>,
+    )
+  }
+
   it('shows the drop-zone empty state when the collection is empty', () => {
-    render(<EnhanceView importApi={api} images={[]} />)
+    renderView({ importApi: api, images: [] })
     expect(screen.getByRole('heading', { name: /drop an image anywhere/i })).toBeInTheDocument()
     // jsdom is not the Tauri runtime: the picker is honestly disabled.
     expect(screen.getByRole('button', { name: /choose files/i })).toBeDisabled()
   })
 
-  it('renders thumbnails and the inspector for a populated collection', () => {
+  it('renders the thumbnail rail and the workspace for a populated collection', () => {
     const images = [
       importedImage({ id: 'a' }),
       importedImage({ id: 'b', name: 'beach.jpg', format: 'JPEG', width: 4032, height: 3024 }),
     ]
-    render(<EnhanceView importApi={api} images={images} />)
+    renderView({ importApi: api, images })
     expect(screen.getByRole('list', { name: 'Imported images' })).toBeInTheDocument()
     // First image is selected by default; its verified metadata shows.
-    expect(screen.getByRole('heading', { level: 3, name: 'a.png' })).toBeInTheDocument()
-    expect(screen.getByText(/1,920 × 1,080/)).toBeInTheDocument()
-    expect(screen.getByText(/2\.3 MB/)).toBeInTheDocument()
-    expect(screen.getByText('Ready')).toBeInTheDocument()
+    expect(screen.getByRole('region', { name: /image workspace — a\.png/i })).toBeInTheDocument()
+    expect(screen.getByText('1,920 × 1,080 · PNG · 2.3 MB')).toBeInTheDocument()
+    // The viewer toolbar is the natural place for the next action.
+    expect(screen.getByRole('toolbar', { name: 'Viewer controls' })).toBeInTheDocument()
   })
 
-  it('switches the inspector to the clicked thumbnail', () => {
+  it('switches the workspace to the clicked thumbnail', () => {
     const images = [importedImage({ id: 'a' }), importedImage({ id: 'b', name: 'beach.jpg' })]
-    render(<EnhanceView importApi={api} images={images} />)
+    renderView({ importApi: api, images })
     fireEvent.click(screen.getByTitle('beach.jpg'))
-    expect(screen.getByRole('heading', { level: 3, name: 'beach.jpg' })).toBeInTheDocument()
+    expect(
+      screen.getByRole('region', { name: /image workspace — beach\.jpg/i }),
+    ).toBeInTheDocument()
   })
 
   it('remove buttons call through to the import api', () => {
     const removeImage = vi.fn()
     const images = [importedImage({ id: 'a' })]
-    render(<EnhanceView importApi={{ ...api, removeImage }} images={images} />)
+    renderView({ importApi: { ...api, removeImage }, images })
     fireEvent.click(screen.getByRole('button', { name: /remove a\.png/i }))
     expect(removeImage).toHaveBeenCalledWith('a')
   })
@@ -144,9 +157,9 @@ describe('useImport funnel', () => {
     // Success and per-file failure are both reported as notifications.
     expect(await screen.findByText(/imported 1 image/i)).toBeInTheDocument()
     expect(screen.getByText(/notes\.txt — this file type/i)).toBeInTheDocument()
-    // The workspace switched to the collection view.
+    // The workspace switched to the collection view showing the image.
     await waitFor(() =>
-      expect(screen.getByRole('heading', { level: 3, name: 'a.png' })).toBeInTheDocument(),
+      expect(screen.getByRole('region', { name: /image workspace — a\.png/i })).toBeInTheDocument(),
     )
   })
 

@@ -51,6 +51,18 @@
   border-top: 1px solid var(--border-subtle);
 }
 
+.pixora-shortcuts__group {
+  padding: var(--space-4) var(--space-1) var(--space-1);
+}
+
+.pixora-shortcuts__group dd {
+  margin: 0;
+}
+
+.pixora-shortcuts__row + .pixora-shortcuts__group {
+  border-top: 1px solid var(--border-subtle);
+}
+
 .pixora-shortcuts__row dt {
   font-size: var(--text-sm);
   color: var(--text-primary);

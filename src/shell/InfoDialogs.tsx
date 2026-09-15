@@ -61,9 +61,45 @@ export function ShortcutsDialog({ open, onClose }: { open: boolean; onClose: () 
           </dd>
         </div>
         <div className="pixora-shortcuts__row">
-          <dt>Close dialog</dt>
+          <dt>Close dialog / exit compare</dt>
           <dd>
             <kbd>Esc</kbd>
+          </dd>
+        </div>
+        <div className="pixora-shortcuts__group">
+          <dt className="u-caps-label">Image viewer</dt>
+          <dd />
+        </div>
+        <div className="pixora-shortcuts__row">
+          <dt>Zoom in / out</dt>
+          <dd>
+            <kbd>+</kbd>
+            <span className="pixora-shortcuts__plus">/</span>
+            <kbd>-</kbd>
+          </dd>
+        </div>
+        <div className="pixora-shortcuts__row">
+          <dt>Fit to workspace</dt>
+          <dd>
+            <kbd>0</kbd>
+          </dd>
+        </div>
+        <div className="pixora-shortcuts__row">
+          <dt>Actual size</dt>
+          <dd>
+            <kbd>1</kbd>
+          </dd>
+        </div>
+        <div className="pixora-shortcuts__row">
+          <dt>Compare original / enhanced</dt>
+          <dd>
+            <kbd>C</kbd>
+          </dd>
+        </div>
+        <div className="pixora-shortcuts__row">
+          <dt>Full screen</dt>
+          <dd>
+            <kbd>F</kbd>
           </dd>
         </div>
       </dl>

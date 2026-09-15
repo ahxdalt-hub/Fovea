@@ -109,3 +109,63 @@ export function isImportOutcome(value: unknown): value is ImportOutcomeDto {
   }
   return false
 }
+
+/**
+ * ── Stage 04: image viewing ─────────────────────────────────────────
+ */
+
+/**
+ * Serialized `ImageView` from Rust — the display representation of one
+ * imported file. `original` true means the untouched file bytes; false
+ * means a high-quality downscale to `deliveredEdge`.
+ */
+export interface ImageViewDto {
+  /** True source width (px) — the delivered view may be smaller. */
+  width: number
+  /** True source height (px). */
+  height: number
+  /** Longest edge actually delivered (px). */
+  deliveredEdge: number
+  /** True when the data URL is the pristine original file. */
+  original: boolean
+  /** Self-contained data URL for the viewer. */
+  dataUrl: string
+}
+
+/** Runtime guard for the native view payload. */
+export function isImageView(value: unknown): value is ImageViewDto {
+  if (typeof value !== 'object' || value === null) return false
+  const v = value as Record<string, unknown>
+  return (
+    typeof v.width === 'number' &&
+    typeof v.height === 'number' &&
+    typeof v.deliveredEdge === 'number' &&
+    typeof v.original === 'boolean' &&
+    typeof v.dataUrl === 'string'
+  )
+}
+
+/**
+ * ── Stage 04 contract for Stage 05: enhancement results ─────────────
+ */
+
+/**
+ * The enhanced counterpart of one imported image. Stage 04 defines this
+ * shape and wires it through state and the comparison UI, but nothing
+ * produces it yet — it arrives when the AI engine lands in Stage 05.
+ * The UI must treat `null`/absent as the honest normal state, never a
+ * placeholder image.
+ */
+export interface ImageEnhancementDto {
+  /** The `ImportedImageDto.id` this result belongs to. */
+  imageId: string
+  /** Data URL of the enhanced image (the engine's actual output). */
+  dataUrl: string
+  /** Enhanced dimensions — an upscale is larger than the source. */
+  width: number
+  height: number
+  /** Human label for the result, e.g. "4× · Standard". */
+  label: string
+  /** Dev-QA fixtures only; real engine output never sets this. */
+  dev?: boolean
+}

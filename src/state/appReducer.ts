@@ -5,7 +5,13 @@
  * enough for startup status and shell UI state. The shape here (typed
  * actions, single pure reducer) is what later feature stores will follow.
  */
-import type { AppConfigDto, AppErrorPayload, ImportedImageDto, SystemInfoDto } from '../types/ipc'
+import type {
+  AppConfigDto,
+  AppErrorPayload,
+  ImageEnhancementDto,
+  ImportedImageDto,
+  SystemInfoDto,
+} from '../types/ipc'
 
 /** Native connection lifecycle. */
 export type CoreStatus = 'connecting' | 'ready' | 'error'
@@ -36,6 +42,19 @@ export interface AppState {
    * queue consumes this list.
    */
   images: ImportedImageDto[]
+  /**
+   * Which imported image the workspace is showing (Stage 04). A stored
+   * id that no longer exists falls back to the first image — selection
+   * is derived at read time, so it never desyncs from the collection.
+   */
+  selectedImageId: string | null
+  /**
+   * Enhanced results keyed by image id. Stage 04 defines the wiring;
+   * Stage 05's engine is the first thing to populate it. Empty in
+   * production until then — the viewer treats a missing entry as the
+   * honest "no result yet" state and never fabricates one.
+   */
+  enhancements: Record<string, ImageEnhancementDto>
   /** An import batch is in flight (native validation running). */
   importing: boolean
   ui: UiState
@@ -54,6 +73,9 @@ export type AppAction =
   | { type: 'images/add'; images: ImportedImageDto[] }
   | { type: 'images/remove'; id: string }
   | { type: 'images/clear' }
+  | { type: 'images/select'; id: string | null }
+  | { type: 'enhancements/set'; enhancement: ImageEnhancementDto }
+  | { type: 'enhancements/clear'; imageId?: string }
 
 export const initialState: AppState = {
   coreStatus: 'connecting',
@@ -61,6 +83,8 @@ export const initialState: AppState = {
   systemInfo: null,
   error: null,
   images: [],
+  selectedImageId: null,
+  enhancements: {},
   importing: false,
   ui: {
     view: 'enhance',
@@ -123,11 +147,39 @@ export function appReducer(state: AppState, action: AppAction): AppState {
       const known = new Set(state.images.map((img) => img.id))
       const fresh = action.images.filter((img) => !known.has(img.id))
       if (fresh.length === 0) return state
-      return { ...state, images: [...state.images, ...fresh] }
+      // The first imported image becomes the workspace selection, so a
+      // drop lands on something visible immediately.
+      const selectedImageId = state.selectedImageId ?? fresh[0]?.id ?? null
+      return { ...state, images: [...state.images, ...fresh], selectedImageId }
     }
-    case 'images/remove':
-      return { ...state, images: state.images.filter((img) => img.id !== action.id) }
+    case 'images/remove': {
+      const images = state.images.filter((img) => img.id !== action.id)
+      const { [action.id]: _gone, ...enhancements } = state.enhancements
+      return {
+        ...state,
+        images,
+        enhancements,
+        // Dangling selection resets to the first remaining image (or null).
+        selectedImageId:
+          state.selectedImageId === action.id ? (images[0]?.id ?? null) : state.selectedImageId,
+      }
+    }
     case 'images/clear':
-      return { ...state, images: [] }
+      return { ...state, images: [], selectedImageId: null, enhancements: {} }
+    case 'images/select':
+      return { ...state, selectedImageId: action.id }
+    case 'enhancements/set':
+      // Stage 05's engine dispatches through here; Stage 04 only defines
+      // the contract. Keyed by image id so re-running an enhancement
+      // replaces the previous result cleanly.
+      return {
+        ...state,
+        enhancements: { ...state.enhancements, [action.enhancement.imageId]: action.enhancement },
+      }
+    case 'enhancements/clear': {
+      if (!action.imageId) return { ...state, enhancements: {} }
+      const { [action.imageId]: _gone, ...rest } = state.enhancements
+      return { ...state, enhancements: rest }
+    }
   }
 }

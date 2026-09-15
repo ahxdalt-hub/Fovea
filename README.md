@@ -3,12 +3,44 @@
 Premium Windows-first desktop app for local AI image enhancement and upscaling.
 Your images are processed on your own machine and never uploaded.
 
-**Current status:** Stage 03 — file system + image import. The Enhance
-workspace now accepts real files: native drag & drop (whole-window overlay,
-validated in Rust) and a native image-filtered file picker import JPG, PNG,
-and WebP into an ordered, deduplicated collection with per-file error
-feedback and a local preview + metadata inspector. The enhancement engine,
-batch queue, and licensing arrive in later stages.
+**Current status:** Stage 04 — image workspace + viewer. The Enhance view
+is now the product's center of gravity: a full workspace canvas for the
+selected image with pointer-anchored wheel zoom, drag-to-pan, fit-to-
+workspace, actual size, fullscreen with idle chrome fade, a compact info
+chip (name · dimensions · format · size), and the before/after compare
+slider — wired for the Stage 05 enhanced result, which honestly shows a
+pending panel until the engine exists. Large images are served at display
+resolution by the native core and escalate to full-resolution only when
+the user zooms past sharpness. The enhancement engine, batch queue, and
+licensing arrive in later stages.
+
+## Image workspace (Stage 04)
+
+```
+Selected image (app state: selectedImageId, survives navigation)
+  ↓ src/lib/viewer.ts — pure fit/zoom/pan math (clamped, centered)
+One CSS transform on a natural-size layer → GPU-composited, no per-pixel work
+  ↓ source tiers (src/state/imageSources.ts — cache, in-flight dedup)
+previewDataUrl (small, from import) → paint instantly
+load_image_view 2600 px longest edge (or pristine bytes when smaller)
+load_image full resolution — fetched ONLY when zoom exceeds the view
+  ↓ comparison (src/components/CompareSplit.tsx)
+Original vs Enhanced share one transformed frame → same region, same scale
+Enhanced side: honest pending panel until Stage 05 produces ImageEnhancementDto
+```
+
+- Viewer keys (stage focus): `+`/`−` zoom · `0` fit · `1` actual size ·
+  `C` compare · `F` fullscreen · double-click toggles fit/actual.
+- Fit never magnifies past 1:1 — small images stay sharp, never blurry.
+- The 2,400 px–7,000 px fixture set was inspected visually across
+  portrait/landscape/square/huge aspect ratios, both themes, light and
+  dark chrome.
+- Browser dev QA: `npm run dev` → `?demo=images` (+ `&theme=dark`,
+  `&demo=enhanced` for the compare-result layout). Dev-only, stripped
+  from release; the desktop app never shows synthetic images.
+- Stage 05 contract: dispatch `enhancements/set` with an
+  `ImageEnhancementDto` and the compare slider, info chip, and mode
+  affordances light up — no UI work required for the result path.
 
 ## Image import pipeline (Stage 03)
 
@@ -114,7 +146,9 @@ Product rules that shape everything:
 ```
 src/
 ├── ipc/          # typed bridge to native commands (sole invoke caller)
-├── state/        # reducer + context, bootstrap/theme/shortcut hooks
+├── state/        # reducer + context, bootstrap/theme/shortcut/import hooks,
+│                 # imageSources cache (preview/view/full tiers)
+├── hooks/        # DOM helpers (useElementSize — ResizeObserver)
 ├── ui/           # design system — buttons, fields, dialogs, menus, badges,
 │                 # progress, notifications, tooltips, empty/loading/error states.
 │                 # Import from here only; never re-skin these primitives.
@@ -122,7 +156,8 @@ src/
 │                 # base.css (reset/utilities), motion.css (shared keyframes)
 ├── shell/        # application chrome: TopBar, NavRail, StatusBar, dialogs
 ├── views/        # one file per navigation destination (Enhance/Batch/History)
-├── components/   # pre-Stage-02 pieces (StatusDot) — migrate into ui/ when touched
+├── components/   # workspace pieces: ImageWorkspace, CompareSplit,
+│                 # CrossfadeImage (+ pre-Stage-02 StatusDot)
 └── types/        # IPC payload types shared across the native boundary
 ```
 
@@ -146,14 +181,16 @@ Design-system rules for future stages:
 ```
 ├── src/                  # React frontend
 │   ├── ipc/              # typed bridge to native commands (sole invoke caller)
-│   ├── state/            # reducer + context, bootstrap/import/drag-drop hooks
+│   ├── state/            # reducer + context, bootstrap/import/drag-drop hooks,
+│   │                     # imageSources cache
+│   ├── hooks/            # DOM helpers (useElementSize)
 │   ├── ui/               # design system primitives
 │   ├── shell/            # desktop chrome (top bar, nav rail, status bar, dialogs,
 │   │                     # drop overlay)
 │   ├── views/            # Enhance / Batch / History
-│   ├── lib/              # pure display helpers (formatBytes, …)
+│   ├── lib/              # pure helpers — display formatting, viewer math
 │   ├── styles/           # design tokens + base styles + motion (light/dark)
-│   ├── components/       # reusable UI pieces (pre-Stage-02)
+│   ├── components/       # workspace pieces (ImageWorkspace, CompareSplit, …)
 │   ├── types/            # IPC payload types shared across the boundary
 │   └── test/             # integration-style component tests
 ├── src-tauri/            # Rust backend

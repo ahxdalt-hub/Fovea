@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { isAppErrorPayload, isImportOutcome, toAppError } from './ipc'
+import { isAppErrorPayload, isImageView, isImportOutcome, toAppError } from './ipc'
 
 describe('ipc error normalization', () => {
   it('recognizes the native AppError shape', () => {
@@ -55,5 +55,26 @@ describe('isImportOutcome', () => {
     expect(isImportOutcome({ status: 'imported' })).toBe(false)
     expect(isImportOutcome({ status: 'imported', image: { ...image, width: '800' } })).toBe(false)
     expect(isImportOutcome({ status: 'failed', name: 'x' })).toBe(false)
+  })
+})
+
+describe('isImageView (Stage 04)', () => {
+  const view = {
+    width: 4032,
+    height: 3024,
+    deliveredEdge: 2600,
+    original: false,
+    dataUrl: 'data:image/jpeg;base64,AAAA',
+  }
+
+  it('accepts a well-formed payload', () => {
+    expect(isImageView(view)).toBe(true)
+  })
+
+  it('rejects malformed payloads', () => {
+    expect(isImageView(null)).toBe(false)
+    expect(isImageView('view')).toBe(false)
+    expect(isImageView({ ...view, original: 'false' })).toBe(false)
+    expect(isImageView({ ...view, dataUrl: undefined })).toBe(false)
   })
 })

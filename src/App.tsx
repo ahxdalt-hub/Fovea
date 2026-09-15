@@ -10,6 +10,10 @@
  * hovering) and the native picker both run through useImport, which
  * validates files in Rust before they join the collection.
  *
+ * Stage 04 turns the Enhance view into the image workspace: a zoom/pan/fit
+ * canvas for the selected image with a compare slider wired for (not
+ * faking) the Stage 05 enhanced result.
+ *
  * Boundaries unchanged from Stage 01: React owns presentation, everything
  * native stays behind src/ipc/bridge.ts.
  */
@@ -20,6 +24,7 @@ import { useCoreBootstrap } from './state/useCoreBootstrap'
 import { useThemeSync } from './state/useThemeSync'
 import { useKeyboardShortcuts } from './state/useKeyboardShortcuts'
 import { useDevPreviewParams } from './state/useDevPreviewParams'
+import { useDevDemoImages } from './state/useDevDemoImages'
 import { useImport } from './state/useImport'
 import { useDragOver } from './state/useNativeFileDrop'
 import { persistTheme } from './state/appReducer'
@@ -41,6 +46,7 @@ export function Shell() {
   useCoreBootstrap()
   useThemeSync()
   useDevPreviewParams()
+  useDevDemoImages()
   const importApi = useImport()
   const { dragOver } = useDragOver(importApi.dropPaths)
 

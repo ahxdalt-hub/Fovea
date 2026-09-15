@@ -1,0 +1,227 @@
+/*
+ * Image workspace styling.
+ *
+ * The stage is the product: a sunken, calm backdrop (image content is
+ * always the loudest thing on screen) with floating chrome. Chrome uses
+ * the shell's surface/overlay tokens — no new colors, no hard-coded
+ * geometry beyond control sizes.
+ *
+ * Motion: chrome entries replay via pixora-rise/fade; fullscreen chrome
+ * fades out on pointer idle so inspection is never crowded. Zoom/pan are
+ * GPU compositing of the inline transform (no transition — direct
+ * manipulation must track the pointer exactly).
+ */
+
+.pix-ws {
+  position: relative;
+  display: flex;
+  flex: 1;
+  min-width: 0; /* grid child: never overflow the collection body */
+  min-height: 0;
+  border-radius: var(--radius-md);
+  overflow: hidden;
+}
+
+/* Fullscreen: the root itself fills the screen, radius off. */
+.pix-ws--fullscreen {
+  border-radius: 0;
+}
+
+.pix-ws__stage {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  /* The image floats in a neutral void — darker than the app surface in
+     both themes, like every pro viewer. */
+  background: var(--bg-sunken);
+  cursor: default;
+  touch-action: none; /* we own pan/zoom gestures */
+}
+
+.pix-ws__stage:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: -2px;
+}
+
+.pix-ws--panning .pix-ws__stage {
+  cursor: grabbing;
+}
+
+/* The transformed layer: sized in image-space px, anchored at the stage's
+   top-left; the inline transform positions AND centers it (the view math
+   returns centered offsets when the image is smaller than the stage). */
+.pix-ws__layer {
+  position: absolute;
+  top: 0;
+  left: 0;
+  transform-origin: 0 0;
+  outline: none;
+}
+
+/* The image fills its (natural-size) layer exactly. */
+.pix-ws__img {
+  position: absolute;
+  inset: 0;
+  background: repeating-conic-gradient(var(--bg-sunken) 0% 25%, var(--bg-raised) 0% 50%) 0 0 / 16px
+    16px;
+  border-radius: var(--radius-sm);
+}
+
+/* ── Chrome ─────────────────────────────────────────────────────────── */
+
+.pix-ws__chrome {
+  position: absolute;
+  z-index: 2;
+  transition:
+    opacity var(--duration-base) var(--ease-standard),
+    transform var(--duration-base) var(--ease-standard);
+}
+
+/* Idle-in-fullscreen: every overlay recedes; the image is the UI. */
+.pix-ws--idle .pix-ws__chrome {
+  opacity: 0;
+  pointer-events: none;
+}
+
+.pix-ws__info {
+  top: var(--space-3);
+  left: var(--space-3);
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  max-width: calc(100% - var(--space-6));
+  padding: 5px var(--space-3);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  background: color-mix(in srgb, var(--bg-surface) 88%, transparent);
+  backdrop-filter: blur(8px);
+  box-shadow: var(--shadow-sm);
+  font-size: var(--text-xs);
+  animation: pixora-fade var(--duration-base) var(--ease-standard) both;
+}
+
+.pix-ws__name {
+  min-width: 0;
+  max-width: 220px;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.pix-ws__meta {
+  color: var(--text-tertiary);
+  white-space: nowrap;
+}
+
+.pix-ws__busy {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  color: var(--text-secondary);
+  white-space: nowrap;
+}
+
+.pix-ws__enhanced {
+  padding: 1px var(--space-2);
+  border-radius: 999px;
+  background: var(--success-soft);
+  color: var(--success);
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.pix-ws__tr {
+  top: var(--space-3);
+  right: var(--space-3);
+  display: flex;
+  gap: var(--space-2);
+}
+
+.pix-ws__tr .pix-icon-button {
+  background: color-mix(in srgb, var(--bg-surface) 88%, transparent);
+  backdrop-filter: blur(8px);
+  box-shadow: var(--shadow-sm);
+}
+
+/* Bottom toolbar — one calm capsule, centered where thumbs rest. */
+.pix-ws__bar {
+  bottom: var(--space-4);
+  left: 50%;
+  translate: -50% 0;
+  animation: pixora-rise var(--duration-base) var(--ease-decelerate) both;
+}
+
+.pix-ws__toolbar {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 4px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-lg);
+  background: color-mix(in srgb, var(--bg-surface) 92%, transparent);
+  backdrop-filter: blur(10px);
+  box-shadow: var(--shadow-md);
+}
+
+.pix-ws__toolbar .pix-icon-button {
+  width: 32px;
+  height: 32px;
+}
+
+.pix-ws__zoom {
+  min-width: 52px;
+  padding: 4px var(--space-2);
+  border: none;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: var(--text-xs);
+  font-weight: 600;
+  text-align: center;
+  transition: background-color var(--duration-instant) var(--ease-standard);
+}
+
+.pix-ws__zoom:hover {
+  background: var(--bg-sunken);
+  color: var(--text-primary);
+}
+
+.pix-ws__sep {
+  width: 1px;
+  height: 20px;
+  margin: 0 4px;
+  background: var(--border-subtle);
+}
+
+/* Fullscreen controls: zoom readout + three buttons, floating pill. */
+.pix-ws__fsbar {
+  bottom: var(--space-5);
+  left: 50%;
+  translate: -50% 0;
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: 4px var(--space-3) 4px 4px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--bg-surface) 92%, transparent);
+  backdrop-filter: blur(10px);
+  box-shadow: var(--shadow-md);
+  animation: pixora-rise var(--duration-base) var(--ease-decelerate) both;
+}
+
+.pix-ws__fsreadout {
+  padding: 0 var(--space-2);
+  font-size: var(--text-xs);
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+
+.pix-ws__fsbuttons {
+  display: flex;
+  gap: 2px;
+}

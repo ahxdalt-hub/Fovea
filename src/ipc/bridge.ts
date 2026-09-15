@@ -7,7 +7,8 @@
  * (`{ code, message }`) — see `src/types/ipc.ts`.
  */
 import { invoke } from '@tauri-apps/api/core'
-import type { AppConfigDto, ImportOutcomeDto, SystemInfoDto } from '../types/ipc'
+import type { AppConfigDto, ImportOutcomeDto, ImageViewDto, SystemInfoDto } from '../types/ipc'
+import { isImageView } from '../types/ipc'
 import { previewInvoke, shouldUsePreviewBridge } from './previewBridge'
 
 /** Build configuration owned by the native side. */
@@ -48,4 +49,25 @@ export function pickImageFiles(): Promise<string[]> {
 export function importImages(paths: string[]): Promise<ImportOutcomeDto[]> {
   if (shouldUsePreviewBridge()) return previewInvoke('import_images') as Promise<ImportOutcomeDto[]>
   return invoke<ImportOutcomeDto[]>('import_images', { paths })
+}
+
+/**
+ * Load the display representation of an imported image (Stage 04).
+ * `maxEdge` caps the delivered longest edge; omit for the native default.
+ * Guarded at the boundary like every native payload.
+ */
+export async function loadImageView(imageId: string, maxEdge?: number): Promise<ImageViewDto> {
+  if (shouldUsePreviewBridge()) {
+    const raw = await previewInvoke('load_image_view')
+    if (isImageView(raw)) return raw
+    throw { code: 'unexpected_error', message: 'Image view is unavailable in browser preview.' }
+  }
+  const raw: unknown = await invoke('load_image_view', { imageId, maxEdge: maxEdge ?? null })
+  if (!isImageView(raw)) {
+    throw {
+      code: 'unexpected_error',
+      message: 'The application core returned an unexpected reply.',
+    }
+  }
+  return raw
 }

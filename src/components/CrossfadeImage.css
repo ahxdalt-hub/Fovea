@@ -1,0 +1,33 @@
+/*
+ * Crossfade image swap.
+ *
+ * The wrapper is positioned by the caller; both layers stack exactly.
+ * The entering layer fades in on the standard curve at base duration —
+ * short enough to feel instant, long enough to hide a decode pop.
+ * Reduced motion is neutralized globally (base.css).
+ */
+
+.pix-xfade {
+  position: relative;
+  display: inline-block;
+}
+
+.pix-xfade__layer {
+  display: block;
+  width: 100%;
+  height: 100%;
+  user-select: none;
+  -webkit-user-drag: none;
+}
+
+/* The old source stays underneath while the new one enters on top. */
+.pix-xfade__old {
+  position: absolute;
+  inset: 0;
+}
+
+.pix-xfade__current--enter {
+  position: absolute;
+  inset: 0;
+  animation: pixora-fade var(--duration-base) var(--ease-standard) both;
+}

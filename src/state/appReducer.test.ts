@@ -134,3 +134,78 @@ describe('appReducer — imported collection', () => {
     expect(themed.images).toHaveLength(1)
   })
 })
+
+describe('appReducer — workspace selection & enhancements (Stage 04)', () => {
+  const withImages = appReducer(
+    appReducer(initialState, {
+      type: 'core/ready',
+      config,
+      systemInfo,
+    }),
+    { type: 'images/add', images: [imported({ id: 'a' }), imported({ id: 'b' })] },
+  )
+
+  it('first import selects the first image automatically', () => {
+    expect(withImages.selectedImageId).toBe('a')
+  })
+
+  it('explicit selection moves the workspace focus', () => {
+    const next = appReducer(withImages, { type: 'images/select', id: 'b' })
+    expect(next.selectedImageId).toBe('b')
+  })
+
+  it('selecting a known image twice is a no-op in shape', () => {
+    const a = appReducer(withImages, { type: 'images/select', id: 'b' })
+    const same = appReducer(a, { type: 'images/select', id: 'b' })
+    expect(same.selectedImageId).toBe('b')
+  })
+
+  it('removing the selected image falls back to a surviving one', () => {
+    const removed = appReducer(withImages, { type: 'images/remove', id: 'a' })
+    expect(removed.selectedImageId).toBe('b')
+    expect(removed.images.map((i) => i.id)).toEqual(['b'])
+  })
+
+  it('removing the last image clears the selection', () => {
+    const single = appReducer(initialState, { type: 'images/add', images: [imported({ id: 'a' })] })
+    const cleared = appReducer(single, { type: 'images/clear' })
+    expect(cleared.selectedImageId).toBeNull()
+    expect(cleared.enhancements).toEqual({})
+  })
+
+  it('stores an enhancement keyed by image id (Stage 05 contract)', () => {
+    const result = {
+      imageId: 'a',
+      dataUrl: 'data:image/png;base64,AA',
+      width: 3840,
+      height: 2160,
+      label: '4× · Standard',
+    }
+    const next = appReducer(withImages, { type: 'enhancements/set', enhancement: result })
+    expect(next.enhancements['a']).toEqual(result)
+    // Re-running replaces, not duplicates.
+    const rerun = appReducer(next, {
+      type: 'enhancements/set',
+      enhancement: { ...result, label: '2× · Standard' },
+    })
+    expect(Object.keys(rerun.enhancements)).toEqual(['a'])
+    expect(rerun.enhancements['a']?.label).toBe('2× · Standard')
+  })
+
+  it('removing an image drops its enhancement; clearing wipes all', () => {
+    const withResult = appReducer(withImages, {
+      type: 'enhancements/set',
+      enhancement: {
+        imageId: 'a',
+        dataUrl: 'data:image/png;base64,AA',
+        width: 1,
+        height: 1,
+        label: 'x',
+      },
+    })
+    const removed = appReducer(withResult, { type: 'images/remove', id: 'a' })
+    expect(removed.enhancements['a']).toBeUndefined()
+    const clearedAll = appReducer(withResult, { type: 'enhancements/clear' })
+    expect(clearedAll.enhancements).toEqual({})
+  })
+})
