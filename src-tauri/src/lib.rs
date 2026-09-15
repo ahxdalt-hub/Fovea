@@ -29,10 +29,16 @@ pub fn run() {
                 })
                 .build(),
         )
+        // Native dialogs are owned by the Rust side: the UI asks our
+        // command to open a picker and receives paths back. The webview
+        // itself is never granted dialog or filesystem permissions.
+        .plugin(tauri_plugin_dialog::init())
         .invoke_handler(tauri::generate_handler![
             commands::app::get_config,
             commands::app::get_system_info,
-            commands::app::write_frontend_log
+            commands::app::write_frontend_log,
+            commands::import::pick_image_files,
+            commands::import::import_images
         ])
         .setup(|app| {
             let cfg = config::AppConfig::from_build();

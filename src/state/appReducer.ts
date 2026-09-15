@@ -5,7 +5,7 @@
  * enough for startup status and shell UI state. The shape here (typed
  * actions, single pure reducer) is what later feature stores will follow.
  */
-import type { AppConfigDto, AppErrorPayload, SystemInfoDto } from '../types/ipc'
+import type { AppConfigDto, AppErrorPayload, ImportedImageDto, SystemInfoDto } from '../types/ipc'
 
 /** Native connection lifecycle. */
 export type CoreStatus = 'connecting' | 'ready' | 'error'
@@ -30,6 +30,14 @@ export interface AppState {
   systemInfo: SystemInfoDto | null
   /** Last error surfaced from the native layer, already user-safe. */
   error: AppErrorPayload | null
+  /**
+   * The imported-image collection (Stage 03 foundation). Ordered by
+   * first import; deduplicated by canonical path id. Stage 08's batch
+   * queue consumes this list.
+   */
+  images: ImportedImageDto[]
+  /** An import batch is in flight (native validation running). */
+  importing: boolean
   ui: UiState
 }
 
@@ -41,12 +49,19 @@ export type AppAction =
   | { type: 'ui/setTheme'; theme: ThemePreference }
   | { type: 'ui/retryCore' }
   | { type: 'ui/settings'; open: boolean }
+  | { type: 'import/start' }
+  | { type: 'import/end' }
+  | { type: 'images/add'; images: ImportedImageDto[] }
+  | { type: 'images/remove'; id: string }
+  | { type: 'images/clear' }
 
 export const initialState: AppState = {
   coreStatus: 'connecting',
   config: null,
   systemInfo: null,
   error: null,
+  images: [],
+  importing: false,
   ui: {
     view: 'enhance',
     theme: readStoredTheme(),
@@ -98,5 +113,21 @@ export function appReducer(state: AppState, action: AppAction): AppState {
     case 'ui/retryCore':
       // Re-enter connecting so the bootstrap effect re-runs.
       return { ...state, coreStatus: 'connecting', error: null }
+    case 'import/start':
+      return { ...state, importing: true }
+    case 'import/end':
+      return { ...state, importing: false }
+    case 'images/add': {
+      // Dedup by canonical id: re-importing a file refreshes nothing —
+      // the first import stands. The collection keeps insertion order.
+      const known = new Set(state.images.map((img) => img.id))
+      const fresh = action.images.filter((img) => !known.has(img.id))
+      if (fresh.length === 0) return state
+      return { ...state, images: [...state.images, ...fresh] }
+    }
+    case 'images/remove':
+      return { ...state, images: state.images.filter((img) => img.id !== action.id) }
+    case 'images/clear':
+      return { ...state, images: [] }
   }
 }

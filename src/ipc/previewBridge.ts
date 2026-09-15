@@ -37,6 +37,13 @@ export function previewInvoke(cmd: string): Promise<unknown> {
       return Promise.resolve(config)
     case 'get_system_info':
       return Promise.resolve(systemInfo)
+    // Import has no meaning in the browser preview: the picker behaves
+    // like a cancel (empty list) and imports return no outcomes. The real
+    // validation pipeline exists only in the native build.
+    case 'pick_image_files':
+      return Promise.resolve([])
+    case 'import_images':
+      return Promise.resolve([])
     default:
       return Promise.resolve(null)
   }

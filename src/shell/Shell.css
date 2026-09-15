@@ -8,6 +8,7 @@
  */
 
 .pixora-shell {
+  position: relative; /* containing block for the drop overlay */
   display: grid;
   grid-template-rows: var(--topbar-height) 1fr var(--statusbar-height);
   height: 100%;

@@ -21,6 +21,14 @@ export function ShortcutsDialog({ open, onClose }: { open: boolean; onClose: () 
     >
       <dl className="pixora-shortcuts">
         <div className="pixora-shortcuts__row">
+          <dt>Import images</dt>
+          <dd>
+            <kbd>Ctrl</kbd>
+            <span className="pixora-shortcuts__plus">+</span>
+            <kbd>O</kbd>
+          </dd>
+        </div>
+        <div className="pixora-shortcuts__row">
           <dt>Switch to Enhance</dt>
           <dd>
             <kbd>1</kbd>

@@ -1,0 +1,60 @@
+/*
+ * Drop overlay styling.
+ *
+ * The backdrop recedes the shell (--overlay already matches dialogs);
+ * the accent inset frame is the drop target. The scale entry is a
+ * 1.5% settle on the decelerate curve — visible, restrained, and
+ * neutralized globally under reduced motion.
+ */
+
+.pixora-drop-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: var(--z-dropzone);
+  display: grid;
+  place-items: center;
+  background: var(--overlay);
+  pointer-events: none;
+  animation: pixora-drop-in var(--duration-fast) var(--ease-decelerate) both;
+}
+
+@keyframes pixora-drop-in {
+  from {
+    opacity: 0;
+    transform: scale(1.015);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.pixora-drop-overlay__frame {
+  position: absolute;
+  inset: var(--space-3);
+  border: 2px dashed var(--accent);
+  border-radius: var(--radius-lg);
+}
+
+.pixora-drop-overlay__hint {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-5) var(--space-7);
+  border-radius: var(--radius-lg);
+  background: var(--bg-surface);
+  box-shadow: var(--shadow-lg);
+}
+
+.pixora-drop-overlay__title {
+  font-family: var(--font-display);
+  font-size: var(--text-lg);
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.pixora-drop-overlay__detail {
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+}

@@ -3,12 +3,39 @@
 Premium Windows-first desktop app for local AI image enhancement and upscaling.
 Your images are processed on your own machine and never uploaded.
 
-**Current status:** Stage 02 — desktop shell + design system. The application
-shell (top bar, navigation rail, workspace, status bar), the reusable UI kit
-(`src/ui`), the motion system, theme handling, and settings/shortcuts/about
-dialogs are in place. Image import, the enhancement engine, batch work, and
-licensing arrive in later stages; the import action is deliberately disabled
-until the native pipeline exists.
+**Current status:** Stage 03 — file system + image import. The Enhance
+workspace now accepts real files: native drag & drop (whole-window overlay,
+validated in Rust) and a native image-filtered file picker import JPG, PNG,
+and WebP into an ordered, deduplicated collection with per-file error
+feedback and a local preview + metadata inspector. The enhancement engine,
+batch queue, and licensing arrive in later stages.
+
+## Image import pipeline (Stage 03)
+
+```
+Drag onto window (Tauri core event — webview gets no filesystem permission)
+or Choose files (dialog opens on the Rust side; the webview has no dialog ACL)
+  ↓ paths
+import_images command → services/import.rs validation ladder:
+  extension → existence/read → size caps (200 MB file · 64 MP pixels,
+  checked before decode) → content sniff must match the extension →
+  decode → canonical path
+  ↓ per-file outcomes (one bad file never blocks the batch)
+ImportedImage { id, name, format, width, height, sizeBytes, previewDataUrl }
+  ↓ reducer (dedup by canonical id)
+Enhance workspace: thumbnail rail + inspector
+```
+
+- All decoding and previews happen on this machine; images and metadata are
+  never uploaded or logged.
+- Supported formats are declared in exactly two places: `image` crate
+  features in `Cargo.toml` and `FormatHint::from_extension` in
+  `services/import.rs`. Adding a format means touching those and nothing
+  else.
+- Error messages are user-safe (`file_missing`, `unsupported_format`,
+  `invalid_image`, `file_too_large`, …); internal detail goes to the log.
+- Stage 08's batch queue builds on `state.images` — the ordered imported
+  collection in `appReducer`.
 
 ## Stack
 
@@ -119,19 +146,22 @@ Design-system rules for future stages:
 ```
 ├── src/                  # React frontend
 │   ├── ipc/              # typed bridge to native commands (sole invoke caller)
-│   ├── state/            # reducer + context, bootstrap hook
+│   ├── state/            # reducer + context, bootstrap/import/drag-drop hooks
 │   ├── ui/               # design system primitives
-│   ├── shell/            # desktop chrome (top bar, nav rail, status bar, dialogs)
+│   ├── shell/            # desktop chrome (top bar, nav rail, status bar, dialogs,
+│   │                     # drop overlay)
 │   ├── views/            # Enhance / Batch / History
+│   ├── lib/              # pure display helpers (formatBytes, …)
 │   ├── styles/           # design tokens + base styles + motion (light/dark)
 │   ├── components/       # reusable UI pieces (pre-Stage-02)
 │   ├── types/            # IPC payload types shared across the boundary
 │   └── test/             # integration-style component tests
 ├── src-tauri/            # Rust backend
 │   ├── src/commands/     # thin Tauri command layer
-│   ├── src/services/     # native logic (system info today; image/inference later)
+│   ├── src/services/     # native logic (system info, image import; inference later)
 │   ├── src/error.rs      # AppError — the safe boundary error type
 │   ├── src/config.rs     # build-sourced app configuration
+│   ├── examples/         # manual-QA fixture generators (import_fixtures)
 │   ├── capabilities/     # least-privilege webview permissions
 │   └── tauri.conf.json   # window, CSP, bundling
 └── assets/               # source assets (app icon master SVG)

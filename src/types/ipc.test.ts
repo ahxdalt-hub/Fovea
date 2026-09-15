@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { isAppErrorPayload, toAppError } from './ipc'
+import { isAppErrorPayload, isImportOutcome, toAppError } from './ipc'
 
 describe('ipc error normalization', () => {
   it('recognizes the native AppError shape', () => {
@@ -20,5 +20,40 @@ describe('ipc error normalization', () => {
     expect(fromString.code).toBe('unexpected_error')
     expect(fromString.message).not.toContain('secret')
     expect(toAppError(undefined).code).toBe('unexpected_error')
+  })
+})
+
+describe('isImportOutcome', () => {
+  const image = {
+    id: 'C:\\Photos\\a.png',
+    name: 'a.png',
+    format: 'PNG',
+    width: 800,
+    height: 600,
+    sizeBytes: 12345,
+    previewDataUrl: 'data:image/png;base64,AAAA',
+  }
+
+  it('accepts a well-formed imported outcome', () => {
+    expect(isImportOutcome({ status: 'imported', image })).toBe(true)
+  })
+
+  it('accepts a well-formed failed outcome', () => {
+    expect(
+      isImportOutcome({
+        status: 'failed',
+        name: 'x.txt',
+        error: { code: 'unsupported_format', message: 'nope' },
+      }),
+    ).toBe(true)
+  })
+
+  it('rejects malformed payloads', () => {
+    expect(isImportOutcome(null)).toBe(false)
+    expect(isImportOutcome('imported')).toBe(false)
+    expect(isImportOutcome({ status: 'weird' })).toBe(false)
+    expect(isImportOutcome({ status: 'imported' })).toBe(false)
+    expect(isImportOutcome({ status: 'imported', image: { ...image, width: '800' } })).toBe(false)
+    expect(isImportOutcome({ status: 'failed', name: 'x' })).toBe(false)
   })
 })

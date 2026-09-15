@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { appReducer, initialState } from './appReducer'
-import type { AppConfigDto, AppErrorPayload, SystemInfoDto } from '../types/ipc'
+import type { AppConfigDto, AppErrorPayload, ImportedImageDto, SystemInfoDto } from '../types/ipc'
 
 const config: AppConfigDto = {
   productName: 'Test App',
@@ -69,5 +69,68 @@ describe('appReducer', () => {
     const retried = appReducer(failed, { type: 'ui/retryCore' })
     expect(retried.coreStatus).toBe('connecting')
     expect(retried.error).toBeNull()
+  })
+})
+
+function imported(overrides: Partial<ImportedImageDto> & { id: string }): ImportedImageDto {
+  return {
+    name: `${overrides.id}.png`,
+    format: 'PNG',
+    width: 800,
+    height: 600,
+    sizeBytes: 120_000,
+    previewDataUrl: 'data:image/png;base64,AAAA',
+    ...overrides,
+  }
+}
+
+describe('appReducer — imported collection', () => {
+  const ready = appReducer(initialState, { type: 'core/ready', config, systemInfo })
+
+  it('adds images preserving order', () => {
+    const next = appReducer(ready, {
+      type: 'images/add',
+      images: [imported({ id: 'a' }), imported({ id: 'b' })],
+    })
+    expect(next.images.map((i) => i.id)).toEqual(['a', 'b'])
+  })
+
+  it('deduplicates by canonical id on re-import', () => {
+    const once = appReducer(ready, { type: 'images/add', images: [imported({ id: 'a' })] })
+    const twice = appReducer(once, {
+      type: 'images/add',
+      images: [imported({ id: 'a' }), imported({ id: 'c' })],
+    })
+    expect(twice.images.map((i) => i.id)).toEqual(['a', 'c'])
+    // Re-importing known files returns the identical state object.
+    const again = appReducer(twice, { type: 'images/add', images: [imported({ id: 'c' })] })
+    expect(again).toBe(twice)
+  })
+
+  it('tracks the importing flag without touching the collection', () => {
+    const started = appReducer(ready, { type: 'import/start' })
+    expect(started.importing).toBe(true)
+    expect(started.images).toEqual(ready.images)
+    const ended = appReducer(started, { type: 'import/end' })
+    expect(ended.importing).toBe(false)
+  })
+
+  it('removes one image by id and clears the rest', () => {
+    const filled = appReducer(ready, {
+      type: 'images/add',
+      images: [imported({ id: 'a' }), imported({ id: 'b' })],
+    })
+    const removed = appReducer(filled, { type: 'images/remove', id: 'a' })
+    expect(removed.images.map((i) => i.id)).toEqual(['b'])
+    const cleared = appReducer(removed, { type: 'images/clear' })
+    expect(cleared.images).toEqual([])
+  })
+
+  it('collection survives navigation and theme changes', () => {
+    const filled = appReducer(ready, { type: 'images/add', images: [imported({ id: 'a' })] })
+    const moved = appReducer(filled, { type: 'ui/navigate', view: 'batch' })
+    expect(moved.images).toHaveLength(1)
+    const themed = appReducer(moved, { type: 'ui/setTheme', theme: 'dark' })
+    expect(themed.images).toHaveLength(1)
   })
 })

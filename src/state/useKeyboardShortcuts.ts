@@ -25,6 +25,8 @@ export interface ShortcutHandlers {
   onNavigate: (view: ViewId) => void
   onOpenSettings: () => void
   onToggleShortcuts: () => void
+  /** Ctrl+O — open the native import dialog. */
+  onOpenImport: () => void
 }
 
 export function useKeyboardShortcuts({
@@ -32,6 +34,7 @@ export function useKeyboardShortcuts({
   onNavigate,
   onOpenSettings,
   onToggleShortcuts,
+  onOpenImport,
 }: ShortcutHandlers) {
   useEffect(() => {
     if (!enabled) return
@@ -47,6 +50,11 @@ export function useKeyboardShortcuts({
         onOpenSettings()
         return
       }
+      if (event.ctrlKey && !event.shiftKey && !event.altKey && event.key.toLowerCase() === 'o') {
+        event.preventDefault()
+        onOpenImport()
+        return
+      }
       if (event.ctrlKey || event.metaKey || event.altKey) return
       if (event.key === '1') onNavigate('enhance')
       else if (event.key === '2') onNavigate('batch')
@@ -55,5 +63,5 @@ export function useKeyboardShortcuts({
 
     window.addEventListener('keydown', onKeyDown)
     return () => window.removeEventListener('keydown', onKeyDown)
-  }, [enabled, onNavigate, onOpenSettings, onToggleShortcuts])
+  }, [enabled, onNavigate, onOpenSettings, onToggleShortcuts, onOpenImport])
 }

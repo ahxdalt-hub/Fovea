@@ -19,6 +19,10 @@ pub type AppResult<T> = Result<T, AppError>;
 /// stages (image validation, processing). The full error vocabulary is
 /// part of this foundation and is tested here, so dead-code analysis is
 /// intentionally relaxed for this module.
+/// Several variants are constructed by services that arrive in later
+/// stages (processing, resources). The full error vocabulary is
+/// part of this foundation and is tested here, so dead-code analysis is
+/// intentionally relaxed for this module.
 #[allow(dead_code, reason = "variants are reserved for later-stage services")]
 #[derive(Debug, Clone)]
 pub enum AppError {
@@ -32,6 +36,10 @@ pub enum AppError {
     InsufficientResources { detail: String },
     /// The OS denied a file or hardware operation.
     PermissionDenied { detail: String },
+    /// The file existed when shown to the user but is gone now.
+    FileMissing { detail: String },
+    /// The file or its decoded size exceeds an import safety limit.
+    FileTooLarge { detail: String },
     /// Anything that did not fit the expected failure categories.
     Unexpected { detail: String },
 }
@@ -45,6 +53,8 @@ impl AppError {
             AppError::ProcessingFailed { .. } => "processing_failed",
             AppError::InsufficientResources { .. } => "insufficient_resources",
             AppError::PermissionDenied { .. } => "permission_denied",
+            AppError::FileMissing { .. } => "file_missing",
+            AppError::FileTooLarge { .. } => "file_too_large",
             AppError::Unexpected { .. } => "unexpected_error",
         }
     }
@@ -52,9 +62,11 @@ impl AppError {
     /// User-facing message. Calm, specific enough to act on, never technical.
     pub fn user_message(&self) -> &'static str {
         match self {
-            AppError::InvalidImage { .. } => "The selected file could not be read as an image.",
+            AppError::InvalidImage { .. } => {
+                "That file doesn't look like a valid image. It may be damaged or incomplete."
+            }
             AppError::UnsupportedFormat { .. } => {
-                "This image format is not supported yet. Try PNG or JPEG."
+                "This file type isn't supported yet. Try a JPG, PNG, or WebP image."
             }
             AppError::ProcessingFailed { .. } => {
                 "Processing failed. Try again, and check the application log for details."
@@ -63,7 +75,13 @@ impl AppError {
                 "Not enough system resources are available to complete this operation."
             }
             AppError::PermissionDenied { .. } => {
-                "Access to the requested location was denied by Windows."
+                "Windows won't let Pixora open that file. Check its location and permissions."
+            }
+            AppError::FileMissing { .. } => {
+                "That file is no longer where it was. It may have been moved or deleted."
+            }
+            AppError::FileTooLarge { .. } => {
+                "That image is too large to import. Pixora supports images up to 64 megapixels."
             }
             AppError::Unexpected { .. } => "Something went wrong. The application log may help.",
         }
@@ -99,6 +117,8 @@ fn other_detail(err: &AppError) -> &str {
         | AppError::ProcessingFailed { detail }
         | AppError::InsufficientResources { detail }
         | AppError::PermissionDenied { detail }
+        | AppError::FileMissing { detail }
+        | AppError::FileTooLarge { detail }
         | AppError::Unexpected { detail } => detail,
     }
 }
@@ -152,7 +172,7 @@ mod tests {
         assert_eq!(json["code"], "unsupported_format");
         assert_eq!(
             json["message"],
-            "This image format is not supported yet. Try PNG or JPEG."
+            "This file type isn't supported yet. Try a JPG, PNG, or WebP image."
         );
         // Internal detail must never cross the boundary.
         let serialized = json.to_string();

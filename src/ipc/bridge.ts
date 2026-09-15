@@ -7,7 +7,7 @@
  * (`{ code, message }`) — see `src/types/ipc.ts`.
  */
 import { invoke } from '@tauri-apps/api/core'
-import type { AppConfigDto, SystemInfoDto } from '../types/ipc'
+import type { AppConfigDto, ImportOutcomeDto, SystemInfoDto } from '../types/ipc'
 import { previewInvoke, shouldUsePreviewBridge } from './previewBridge'
 
 /** Build configuration owned by the native side. */
@@ -28,4 +28,24 @@ export function writeFrontendLog(level: 'debug' | 'info' | 'warn' | 'error', mes
   void invoke('write_frontend_log', { level, message }).catch(() => {
     // Log relay failing must never break the UI or loop.
   })
+}
+
+/**
+ * Open the native, image-filtered file picker. Returns chosen paths
+ * (empty on cancel). The dialog itself lives on the Rust side, so the
+ * webview needs no dialog or filesystem permission.
+ */
+export function pickImageFiles(): Promise<string[]> {
+  if (shouldUsePreviewBridge()) return previewInvoke('pick_image_files') as Promise<string[]>
+  return invoke<string[]>('pick_image_files')
+}
+
+/**
+ * Validate and import a batch of paths. Each file reports its own outcome;
+ * the call itself only rejects on a whole-batch failure (e.g. the core is
+ * unreachable).
+ */
+export function importImages(paths: string[]): Promise<ImportOutcomeDto[]> {
+  if (shouldUsePreviewBridge()) return previewInvoke('import_images') as Promise<ImportOutcomeDto[]>
+  return invoke<ImportOutcomeDto[]>('import_images', { paths })
 }

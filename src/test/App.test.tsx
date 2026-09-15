@@ -63,10 +63,11 @@ describe('Pixora shell', () => {
 
     expect(await screen.findByText(/core connected/i)).toBeInTheDocument()
     expect(
-      screen.getByRole('heading', { name: /your images, enhanced on your machine/i }),
+      screen.getByRole('heading', { name: /drop an image anywhere to begin/i }),
     ).toBeInTheDocument()
-    // Import is honestly disabled until Stage 03 wires file picking.
-    expect(screen.getByRole('button', { name: /import image/i })).toBeDisabled()
+    // In a non-Tauri runtime (jsdom) there is no native core, so the
+    // picker is honestly disabled — no faked imports.
+    expect(screen.getByRole('button', { name: /choose files/i })).toBeDisabled()
     // The privacy promise is visible without opening settings.
     expect(screen.getByText(/never leave this computer/i)).toBeInTheDocument()
     expect(screen.getByText(/windows · x86_64/i)).toBeInTheDocument()
@@ -85,7 +86,7 @@ describe('Pixora shell', () => {
     expect(screen.getByRole('button', { name: /open enhance/i })).toBeInTheDocument()
 
     fireEvent.click(navButton('Enhance'))
-    expect(screen.getByRole('button', { name: /import image/i })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /choose files/i })).toBeInTheDocument()
   })
 
   it('switches views with keyboard shortcuts 1/2/3', async () => {
@@ -96,7 +97,7 @@ describe('Pixora shell', () => {
     fireEvent.keyDown(window, { key: '2' })
     expect(screen.getByRole('heading', { level: 1, name: 'Batch' })).toBeInTheDocument()
     fireEvent.keyDown(window, { key: '1' })
-    expect(screen.getByRole('button', { name: /import image/i })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /choose files/i })).toBeInTheDocument()
   })
 
   it('opens settings with Ctrl+comma and toggles theme', async () => {

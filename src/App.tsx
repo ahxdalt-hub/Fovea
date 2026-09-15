@@ -6,6 +6,10 @@
  * (no router library — three views do not earn one). Core bootstrap status is
  * shown honestly: connecting → loading, error → retry surface, ready → views.
  *
+ * Stage 03 adds the import funnel: native file drag & drop (overlay while
+ * hovering) and the native picker both run through useImport, which
+ * validates files in Rust before they join the collection.
+ *
  * Boundaries unchanged from Stage 01: React owns presentation, everything
  * native stays behind src/ipc/bridge.ts.
  */
@@ -16,6 +20,8 @@ import { useCoreBootstrap } from './state/useCoreBootstrap'
 import { useThemeSync } from './state/useThemeSync'
 import { useKeyboardShortcuts } from './state/useKeyboardShortcuts'
 import { useDevPreviewParams } from './state/useDevPreviewParams'
+import { useImport } from './state/useImport'
+import { useDragOver } from './state/useNativeFileDrop'
 import { persistTheme } from './state/appReducer'
 import { NotificationProvider } from './ui/Notifications'
 import { ErrorState, LoadingState } from './ui/States'
@@ -24,6 +30,7 @@ import { TopBar } from './shell/TopBar'
 import { StatusBar } from './shell/StatusBar'
 import { SettingsDialog } from './shell/SettingsDialog'
 import { AboutDialog, ShortcutsDialog } from './shell/InfoDialogs'
+import { DropOverlay } from './shell/DropOverlay'
 import { EnhanceView } from './views/EnhanceView'
 import { BatchView } from './views/BatchView'
 import { HistoryView } from './views/HistoryView'
@@ -34,6 +41,8 @@ export function Shell() {
   useCoreBootstrap()
   useThemeSync()
   useDevPreviewParams()
+  const importApi = useImport()
+  const { dragOver } = useDragOver(importApi.dropPaths)
 
   const [shortcutsOpen, setShortcutsOpen] = useState(false)
   const [aboutOpen, setAboutOpen] = useState(false)
@@ -51,6 +60,7 @@ export function Shell() {
     [dispatch],
   )
   const toggleShortcuts = useCallback(() => setShortcutsOpen((v) => !v), [])
+  const openImport = useCallback(() => void importApi.browse(), [importApi])
 
   const anyDialogOpen = state.ui.settingsOpen || shortcutsOpen || aboutOpen
 
@@ -59,6 +69,7 @@ export function Shell() {
     onNavigate: navigate,
     onOpenSettings: openSettings,
     onToggleShortcuts: toggleShortcuts,
+    onOpenImport: openImport,
   })
 
   function renderWorkspace() {
@@ -87,12 +98,13 @@ export function Shell() {
       case 'history':
         return <HistoryView onGoToEnhance={() => navigate('enhance')} />
       default:
-        return <EnhanceView />
+        return <EnhanceView importApi={importApi} images={state.images} />
     }
   }
 
   return (
     <div className="pixora-shell">
+      {dragOver && <DropOverlay />}
       <TopBar
         onOpenSettings={openSettings}
         onOpenShortcuts={() => setShortcutsOpen(true)}

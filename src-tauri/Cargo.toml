@@ -20,6 +20,11 @@ log = "0.4"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 thiserror = "2"
+tauri-plugin-dialog = "2"
+# Only the Stage 03 codecs — no default feature set. New formats are added
+# here (plus the Format mapping in services/import.rs), nowhere else.
+image = { version = "0.25", default-features = false, features = ["jpeg", "png", "webp"] }
+base64 = "0.22"
 
 # Release profile tuned for a small, fast native binary.
 [profile.release]
