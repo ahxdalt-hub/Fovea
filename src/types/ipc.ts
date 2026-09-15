@@ -33,6 +33,10 @@ export interface AppErrorPayload {
     | 'permission_denied'
     | 'file_missing'
     | 'file_too_large'
+    | 'engine_unavailable'
+    | 'model_missing'
+    | 'model_corrupt'
+    | 'cancelled'
     | 'unexpected_error'
   message: string
 }
@@ -146,14 +150,13 @@ export function isImageView(value: unknown): value is ImageViewDto {
 }
 
 /**
- * ── Stage 04 contract for Stage 05: enhancement results ─────────────
+ * ── Stage 04 contract, fulfilled by Stage 05: enhancement results ───
  */
 
 /**
- * The enhanced counterpart of one imported image. Stage 04 defines this
- * shape and wires it through state and the comparison UI, but nothing
- * produces it yet — it arrives when the AI engine lands in Stage 05.
- * The UI must treat `null`/absent as the honest normal state, never a
+ * The enhanced counterpart of one imported image. Stage 04 defined the
+ * shape; Stage 05's engine produces it via `enhance_image`. The UI must
+ * still treat `null`/absent as the honest normal state, never a
  * placeholder image.
  */
 export interface ImageEnhancementDto {
@@ -168,4 +171,112 @@ export interface ImageEnhancementDto {
   label: string
   /** Dev-QA fixtures only; real engine output never sets this. */
   dev?: boolean
+}
+
+/**
+ * ── Stage 05: local AI inference ─────────────────────────────────────
+ */
+
+/** Serialized `EnhanceResult` from Rust (the `enhance_image` reply). */
+export interface EnhanceResultDto {
+  /** The imported image's canonical id this result belongs to. */
+  imageId: string
+  /** Pixora's committed output file path (export stage consumes it). */
+  filePath: string
+  width: number
+  height: number
+  /** e.g. "4× · Real-ESRGAN general". */
+  label: string
+  /** Engine device: "DirectML GPU" | "CPU". */
+  engine: string
+  /** Display-size data URL for the compare view. */
+  dataUrl: string
+}
+
+/**
+ * Serialized `EnhanceEvent` — the progress stream from the native job.
+ * `preparing` carries the server-generated job id (the cancel handle);
+ * `processing.done/total` are completed tiles: a real measurement,
+ * never an invented percentage.
+ */
+export type EnhanceEventDto =
+  | { phase: 'preparing'; jobId: string }
+  | { phase: 'processing'; done: number; total: number }
+  | { phase: 'completing' }
+  | { phase: 'completed' }
+  | { phase: 'failed'; code: string; message: string }
+  | { phase: 'cancelled' }
+
+/** Runtime guard for the native progress stream. */
+export function isEnhanceEvent(value: unknown): value is EnhanceEventDto {
+  if (typeof value !== 'object' || value === null) return false
+  const v = value as Record<string, unknown>
+  switch (v.phase) {
+    case 'preparing':
+      return typeof v.jobId === 'string'
+    case 'completing':
+    case 'completed':
+    case 'cancelled':
+      return true
+    case 'processing':
+      return typeof v.done === 'number' && typeof v.total === 'number'
+    case 'failed':
+      return typeof v.code === 'string' && typeof v.message === 'string'
+    default:
+      return false
+  }
+}
+
+/** Runtime guard for the enhance result payload. */
+export function isEnhanceResult(value: unknown): value is EnhanceResultDto {
+  if (typeof value !== 'object' || value === null) return false
+  const v = value as Record<string, unknown>
+  return (
+    typeof v.imageId === 'string' &&
+    typeof v.filePath === 'string' &&
+    typeof v.width === 'number' &&
+    typeof v.height === 'number' &&
+    typeof v.label === 'string' &&
+    typeof v.engine === 'string' &&
+    typeof v.dataUrl === 'string'
+  )
+}
+
+/** One model's state, per `ModelStatus` in Rust. */
+export interface ModelStatusDto {
+  id: string
+  label: string
+  scale: number
+  /** "ready" | "missing" | "corrupt" */
+  state: string
+}
+
+/** Serialized `InferenceStatus` from Rust — engine readiness. */
+export interface InferenceStatusDto {
+  /** "DirectML GPU" | "CPU" — informational only; the UI never branches. */
+  device: string
+  models: ModelStatusDto[]
+  /** True when at least one validated model is installed. */
+  ready: boolean
+  /** Where the user can drop model files (display only). */
+  modelsDirDisplay: string
+}
+
+/** Runtime guard for the inference status payload. */
+export function isInferenceStatus(value: unknown): value is InferenceStatusDto {
+  if (typeof value !== 'object' || value === null) return false
+  const v = value as Record<string, unknown>
+  return (
+    typeof v.device === 'string' &&
+    Array.isArray(v.models) &&
+    v.models.every(
+      (m) =>
+        typeof m === 'object' &&
+        m !== null &&
+        typeof (m as ModelStatusDto).id === 'string' &&
+        typeof (m as ModelStatusDto).state === 'string',
+    ) &&
+    typeof v.ready === 'boolean' &&
+    typeof v.modelsDirDisplay === 'string'
+  )
 }

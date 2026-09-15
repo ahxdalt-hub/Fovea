@@ -25,6 +25,20 @@ tauri-plugin-dialog = "2"
 # here (plus the Format mapping in services/import.rs), nowhere else.
 image = { version = "0.25", default-features = false, features = ["jpeg", "png", "webp"] }
 base64 = "0.22"
+# Stage 05 — local AI inference. `ort` wraps Microsoft's ONNX Runtime
+# (MIT-licensed runtime binary, downloaded + copied into the bundle at
+# build time). DirectML = GPU acceleration on any DirectX 12 adapter with
+# no CUDA dependency; CPU is the automatic fallback. `download-binaries`
+# and `copy-dylibs` only ever contact Microsoft's CDN at *build* time —
+# the finished app makes zero network calls. Telemetry is explicitly
+# disabled at init (see services/inference/backend.rs).
+ort = { version = "2.0.0-rc.13", default-features = false, features = ["std", "ndarray", "download-binaries", "tls-native", "copy-dylibs", "directml", "api-27"] }
+# Model integrity: SHA-256 verification in the model manager.
+sha2 = "0.10"
+# Streaming PNG output encoder (row-at-a-time, keeps peak memory bounded).
+# Same major the `image` crate already pulls — declared explicitly because
+# the encoder API lives here, not behind `image`.
+png = "0.18"
 
 # Release profile tuned for a small, fast native binary.
 [profile.release]

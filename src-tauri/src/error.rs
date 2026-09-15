@@ -40,6 +40,14 @@ pub enum AppError {
     FileMissing { detail: String },
     /// The file or its decoded size exceeds an import safety limit.
     FileTooLarge { detail: String },
+    /// The inference engine could not start (runtime init failure).
+    EngineUnavailable { detail: String },
+    /// A required enhancement model is not installed.
+    ModelMissing { detail: String },
+    /// A model file exists but failed validation (hash/size/structure).
+    ModelCorrupt { detail: String },
+    /// The user cancelled the operation. Carries no fault.
+    Cancelled { detail: String },
     /// Anything that did not fit the expected failure categories.
     Unexpected { detail: String },
 }
@@ -55,6 +63,10 @@ impl AppError {
             AppError::PermissionDenied { .. } => "permission_denied",
             AppError::FileMissing { .. } => "file_missing",
             AppError::FileTooLarge { .. } => "file_too_large",
+            AppError::EngineUnavailable { .. } => "engine_unavailable",
+            AppError::ModelMissing { .. } => "model_missing",
+            AppError::ModelCorrupt { .. } => "model_corrupt",
+            AppError::Cancelled { .. } => "cancelled",
             AppError::Unexpected { .. } => "unexpected_error",
         }
     }
@@ -83,6 +95,16 @@ impl AppError {
             AppError::FileTooLarge { .. } => {
                 "That image is too large to import. Pixora supports images up to 64 megapixels."
             }
+            AppError::EngineUnavailable { .. } => {
+                "The local AI engine couldn't start. Restart Pixora; if it persists, check the application log."
+            }
+            AppError::ModelMissing { .. } => {
+                "The enhancement model isn't installed yet. Place it in Pixora's models folder and try again."
+            }
+            AppError::ModelCorrupt { .. } => {
+                "The enhancement model file is damaged or incomplete. Re-download it into Pixora's models folder."
+            }
+            AppError::Cancelled { .. } => "Processing was cancelled.",
             AppError::Unexpected { .. } => "Something went wrong. The application log may help.",
         }
     }
@@ -119,6 +141,10 @@ fn other_detail(err: &AppError) -> &str {
         | AppError::PermissionDenied { detail }
         | AppError::FileMissing { detail }
         | AppError::FileTooLarge { detail }
+        | AppError::EngineUnavailable { detail }
+        | AppError::ModelMissing { detail }
+        | AppError::ModelCorrupt { detail }
+        | AppError::Cancelled { detail }
         | AppError::Unexpected { detail } => detail,
     }
 }

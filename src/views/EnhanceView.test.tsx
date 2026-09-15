@@ -12,6 +12,9 @@ import type { ImportOutcomeDto, ImportedImageDto } from '../types/ipc'
 const invoke = vi.fn()
 vi.mock('@tauri-apps/api/core', () => ({
   invoke: (cmd: string, args?: unknown) => invoke(cmd, args),
+  Channel: class {
+    onmessage: unknown = null
+  },
 }))
 
 import { EnhanceView } from '../views/EnhanceView'
@@ -19,6 +22,11 @@ import { AppStateProvider } from '../state/AppState'
 import { NotificationProvider } from '../ui/Notifications'
 import { useAppState } from '../state/useAppState'
 import { useImport, type ImportApi } from '../state/useImport'
+import type { EnhanceApi } from '../state/useEnhance'
+
+/** Stage 05: the view renders the enhance controls strip too; idle in
+ * jsdom (not the Tauri runtime), so a stub api keeps tests focused. */
+const enhanceApi: EnhanceApi = { run: async () => {}, cancel: async () => {}, dismiss: () => {} }
 
 function importedImage(overrides: Partial<ImportedImageDto> & { id: string }): ImportedImageDto {
   return {
@@ -44,7 +52,11 @@ describe('EnhanceView collection', () => {
 
   // The view reads selection from app state (Stage 04) — render in the
   // provider like the real shell does.
-  function renderView(props: { importApi: ImportApi; images: ImportedImageDto[] }) {
+  function renderView(props: {
+    importApi: ImportApi
+    enhanceApi: EnhanceApi
+    images: ImportedImageDto[]
+  }) {
     return render(
       <AppStateProvider>
         <EnhanceView {...props} />
@@ -53,7 +65,7 @@ describe('EnhanceView collection', () => {
   }
 
   it('shows the drop-zone empty state when the collection is empty', () => {
-    renderView({ importApi: api, images: [] })
+    renderView({ importApi: api, enhanceApi, images: [] })
     expect(screen.getByRole('heading', { name: /drop an image anywhere/i })).toBeInTheDocument()
     // jsdom is not the Tauri runtime: the picker is honestly disabled.
     expect(screen.getByRole('button', { name: /choose files/i })).toBeDisabled()
@@ -64,7 +76,7 @@ describe('EnhanceView collection', () => {
       importedImage({ id: 'a' }),
       importedImage({ id: 'b', name: 'beach.jpg', format: 'JPEG', width: 4032, height: 3024 }),
     ]
-    renderView({ importApi: api, images })
+    renderView({ importApi: api, enhanceApi, images })
     expect(screen.getByRole('list', { name: 'Imported images' })).toBeInTheDocument()
     // First image is selected by default; its verified metadata shows.
     expect(screen.getByRole('region', { name: /image workspace — a\.png/i })).toBeInTheDocument()
@@ -75,7 +87,7 @@ describe('EnhanceView collection', () => {
 
   it('switches the workspace to the clicked thumbnail', () => {
     const images = [importedImage({ id: 'a' }), importedImage({ id: 'b', name: 'beach.jpg' })]
-    renderView({ importApi: api, images })
+    renderView({ importApi: api, enhanceApi, images })
     fireEvent.click(screen.getByTitle('beach.jpg'))
     expect(
       screen.getByRole('region', { name: /image workspace — beach\.jpg/i }),
@@ -85,7 +97,7 @@ describe('EnhanceView collection', () => {
   it('remove buttons call through to the import api', () => {
     const removeImage = vi.fn()
     const images = [importedImage({ id: 'a' })]
-    renderView({ importApi: { ...api, removeImage }, images })
+    renderView({ importApi: { ...api, removeImage }, enhanceApi, images })
     fireEvent.click(screen.getByRole('button', { name: /remove a\.png/i }))
     expect(removeImage).toHaveBeenCalledWith('a')
   })
@@ -130,7 +142,7 @@ describe('useImport funnel', () => {
         <button type="button" onClick={() => void api.dropPaths(paths)}>
           simulate drop
         </button>
-        <EnhanceView importApi={api} images={state.images} />
+        <EnhanceView importApi={api} enhanceApi={enhanceApi} images={state.images} />
       </>
     )
   }

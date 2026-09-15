@@ -26,6 +26,7 @@ import { useKeyboardShortcuts } from './state/useKeyboardShortcuts'
 import { useDevPreviewParams } from './state/useDevPreviewParams'
 import { useDevDemoImages } from './state/useDevDemoImages'
 import { useImport } from './state/useImport'
+import { useEnhance } from './state/useEnhance'
 import { useDragOver } from './state/useNativeFileDrop'
 import { persistTheme } from './state/appReducer'
 import { NotificationProvider } from './ui/Notifications'
@@ -48,6 +49,7 @@ export function Shell() {
   useDevPreviewParams()
   useDevDemoImages()
   const importApi = useImport()
+  const enhanceApi = useEnhance()
   const { dragOver } = useDragOver(importApi.dropPaths)
 
   const [shortcutsOpen, setShortcutsOpen] = useState(false)
@@ -104,7 +106,7 @@ export function Shell() {
       case 'history':
         return <HistoryView onGoToEnhance={() => navigate('enhance')} />
       default:
-        return <EnhanceView importApi={importApi} images={state.images} />
+        return <EnhanceView importApi={importApi} enhanceApi={enhanceApi} images={state.images} />
     }
   }
 

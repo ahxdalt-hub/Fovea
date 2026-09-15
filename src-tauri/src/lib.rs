@@ -5,8 +5,36 @@ mod config;
 mod error;
 mod services;
 
+use std::path::PathBuf;
+use std::sync::Arc;
+
 use tauri::Manager;
 use tauri_plugin_log::{Target, TargetKind};
+
+use commands::inference::EngineState;
+use services::inference::{model::ModelRegistry, service};
+
+/// Resolve where model files may live, in priority order:
+/// 1. `PIXORA_MODELS_DIR` — explicit dev/QA override,
+/// 2. the bundled resource dir's `models/` (release),
+/// 3. `src-tauri/models` (dev builds — resource staging differs),
+/// 4. `<app_data>/models` — the user-installable drop location.
+fn model_search_dirs(app: &tauri::App) -> Vec<PathBuf> {
+    let mut dirs = Vec::new();
+    if let Ok(dir) = std::env::var("PIXORA_MODELS_DIR") {
+        dirs.push(PathBuf::from(dir));
+    }
+    if let Ok(resource) = app.path().resource_dir() {
+        dirs.push(resource.join("models"));
+    }
+    if cfg!(debug_assertions) {
+        dirs.push(PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("models"));
+    }
+    if let Ok(data) = app.path().app_data_dir() {
+        dirs.push(data.join("models"));
+    }
+    dirs
+}
 
 /// Called by `main.rs`. Kept separate so integration tests and later
 /// headless variants can reuse the same builder.
@@ -39,7 +67,10 @@ pub fn run() {
             commands::app::write_frontend_log,
             commands::import::pick_image_files,
             commands::import::import_images,
-            commands::import::load_image_view
+            commands::import::load_image_view,
+            commands::inference::enhance_image,
+            commands::inference::cancel_enhancement,
+            commands::inference::get_inference_status
         ])
         .setup(|app| {
             let cfg = config::AppConfig::from_build();
@@ -53,7 +84,47 @@ pub fn run() {
             if let Err(err) = app.path().app_data_dir() {
                 log::warn!("app data dir unavailable: {err}");
             }
+
+            // Stage 05: the local inference engine. The app runs without
+            // it — every command answers with honest errors until a
+            // validated model is found.
+            let app_data = app.path().app_data_dir().ok();
+            let registry = ModelRegistry::new(model_search_dirs(app));
+            log::info!(
+                "model registry searching {} dir(s); first model {} ({})",
+                registry.search_dirs().len(),
+                registry.default_model_id(),
+                match registry.locate_by_id(registry.default_model_id()) {
+                    services::inference::model::ModelState::Ready { .. } => "ready",
+                    services::inference::model::ModelState::Missing => "missing",
+                    services::inference::model::ModelState::Corrupt { reason } => {
+                        log::warn!("model corrupt: {reason}"); // no path detail
+                        "corrupt"
+                    }
+                }
+            );
+            let out_dir = app_data
+                .as_ref()
+                .map(|d| service::enhanced_dir(d))
+                .unwrap_or_else(|| std::env::temp_dir().join("pixora-enhanced-fallback"));
+            // Leftover *.part scratch from an interrupted run dies here.
+            service::cleanup_scratch(&out_dir);
+            app.manage(EngineState {
+                registry: Arc::new(registry),
+                jobs: Arc::new(service::JobRegistry::new()),
+                config: service::EngineConfig::default(),
+                out_dir,
+            });
             Ok(())
+        })
+        .on_window_event(|window, event| {
+            // Closing the last window: refuse new jobs and cancel the
+            // running one so its scratch file is deleted, not orphaned.
+            if let tauri::WindowEvent::Destroyed = event {
+                if let Some(state) = window.try_state::<EngineState>() {
+                    state.jobs.shutdown();
+                }
+            }
         })
         .run(tauri::generate_context!())
         .expect("failed to run Pixora");

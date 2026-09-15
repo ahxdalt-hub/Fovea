@@ -9,6 +9,9 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 const invoke = vi.fn()
 vi.mock('@tauri-apps/api/core', () => ({
   invoke: (cmd: string, args?: unknown) => invoke(cmd, args),
+  Channel: class {
+    onmessage: unknown = null
+  },
 }))
 
 import App from '../App'

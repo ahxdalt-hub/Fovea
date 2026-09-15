@@ -3,16 +3,52 @@
 Premium Windows-first desktop app for local AI image enhancement and upscaling.
 Your images are processed on your own machine and never uploaded.
 
-**Current status:** Stage 04 — image workspace + viewer. The Enhance view
-is now the product's center of gravity: a full workspace canvas for the
-selected image with pointer-anchored wheel zoom, drag-to-pan, fit-to-
-workspace, actual size, fullscreen with idle chrome fade, a compact info
-chip (name · dimensions · format · size), and the before/after compare
-slider — wired for the Stage 05 enhanced result, which honestly shows a
-pending panel until the engine exists. Large images are served at display
-resolution by the native core and escalate to full-resolution only when
-the user zooms past sharpness. The enhancement engine, batch queue, and
-licensing arrive in later stages.
+**Current status:** Stage 05 — local AI inference engine. The core promise
+is now real end to end: an imported image is upscaled 4× **on this machine**
+by Real-ESRGAN running on ONNX Runtime (DirectML GPU, CPU fallback), with
+measured tile progress, working cancellation, and the result streaming into
+the Stage 04 compare slider. The batch queue and licensing arrive in later
+stages.
+
+## Inference pipeline (Stage 05)
+
+```
+Enhance 4× (src/components/EnhanceControls.tsx)
+  ↓ src/ipc/bridge.ts — enhanceImage(imageId, onEvent) via a Tauri Channel
+enhance_image command (src-tauri/src/commands/inference.rs) — reserves the
+single job slot, spawns blocking work
+  ↓ services/inference/
+model.rs     — registry: locate → size → SHA-256 → ONNX sniff (one place
+               for "where models live"; env override, bundled resources,
+               app-data drop folder)
+backend.rs   — Backend trait + OnnxBackend (ort / ONNX Runtime,
+               DirectML EP preferred, CPU fallback; telemetry OFF)
+engine.rs    — pure pipeline: f32 CHW preprocess → tiled inference
+               (256 px tiles + 8 px bleed) → row-streamed u8 composite
+service.rs   — orchestration: preparing → processing (real tile counts)
+               → completing → completed/failed/cancelled; atomic output
+               (*.part → rename), JobRegistry cancellation, scratch cleanup
+  ↓
+enhanced/job-*.png (app-data) + display view for the compare slider
+```
+
+- **Progress is a measurement:** done/total completed tiles from native —
+  no invented percentages. Preparing/completing phases cover the parts
+  between.
+- **Cancellation:** `cancel_enhancement(jobId)` flips the token; the
+  in-flight ONNX run is terminated via `RunOptions::terminate()`, the
+  `.part` file is deleted, the job slot releases.
+- **Privacy:** image bytes, model bytes, and output bytes never leave the
+  process or the disk. `ureq`/TLS crates in the tree are **build-script
+  only** (ORT binary download); the app's runtime capability list is
+  unchanged (`core:default` + `log:default` — no network). ONNX Runtime's
+  Windows telemetry is explicitly disabled at init.
+- **Model:** `realesr-general-x4v3.onnx` (Real-ESRGAN general 4×,
+  BSD-3-Clause — see `src-tauri/models/README.md`). The engine layer is
+  trait-based: swapping the runtime/model never touches UI, commands, or
+  pipeline geometry.
+- Engine errors reach the UI as new user-safe codes: `model_missing`,
+  `model_corrupt`, `engine_unavailable`, `cancelled`.
 
 ## Image workspace (Stage 04)
 

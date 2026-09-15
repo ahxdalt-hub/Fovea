@@ -1,5 +1,13 @@
 import { describe, expect, it } from 'vitest'
-import { isAppErrorPayload, isImageView, isImportOutcome, toAppError } from './ipc'
+import {
+  isAppErrorPayload,
+  isEnhanceEvent,
+  isEnhanceResult,
+  isInferenceStatus,
+  isImageView,
+  isImportOutcome,
+  toAppError,
+} from './ipc'
 
 describe('ipc error normalization', () => {
   it('recognizes the native AppError shape', () => {
@@ -76,5 +84,48 @@ describe('isImageView (Stage 04)', () => {
     expect(isImageView('view')).toBe(false)
     expect(isImageView({ ...view, original: 'false' })).toBe(false)
     expect(isImageView({ ...view, dataUrl: undefined })).toBe(false)
+  })
+})
+
+describe('Stage 05 guards', () => {
+  it('isEnhanceEvent accepts the native stream shapes', () => {
+    expect(isEnhanceEvent({ phase: 'preparing', jobId: 'job-1-0' })).toBe(true)
+    expect(isEnhanceEvent({ phase: 'processing', done: 3, total: 9 })).toBe(true)
+    expect(isEnhanceEvent({ phase: 'completing' })).toBe(true)
+    expect(isEnhanceEvent({ phase: 'completed' })).toBe(true)
+    expect(isEnhanceEvent({ phase: 'cancelled' })).toBe(true)
+    expect(isEnhanceEvent({ phase: 'failed', code: 'model_missing', message: 'x' })).toBe(true)
+    expect(isEnhanceEvent({ phase: 'preparing' })).toBe(false) // jobId required
+    expect(isEnhanceEvent({ phase: 'processing', done: 1 })).toBe(false)
+    expect(isEnhanceEvent({ phase: 'nope' })).toBe(false)
+    expect(isEnhanceEvent(null)).toBe(false)
+  })
+
+  it('isEnhanceResult guards the committed result payload', () => {
+    const ok = {
+      imageId: 'C:a.png',
+      filePath: 'C:appdataenhancedjob-1-0.png',
+      width: 4000,
+      height: 3000,
+      label: '4× · Real-ESRGAN general',
+      engine: 'DirectML GPU',
+      dataUrl: 'data:image/png;base64,AA',
+    }
+    expect(isEnhanceResult(ok)).toBe(true)
+    expect(isEnhanceResult({ ...ok, engine: 3 })).toBe(false)
+    expect(isEnhanceResult('result')).toBe(false)
+  })
+
+  it('isInferenceStatus guards the readiness payload', () => {
+    const ok = {
+      device: 'DirectML GPU',
+      models: [{ id: 'm', label: 'l', scale: 4, state: 'ready' }],
+      ready: true,
+      modelsDirDisplay: 'C:/models',
+    }
+    expect(isInferenceStatus(ok)).toBe(true)
+    expect(isInferenceStatus({ ...ok, models: 'not-an-array' })).toBe(false)
+    expect(isInferenceStatus({ ...ok, ready: 'yes' })).toBe(false)
+    expect(isInferenceStatus(null)).toBe(false)
   })
 })

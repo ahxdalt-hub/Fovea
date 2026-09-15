@@ -12,6 +12,9 @@ import type { ImageEnhancementDto, ImportedImageDto } from '../types/ipc'
 const invoke = vi.fn()
 vi.mock('@tauri-apps/api/core', () => ({
   invoke: (cmd: string, args?: unknown) => invoke(cmd, args),
+  Channel: class {
+    onmessage: unknown = null
+  },
 }))
 
 import { ImageWorkspace } from './ImageWorkspace'

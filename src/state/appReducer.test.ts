@@ -209,3 +209,123 @@ describe('appReducer — workspace selection & enhancements (Stage 04)', () => {
     expect(clearedAll.enhancements).toEqual({})
   })
 })
+
+describe('appReducer — enhance job (Stage 05)', () => {
+  const start = { type: 'enhance/start', imageId: 'a' } as const
+
+  it('enhance/start opens a preparing job with no id yet', () => {
+    const next = appReducer(initialState, start)
+    expect(next.enhanceJob).toEqual({
+      imageId: 'a',
+      jobId: null,
+      phase: 'preparing',
+      done: 0,
+      total: 0,
+      cancelling: false,
+      error: null,
+    })
+  })
+
+  it('the preparing event carries the cancel handle', () => {
+    let s = appReducer(initialState, start)
+    s = appReducer(s, { type: 'enhance/event', event: { phase: 'preparing', jobId: 'job-1' } })
+    expect(s.enhanceJob?.jobId).toBe('job-1')
+  })
+
+  it('processing stores real tile counts', () => {
+    let s = appReducer(initialState, start)
+    s = appReducer(s, { type: 'enhance/event', event: { phase: 'processing', done: 3, total: 9 } })
+    expect(s.enhanceJob?.phase).toBe('processing')
+    expect(s.enhanceJob?.done).toBe(3)
+    expect(s.enhanceJob?.total).toBe(9)
+  })
+
+  it('a full happy path: preparing → processing → completing → completed', () => {
+    let s = appReducer(initialState, start)
+    s = appReducer(s, { type: 'enhance/event', event: { phase: 'preparing', jobId: 'j' } })
+    s = appReducer(s, { type: 'enhance/event', event: { phase: 'processing', done: 1, total: 1 } })
+    s = appReducer(s, { type: 'enhance/event', event: { phase: 'completing' } })
+    s = appReducer(s, { type: 'enhance/event', event: { phase: 'completed' } })
+    expect(s.enhanceJob?.phase).toBe('completed')
+    expect(s.enhanceJob?.done).toBe(1)
+  })
+
+  it('failed stores the user-safe error; cancelled is distinct', () => {
+    let s = appReducer(initialState, start)
+    s = appReducer(s, {
+      type: 'enhance/event',
+      event: { phase: 'failed', code: 'model_missing', message: 'install it' },
+    })
+    expect(s.enhanceJob?.phase).toBe('failed')
+    expect(s.enhanceJob?.error).toEqual({ code: 'model_missing', message: 'install it' })
+
+    let c = appReducer(initialState, start)
+    c = appReducer(c, { type: 'enhance/event', event: { phase: 'cancelled' } })
+    expect(c.enhanceJob?.phase).toBe('cancelled')
+    expect(c.enhanceJob?.error).toBeNull()
+  })
+
+  it('a cancelled job is not rewritten to failed by the command rejection', () => {
+    let s = appReducer(initialState, start)
+    s = appReducer(s, { type: 'enhance/event', event: { phase: 'cancelled' } })
+    s = appReducer(s, {
+      type: 'enhance/event',
+      event: { phase: 'failed', code: 'cancelled', message: 'Processing was cancelled.' },
+    })
+    expect(s.enhanceJob?.phase).toBe('cancelled')
+  })
+
+  it('cancelRequested flags without changing the real phase', () => {
+    let s = appReducer(initialState, start)
+    s = appReducer(s, { type: 'enhance/event', event: { phase: 'processing', done: 2, total: 5 } })
+    s = appReducer(s, { type: 'enhance/cancelRequested' })
+    expect(s.enhanceJob?.cancelling).toBe(true)
+    expect(s.enhanceJob?.phase).toBe('processing')
+    expect(s.enhanceJob?.done).toBe(2)
+  })
+
+  it('events for an unknown job are dropped; clear wipes the panel', () => {
+    const dropped = appReducer(initialState, {
+      type: 'enhance/event',
+      event: { phase: 'processing', done: 1, total: 2 },
+    })
+    expect(dropped.enhanceJob).toBeNull()
+    let s = appReducer(initialState, start)
+    s = appReducer(s, { type: 'enhance/clear' })
+    expect(s.enhanceJob).toBeNull()
+  })
+
+  it('removing the job image or clearing the collection drops the panel', () => {
+    let s = appReducer(initialState, {
+      type: 'images/add',
+      images: [
+        {
+          id: 'a',
+          name: 'a.png',
+          format: 'PNG',
+          width: 10,
+          height: 10,
+          sizeBytes: 10,
+          previewDataUrl: 'data:image/png;base64,AA',
+        },
+      ],
+    })
+    s = appReducer(s, start)
+    s = appReducer(s, { type: 'images/remove', id: 'a' })
+    expect(s.enhanceJob).toBeNull()
+    s = appReducer(s, start)
+    s = appReducer(s, { type: 'images/clear' })
+    expect(s.enhanceJob).toBeNull()
+  })
+
+  it('inference/set records engine readiness', () => {
+    const status = {
+      device: 'DirectML GPU',
+      models: [{ id: 'm', label: 'l', scale: 4, state: 'ready' }],
+      ready: true,
+      modelsDirDisplay: 'C:/models',
+    }
+    const s = appReducer(initialState, { type: 'inference/set', status })
+    expect(s.inference?.ready).toBe(true)
+  })
+})

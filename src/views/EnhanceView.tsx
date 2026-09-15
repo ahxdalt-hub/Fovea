@@ -13,8 +13,9 @@
  * Native file drag & drop is owned by the Tauri core (see
  * useNativeFileDrop), so no HTML5 drag handlers appear here.
  */
-import { useCallback } from 'react'
+import { useCallback, useEffect } from 'react'
 import type { ImageEnhancementDto, ImportedImageDto } from '../types/ipc'
+import { getInferenceStatus } from '../ipc/bridge'
 import { useAppState } from '../state/useAppState'
 import { Button, IconButton } from '../ui/Button'
 import { Tooltip } from '../ui/Tooltip'
@@ -23,8 +24,10 @@ import { Badge } from '../ui/Badge'
 import { Spinner } from '../ui/Progress'
 import { IconClose, IconImage, IconImport } from '../ui/Icons'
 import { collectionSummary, type ImportApi } from '../state/useImport'
+import type { EnhanceApi } from '../state/useEnhance'
 import { isTauriRuntime } from '../state/useNativeFileDrop'
 import { ImageWorkspace } from '../components/ImageWorkspace'
+import { EnhanceControls } from '../components/EnhanceControls'
 import './Views.css'
 
 const WORKFLOW = [
@@ -36,12 +39,32 @@ const WORKFLOW = [
 
 export interface EnhanceViewProps {
   importApi: ImportApi
+  enhanceApi: EnhanceApi
   images: ImportedImageDto[]
 }
 
-export function EnhanceView({ importApi, images }: EnhanceViewProps) {
+export function EnhanceView({ importApi, enhanceApi, images }: EnhanceViewProps) {
   const { importing } = importApi
   const { state, dispatch } = useAppState()
+
+  // Engine readiness: one fetch per Enhance session (native runtime only).
+  // The result gates the Enhance button honestly — a missing/corrupt model
+  // says so rather than presenting a button that fails at click time.
+  useEffect(() => {
+    if (!isTauriRuntime()) return
+    let cancelled = false
+    getInferenceStatus()
+      .then((status) => {
+        if (!cancelled) dispatch({ type: 'inference/set', status })
+      })
+      .catch(() => {
+        // Readiness is an enhancement to the UI, not a core dependency;
+        // the button's tooltip/disabled logic covers a missing fetch.
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [dispatch])
 
   // Selection is derived: a stored id that no longer exists (removed or
   // cleared) simply falls back to the first image — no sync effect needed.
@@ -121,6 +144,8 @@ export function EnhanceView({ importApi, images }: EnhanceViewProps) {
               </Button>
             </div>
           </div>
+
+          <EnhanceControls enhanceApi={enhanceApi} selectedId={selected?.id ?? null} />
 
           <div className="pixora-collection__body">
             <ol className="pixora-thumbs" aria-label="Imported images">

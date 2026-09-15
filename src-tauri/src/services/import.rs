@@ -162,11 +162,20 @@ fn display_name(path: &Path) -> String {
 
 /// The full validation ladder for one file. Cheap checks first (extension,
 /// existence, size) so obviously wrong inputs never touch the decoder.
-fn import_one_with_limits(
+/// Returns the decoded image, its sniffed format, and the on-disk size.
+/// Public because Stage 05's enhancement service re-runs the *same*
+/// ladder on a previously imported path — what can be enhanced is
+/// exactly what can be imported, nothing looser.
+pub fn decode_validated(path: &Path) -> AppResult<(DynamicImage, u64)> {
+    decode_validated_with_limits(path, MAX_PIXELS, MAX_FILE_BYTES)
+        .map(|(decoded, _format, size)| (decoded, size))
+}
+
+fn decode_validated_with_limits(
     path: &Path,
     max_pixels: u64,
     max_file_bytes: u64,
-) -> AppResult<ImportedImage> {
+) -> AppResult<(DynamicImage, ImageFormatLabel, u64)> {
     let name = display_name(path);
     if name.is_empty() || name.contains('\0') {
         return Err(AppError::FileMissing { detail: name });
@@ -258,14 +267,34 @@ fn import_one_with_limits(
             detail: format!("{name}: decode failed"),
         }
     })?;
+    Ok((decoded, format, meta.len()))
+}
 
-    // 7. Preview + identity. Canonicalize so the same file dropped under
-    //    two spellings deduplicates; if that fails (deleted meanwhile),
-    //    fall back to the given path.
+/// Import one file with production limits.
+pub fn import_one(path: &Path) -> AppResult<ImportedImage> {
+    import_one_with_limits(path, MAX_PIXELS, MAX_FILE_BYTES)
+}
+
+fn import_one_with_limits(
+    path: &Path,
+    max_pixels: u64,
+    max_file_bytes: u64,
+) -> AppResult<ImportedImage> {
+    let name = display_name(path);
+    let (decoded, format, size_bytes) =
+        decode_validated_with_limits(path, max_pixels, max_file_bytes)?;
+
+    // Identity. Canonicalize so the same file dropped under two spellings
+    // deduplicates; if that fails (deleted meanwhile), fall back to the
+    // given path.
     let canonical = std::fs::canonicalize(path)
         .map(|p| p.to_string_lossy().into_owned())
         .unwrap_or_else(|_| path.to_string_lossy().into_owned());
     let preview_data_url = build_preview(&decoded).map_err(AppError::unexpected)?;
+
+    // Dimensions were gated pre-decode on the header; the decoded frame
+    // cannot disagree (a lying header fails decode above).
+    let (width, height) = (decoded.width(), decoded.height());
 
     Ok(ImportedImage {
         id: canonical,
@@ -273,14 +302,9 @@ fn import_one_with_limits(
         format,
         width,
         height,
-        size_bytes: meta.len(),
+        size_bytes,
         preview_data_url,
     })
-}
-
-/// Import a single file with production limits.
-pub fn import_one(path: &Path) -> AppResult<ImportedImage> {
-    import_one_with_limits(path, MAX_PIXELS, MAX_FILE_BYTES)
 }
 
 /// Shrink to a thumbnail and encode as a data URL. Opaque images go to
