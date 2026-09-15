@@ -1,0 +1,99 @@
+/*
+ * Design tokens.
+ *
+ * Premium, calm, technical. Neutral slate palette with a single restrained
+ * accent; image content is always the loudest thing on screen. Themes are
+ * plain custom-property sets swapped via [data-theme] — no CSS-in-JS, no
+ * framework. Later stages build controls on top of these tokens only.
+ */
+
+:root {
+  /* Spacing scale (4px base) */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 24px;
+  --space-6: 32px;
+  --space-7: 48px;
+  --space-8: 64px;
+
+  /* Typography */
+  --font-ui: 'Segoe UI Variable Text', 'Segoe UI', system-ui, -apple-system, sans-serif;
+  --font-mono: 'Cascadia Code', 'Consolas', ui-monospace, monospace;
+  --text-xs: 0.75rem;
+  --text-sm: 0.8125rem;
+  --text-base: 0.9375rem;
+  --text-lg: 1.125rem;
+  --text-xl: 1.5rem;
+  --leading-tight: 1.25;
+  --leading-normal: 1.55;
+
+  /* Radius */
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --radius-lg: 14px;
+
+  /* Motion — smooth, never bouncy */
+  --ease-standard: cubic-bezier(0.2, 0, 0, 1);
+  --duration-fast: 120ms;
+  --duration-base: 220ms;
+
+  color-scheme: light;
+
+  /* Light theme (default) */
+  --bg-app: #f4f5f7;
+  --bg-surface: #ffffff;
+  --bg-raised: #fbfbfc;
+  --border-subtle: #e3e6ea;
+  --border-strong: #cdd2d9;
+  --text-primary: #17191d;
+  --text-secondary: #5c636e;
+  --text-tertiary: #8a909a;
+  --accent: #2f6fed;
+  --accent-soft: #e8effd;
+  --success: #1a7f4b;
+  --warning: #9a6700;
+  --danger: #b3261e;
+  --focus-ring: #2f6fed;
+}
+
+[data-theme='dark'] {
+  color-scheme: dark;
+
+  --bg-app: #101215;
+  --bg-surface: #17191d;
+  --bg-raised: #1d2025;
+  --border-subtle: #26292f;
+  --border-strong: #34383f;
+  --text-primary: #e9eaec;
+  --text-secondary: #a2a8b1;
+  --text-tertiary: #6f757e;
+  --accent: #5b8def;
+  --accent-soft: #1b2434;
+  --success: #3fa06c;
+  --warning: #c28a1f;
+  --danger: #d3493f;
+  --focus-ring: #5b8def;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme='light']) {
+    color-scheme: dark;
+
+    --bg-app: #101215;
+    --bg-surface: #17191d;
+    --bg-raised: #1d2025;
+    --border-subtle: #26292f;
+    --border-strong: #34383f;
+    --text-primary: #e9eaec;
+    --text-secondary: #a2a8b1;
+    --text-tertiary: #6f757e;
+    --accent: #5b8def;
+    --accent-soft: #1b2434;
+    --success: #3fa06c;
+    --warning: #c28a1f;
+    --danger: #d3493f;
+    --focus-ring: #5b8def;
+  }
+}

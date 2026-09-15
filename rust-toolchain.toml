@@ -1,0 +1,6 @@
+[toolchain]
+# Keep every developer and CI machine on the same compiler.
+# Bump deliberately; Stage 02+ (ONNX/GPU crates) may need a newer stable.
+channel = "stable"
+components = ["rustfmt", "clippy"]
+targets = ["x86_64-pc-windows-msvc"]
