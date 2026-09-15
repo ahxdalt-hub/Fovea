@@ -1,0 +1,55 @@
+.pix-tooltip-wrap {
+  position: relative;
+  display: inline-flex;
+  outline: none;
+}
+
+.pix-tooltip {
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: var(--z-tooltip);
+  max-width: 280px;
+  width: max-content;
+  padding: var(--space-1) var(--space-3);
+  border-radius: var(--radius-sm);
+  background: var(--text-primary);
+  color: var(--bg-surface);
+  font-size: var(--text-xs);
+  line-height: 1.45;
+  white-space: normal;
+  text-align: center;
+  pointer-events: none;
+  opacity: 0;
+  visibility: hidden;
+  transition:
+    opacity var(--duration-fast) var(--ease-standard) var(--duration-base),
+    visibility 0s linear calc(var(--duration-base) + var(--duration-fast));
+}
+
+.pix-tooltip-wrap--top .pix-tooltip {
+  bottom: calc(100% + 6px);
+}
+
+.pix-tooltip-wrap--bottom .pix-tooltip {
+  top: calc(100% + 6px);
+}
+
+.pix-tooltip-wrap--align-end .pix-tooltip {
+  left: auto;
+  right: 0;
+  transform: none;
+}
+
+/* Keyboard focus shows tips immediately; hover waits the base delay. */
+.pix-tooltip-wrap:focus-visible .pix-tooltip,
+.pix-tooltip-wrap:focus-within .pix-tooltip {
+  opacity: 1;
+  visibility: visible;
+  transition-delay: 0s;
+}
+
+.pix-tooltip-wrap:hover .pix-tooltip {
+  opacity: 1;
+  visibility: visible;
+}

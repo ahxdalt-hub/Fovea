@@ -1,0 +1,66 @@
+/* Shared geometry: states fill the workspace and center their content. */
+
+.pix-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  height: 100%;
+  padding: var(--space-7) var(--space-5);
+}
+
+.pix-state--loading {
+  gap: var(--space-4);
+}
+
+/* Empty state: a dashed drop affordance previewing the import target.
+   The dash pattern is static — hover feedback only once import exists. */
+.pix-state--empty {
+  gap: 0;
+}
+
+.pix-state__dropzone {
+  display: grid;
+  place-items: center;
+  width: 108px;
+  height: 108px;
+  margin-bottom: var(--space-5);
+  border: 1.5px dashed var(--border-strong);
+  border-radius: var(--radius-lg);
+  background: var(--bg-raised);
+  color: var(--text-tertiary);
+}
+
+.pix-state__icon {
+  display: inline-flex;
+  color: var(--text-tertiary);
+}
+
+.pix-state__icon svg {
+  width: 44px;
+  height: 44px;
+}
+
+.pix-state__title {
+  margin: 0 0 var(--space-2);
+  font-family: var(--font-display);
+  font-size: var(--text-xl);
+  font-weight: 600;
+  letter-spacing: -0.015em;
+}
+
+.pix-state__description {
+  margin: 0;
+  max-width: 46ch;
+  color: var(--text-secondary);
+  font-size: var(--text-sm);
+  line-height: var(--leading-normal);
+}
+
+.pix-state__actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  margin-top: var(--space-5);
+}

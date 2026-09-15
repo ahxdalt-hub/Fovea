@@ -1,0 +1,88 @@
+.pix-notifications {
+  position: fixed;
+  right: var(--space-5);
+  bottom: calc(var(--statusbar-height) + var(--space-4));
+  z-index: var(--z-notification);
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: var(--space-2);
+  /* Let clicks pass through the empty stacking area. */
+  pointer-events: none;
+}
+
+.pix-notification {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-3);
+  width: min(380px, calc(100vw - var(--space-6)));
+  padding: var(--space-3) var(--space-3) var(--space-3) var(--space-4);
+  border: 1px solid var(--border-subtle);
+  border-left-width: 3px;
+  border-radius: var(--radius-md);
+  background: var(--bg-surface);
+  box-shadow: var(--shadow-lg);
+  pointer-events: auto;
+  animation: pixora-notification-in var(--duration-base) var(--ease-decelerate) both;
+}
+
+.pix-notification--info {
+  border-left-color: var(--accent);
+}
+
+.pix-notification--success {
+  border-left-color: var(--success);
+}
+
+.pix-notification--warning {
+  border-left-color: var(--warning);
+}
+
+.pix-notification--error {
+  border-left-color: var(--danger);
+}
+
+.pix-notification__icon {
+  display: inline-flex;
+  padding-top: 1px;
+}
+
+.pix-notification--info .pix-notification__icon {
+  color: var(--accent);
+}
+
+.pix-notification--success .pix-notification__icon {
+  color: var(--success);
+}
+
+.pix-notification--warning .pix-notification__icon {
+  color: var(--warning);
+}
+
+.pix-notification--error .pix-notification__icon {
+  color: var(--danger);
+}
+
+.pix-notification__message {
+  flex: 1;
+  margin: 0;
+  font-size: var(--text-sm);
+  line-height: 1.45;
+}
+
+.pix-notification__close {
+  display: inline-flex;
+  padding: var(--space-1);
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-tertiary);
+  transition:
+    background var(--duration-fast) var(--ease-standard),
+    color var(--duration-fast) var(--ease-standard);
+}
+
+.pix-notification__close:hover {
+  background: var(--bg-sunken);
+  color: var(--text-primary);
+}

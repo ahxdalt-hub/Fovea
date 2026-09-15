@@ -1,8 +1,8 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "Local AI Image Upscaler",
+  "productName": "Pixora",
   "version": "0.1.0",
-  "identifier": "com.localaiimageupscaler.desktop",
+  "identifier": "com.pixora.desktop",
   "build": {
     "beforeDevCommand": "npm run dev",
     "devUrl": "http://localhost:1420",
@@ -13,7 +13,7 @@
     "windows": [
       {
         "label": "main",
-        "title": "Local AI Image Upscaler",
+        "title": "Pixora",
         "width": 1280,
         "height": 800,
         "minWidth": 980,

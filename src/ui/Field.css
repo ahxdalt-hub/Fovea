@@ -1,0 +1,131 @@
+.pix-field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  min-width: 0;
+}
+
+.pix-field__label {
+  font-size: var(--text-sm);
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+
+.pix-field__message {
+  margin: 0;
+  font-size: var(--text-xs);
+  color: var(--text-tertiary);
+}
+
+.pix-field__message--error {
+  color: var(--danger);
+}
+
+.pix-input,
+.pix-select {
+  height: var(--control-height-md);
+  width: 100%;
+  padding: 0 var(--space-3);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--bg-surface);
+  color: var(--text-primary);
+  font-size: var(--text-sm);
+  transition:
+    border-color var(--duration-fast) var(--ease-standard),
+    box-shadow var(--duration-fast) var(--ease-standard);
+}
+
+.pix-input::placeholder {
+  color: var(--text-tertiary);
+}
+
+.pix-input:hover:not(:disabled),
+.pix-select:hover:not(:disabled) {
+  border-color: var(--text-tertiary);
+}
+
+.pix-input:focus-visible,
+.pix-select:focus-visible {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 22%, transparent);
+}
+
+.pix-input:disabled,
+.pix-select:disabled {
+  opacity: 0.55;
+}
+
+.pix-input--invalid,
+.pix-select--invalid {
+  border-color: var(--danger);
+}
+
+.pix-select-wrap {
+  position: relative;
+  display: block;
+}
+
+.pix-select {
+  appearance: none;
+  padding-right: var(--space-7);
+}
+
+.pix-select__chevron {
+  position: absolute;
+  right: var(--space-3);
+  top: 50%;
+  translate: 0 -50%;
+  color: var(--text-tertiary);
+  pointer-events: none;
+}
+
+/* Segmented control */
+.pix-segmented {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.pix-segmented__track {
+  display: inline-flex;
+  padding: 3px;
+  gap: 2px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  background: var(--bg-sunken);
+  width: fit-content;
+}
+
+.pix-segmented__option {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  height: calc(var(--control-height-md) - 8px);
+  padding: 0 var(--space-3);
+  border-radius: var(--radius-sm);
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+  transition:
+    background var(--duration-fast) var(--ease-standard),
+    color var(--duration-fast) var(--ease-standard),
+    box-shadow var(--duration-fast) var(--ease-standard);
+}
+
+.pix-segmented__option:hover {
+  color: var(--text-primary);
+}
+
+.pix-segmented__option--checked {
+  background: var(--bg-surface);
+  color: var(--text-primary);
+  box-shadow: var(--shadow-sm);
+  font-weight: 600;
+}
+
+/* The hidden radio must still paint a focus ring on its option. */
+.pix-segmented__option:has(:focus-visible) {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+}

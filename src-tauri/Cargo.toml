@@ -1,8 +1,8 @@
 [package]
 name = "local-ai-image-upscaler"
 version = "0.1.0"
-description = "Professional local AI image enhancement for Windows. Your images never leave your machine."
-authors = ["Local AI Image Upscaler"]
+description = "Pixora — professional local AI image enhancement for Windows. Your images never leave your machine."
+authors = ["Pixora"]
 edition = "2024"
 rust-version = "1.85"
 

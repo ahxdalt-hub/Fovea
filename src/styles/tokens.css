@@ -20,24 +20,55 @@
 
   /* Typography */
   --font-ui: 'Segoe UI Variable Text', 'Segoe UI', system-ui, -apple-system, sans-serif;
+  --font-display: 'Segoe UI Variable Display', 'Segoe UI', system-ui, -apple-system, sans-serif;
   --font-mono: 'Cascadia Code', 'Consolas', ui-monospace, monospace;
   --text-xs: 0.75rem;
   --text-sm: 0.8125rem;
   --text-base: 0.9375rem;
   --text-lg: 1.125rem;
   --text-xl: 1.5rem;
+  --text-2xl: 1.875rem;
   --leading-tight: 1.25;
   --leading-normal: 1.55;
+  --tracking-caps: 0.06em;
 
   /* Radius */
   --radius-sm: 6px;
   --radius-md: 10px;
   --radius-lg: 14px;
 
-  /* Motion — smooth, never bouncy */
+  /* Layout — fixed chrome proportions for the desktop shell */
+  --rail-width: 84px;
+  --topbar-height: 52px;
+  --statusbar-height: 30px;
+  --control-height-sm: 28px;
+  --control-height-md: 34px;
+  --control-height-lg: 40px;
+  --icon-sm: 16px;
+  --icon-md: 20px;
+  --icon-lg: 24px;
+
+  /* Elevation — barely-there layering, never dramatic */
+  --shadow-sm: 0 1px 2px rgb(0 0 0 / 0.05);
+  --shadow-md: 0 2px 8px rgb(0 0 0 / 0.08), 0 1px 2px rgb(0 0 0 / 0.05);
+  --shadow-lg: 0 12px 32px rgb(0 0 0 / 0.16), 0 2px 6px rgb(0 0 0 / 0.08);
+  --overlay: rgb(10 12 16 / 0.45);
+
+  /* Stacking layers */
+  --z-progress: 20;
+  --z-menu: 30;
+  --z-tooltip: 40;
+  --z-notification: 50;
+  --z-dialog: 60;
+
+  /* Motion — smooth, never bouncy. One deceleration curve for entries,
+     standard for state changes, 120/220/320ms steps only. */
   --ease-standard: cubic-bezier(0.2, 0, 0, 1);
+  --ease-decelerate: cubic-bezier(0.05, 0.7, 0.1, 1);
+  --duration-instant: 80ms;
   --duration-fast: 120ms;
   --duration-base: 220ms;
+  --duration-slow: 320ms;
 
   color-scheme: light;
 
@@ -45,17 +76,25 @@
   --bg-app: #f4f5f7;
   --bg-surface: #ffffff;
   --bg-raised: #fbfbfc;
+  --bg-sunken: #eef0f3;
   --border-subtle: #e3e6ea;
   --border-strong: #cdd2d9;
   --text-primary: #17191d;
   --text-secondary: #5c636e;
-  --text-tertiary: #8a909a;
+  --text-tertiary: #6e7580;
   --accent: #2f6fed;
+  --accent-hover: #2560d4;
   --accent-soft: #e8effd;
+  --accent-contrast: #ffffff;
   --success: #1a7f4b;
+  --success-soft: #e6f4ec;
   --warning: #9a6700;
+  --warning-soft: #f7efdd;
   --danger: #b3261e;
+  --danger-soft: #fbeae8;
   --focus-ring: #2f6fed;
+  --scrollbar-thumb: #c3c8cf;
+  --scrollbar-thumb-hover: #a8aeb7;
 }
 
 [data-theme='dark'] {
@@ -64,17 +103,29 @@
   --bg-app: #101215;
   --bg-surface: #17191d;
   --bg-raised: #1d2025;
+  --bg-sunken: #0c0e11;
   --border-subtle: #26292f;
   --border-strong: #34383f;
   --text-primary: #e9eaec;
   --text-secondary: #a2a8b1;
-  --text-tertiary: #6f757e;
+  --text-tertiary: #828891;
   --accent: #5b8def;
+  --accent-hover: #6f9cf3;
   --accent-soft: #1b2434;
+  --accent-contrast: #ffffff;
   --success: #3fa06c;
+  --success-soft: #14251c;
   --warning: #c28a1f;
+  --warning-soft: #2a2113;
   --danger: #d3493f;
+  --danger-soft: #2c1715;
   --focus-ring: #5b8def;
+  --overlay: rgb(4 6 8 / 0.6);
+  --shadow-sm: 0 1px 2px rgb(0 0 0 / 0.3);
+  --shadow-md: 0 2px 8px rgb(0 0 0 / 0.45), 0 1px 2px rgb(0 0 0 / 0.3);
+  --shadow-lg: 0 12px 32px rgb(0 0 0 / 0.55), 0 2px 6px rgb(0 0 0 / 0.4);
+  --scrollbar-thumb: #34383f;
+  --scrollbar-thumb-hover: #464b53;
 }
 
 @media (prefers-color-scheme: dark) {
@@ -84,16 +135,28 @@
     --bg-app: #101215;
     --bg-surface: #17191d;
     --bg-raised: #1d2025;
+    --bg-sunken: #0c0e11;
     --border-subtle: #26292f;
     --border-strong: #34383f;
     --text-primary: #e9eaec;
     --text-secondary: #a2a8b1;
-    --text-tertiary: #6f757e;
+    --text-tertiary: #828891;
     --accent: #5b8def;
+    --accent-hover: #6f9cf3;
     --accent-soft: #1b2434;
+    --accent-contrast: #ffffff;
     --success: #3fa06c;
+    --success-soft: #14251c;
     --warning: #c28a1f;
+    --warning-soft: #2a2113;
     --danger: #d3493f;
+    --danger-soft: #2c1715;
     --focus-ring: #5b8def;
+    --overlay: rgb(4 6 8 / 0.6);
+    --shadow-sm: 0 1px 2px rgb(0 0 0 / 0.3);
+    --shadow-md: 0 2px 8px rgb(0 0 0 / 0.45), 0 1px 2px rgb(0 0 0 / 0.3);
+    --shadow-lg: 0 12px 32px rgb(0 0 0 / 0.55), 0 2px 6px rgb(0 0 0 / 0.4);
+    --scrollbar-thumb: #34383f;
+    --scrollbar-thumb-hover: #464b53;
   }
 }

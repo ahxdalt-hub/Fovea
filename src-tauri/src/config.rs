@@ -28,9 +28,9 @@ impl AppConfig {
     /// stay in sync with the bundle and never drift from user input.
     pub fn from_build() -> Self {
         AppConfig {
-            product_name: "Local AI Image Upscaler".to_string(),
+            product_name: "Pixora".to_string(),
             version: env!("CARGO_PKG_VERSION").to_string(),
-            identifier: "com.localaiimageupscaler.desktop".to_string(),
+            identifier: "com.pixora.desktop".to_string(),
             debug: cfg!(debug_assertions),
         }
     }

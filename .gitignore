@@ -27,3 +27,6 @@ src-tauri/gen/
 *.njsproj
 *.sln
 *.sw?
+
+# Visual QA screenshots (generated, not source)
+qa/

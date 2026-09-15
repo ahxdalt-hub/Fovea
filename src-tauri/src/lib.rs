@@ -49,5 +49,5 @@ pub fn run() {
             Ok(())
         })
         .run(tauri::generate_context!())
-        .expect("failed to run Local AI Image Upscaler");
+        .expect("failed to run Pixora");
 }

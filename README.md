@@ -1,16 +1,19 @@
-# Local AI Image Upscaler
+# Pixora
 
 Premium Windows-first desktop app for local AI image enhancement and upscaling.
 Your images are processed on your own machine and never uploaded.
 
-**Current status:** Stage 01 — foundation and architecture. The app boots,
-verifies the native core, and shows system status. Image processing, batch
-work, licensing, and the full product UI arrive in later stages.
+**Current status:** Stage 02 — desktop shell + design system. The application
+shell (top bar, navigation rail, workspace, status bar), the reusable UI kit
+(`src/ui`), the motion system, theme handling, and settings/shortcuts/about
+dialogs are in place. Image import, the enhancement engine, batch work, and
+licensing arrive in later stages; the import action is deliberately disabled
+until the native pipeline exists.
 
 ## Stack
 
 - **Shell:** Tauri 2 (Rust backend, WebView2 frontend)
-- **UI:** React 19 + TypeScript (strict) + Vite
+- **UI:** React 19 + TypeScript (strict) + Vite — no UI framework, no icon library
 - **Quality:** oxlint + Prettier (frontend), rustfmt + clippy (Rust), vitest + Testing Library
 
 ## Getting started (Windows)
@@ -79,14 +82,49 @@ Product rules that shape everything:
    interface — the UI must never depend on a specific model.
 3. Licensing, website, and cloud concerns stay out of the processing path.
 
+## Frontend layers
+
+```
+src/
+├── ipc/          # typed bridge to native commands (sole invoke caller)
+├── state/        # reducer + context, bootstrap/theme/shortcut hooks
+├── ui/           # design system — buttons, fields, dialogs, menus, badges,
+│                 # progress, notifications, tooltips, empty/loading/error states.
+│                 # Import from here only; never re-skin these primitives.
+├── styles/       # tokens.css (single source of visual truth),
+│                 # base.css (reset/utilities), motion.css (shared keyframes)
+├── shell/        # application chrome: TopBar, NavRail, StatusBar, dialogs
+├── views/        # one file per navigation destination (Enhance/Batch/History)
+├── components/   # pre-Stage-02 pieces (StatusDot) — migrate into ui/ when touched
+└── types/        # IPC payload types shared across the native boundary
+```
+
+Design-system rules for future stages:
+
+- **New visual values go into `tokens.css` only.** Components consume tokens;
+  they never hard-code colors, spacing, radii, durations, or z-layers.
+- **`src/ui` owns every primitive.** Views compose them; they don't define
+  new button/field/badge styles inline.
+- **Motion:** entries use the `pixora-*` keyframes from `motion.css` with
+  `--ease-decelerate`; state changes use `--ease-standard` at
+  `--duration-fast/base`. Nothing bounces; reduced motion is handled globally.
+- **State:** feature stores follow `appReducer.ts` — typed actions, one pure
+  reducer, context access via `useAppState`-style hooks.
+- **Empty ≠ fake.** When a capability isn't wired, ship an honest empty
+  state (see `ui/States.tsx`) or a disabled control with a tooltip — never a
+  decorative placeholder result.
+
 ## Layout
 
 ```
 ├── src/                  # React frontend
 │   ├── ipc/              # typed bridge to native commands (sole invoke caller)
 │   ├── state/            # reducer + context, bootstrap hook
-│   ├── components/       # reusable UI pieces
-│   ├── styles/           # design tokens + base styles (light/dark)
+│   ├── ui/               # design system primitives
+│   ├── shell/            # desktop chrome (top bar, nav rail, status bar, dialogs)
+│   ├── views/            # Enhance / Batch / History
+│   ├── styles/           # design tokens + base styles + motion (light/dark)
+│   ├── components/       # reusable UI pieces (pre-Stage-02)
 │   ├── types/            # IPC payload types shared across the boundary
 │   └── test/             # integration-style component tests
 ├── src-tauri/            # Rust backend

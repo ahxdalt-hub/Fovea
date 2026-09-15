@@ -44,4 +44,30 @@ describe('appReducer', () => {
     expect(retry.error).toBeNull()
     expect(retry.coreStatus).toBe('connecting')
   })
+
+  it('navigates between views without touching core data', () => {
+    const ready = appReducer(initialState, { type: 'core/ready', config, systemInfo })
+    const next = appReducer(ready, { type: 'ui/navigate', view: 'batch' })
+    expect(next.ui.view).toBe('batch')
+    expect(next.coreStatus).toBe('ready')
+    expect(next.systemInfo).toEqual(systemInfo)
+  })
+
+  it('persists theme preference in state and toggles the settings dialog', () => {
+    const themed = appReducer(initialState, { type: 'ui/setTheme', theme: 'dark' })
+    expect(themed.ui.theme).toBe('dark')
+    const opened = appReducer(themed, { type: 'ui/settings', open: true })
+    expect(opened.ui.settingsOpen).toBe(true)
+    const closed = appReducer(opened, { type: 'ui/settings', open: false })
+    expect(closed.ui.settingsOpen).toBe(false)
+    // Navigation/theme must not disturb each other.
+    expect(closed.ui.theme).toBe('dark')
+  })
+
+  it('retryCore re-enters connecting and clears the error', () => {
+    const failed = appReducer(initialState, { type: 'core/error', error: failure })
+    const retried = appReducer(failed, { type: 'ui/retryCore' })
+    expect(retried.coreStatus).toBe('connecting')
+    expect(retried.error).toBeNull()
+  })
 })

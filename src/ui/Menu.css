@@ -1,0 +1,74 @@
+.pix-menu-root {
+  position: relative;
+  display: inline-flex;
+}
+
+.pix-menu-trigger {
+  display: inline-flex;
+}
+
+.pix-menu {
+  position: absolute;
+  top: calc(100% + 6px);
+  z-index: var(--z-menu);
+  min-width: 180px;
+  padding: var(--space-1);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  background: var(--bg-surface);
+  box-shadow: var(--shadow-lg);
+  animation: pixora-menu-in var(--duration-fast) var(--ease-decelerate) both;
+}
+
+.pix-menu--end {
+  right: 0;
+}
+
+.pix-menu--start {
+  left: 0;
+}
+
+.pix-menu__item {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  width: 100%;
+  padding: var(--space-2) var(--space-3);
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-primary);
+  font-size: var(--text-sm);
+  text-align: left;
+  transition: background var(--duration-instant) var(--ease-standard);
+}
+
+.pix-menu__item:hover:not(:disabled) {
+  background: var(--bg-sunken);
+}
+
+.pix-menu__item:disabled {
+  color: var(--text-tertiary);
+}
+
+.pix-menu__item--danger {
+  color: var(--danger);
+}
+
+.pix-menu__icon {
+  display: inline-flex;
+  color: var(--text-secondary);
+}
+
+.pix-menu__item--danger .pix-menu__icon {
+  color: var(--danger);
+}
+
+.pix-menu__label {
+  flex: 1;
+}
+
+.pix-menu__state {
+  color: var(--accent);
+  font-size: var(--text-sm);
+}

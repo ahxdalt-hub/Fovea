@@ -1,73 +1,131 @@
 /**
- * Foundation screen.
+ * Pixora application shell.
  *
- * Deliberately minimal: it shows real startup state (native core status,
- * config, system info) and nothing invented. The full product UI arrives
- * in later stages on top of the tokens and layout shell established here.
+ * Layout: TopBar (identity + global chrome) / NavRail + Workspace / StatusBar.
+ * The workspace renders the active view; navigation is a pure state change
+ * (no router library — three views do not earn one). Core bootstrap status is
+ * shown honestly: connecting → loading, error → retry surface, ready → views.
+ *
+ * Boundaries unchanged from Stage 01: React owns presentation, everything
+ * native stays behind src/ipc/bridge.ts.
  */
-import { StatusDot } from './components/StatusDot'
+import { useCallback, useState } from 'react'
+import type { ThemePreference, ViewId } from './state/appReducer'
 import { useAppState } from './state/useAppState'
 import { useCoreBootstrap } from './state/useCoreBootstrap'
-import './App.css'
+import { useThemeSync } from './state/useThemeSync'
+import { useKeyboardShortcuts } from './state/useKeyboardShortcuts'
+import { useDevPreviewParams } from './state/useDevPreviewParams'
+import { persistTheme } from './state/appReducer'
+import { NotificationProvider } from './ui/Notifications'
+import { ErrorState, LoadingState } from './ui/States'
+import { NavRail } from './shell/NavRail'
+import { TopBar } from './shell/TopBar'
+import { StatusBar } from './shell/StatusBar'
+import { SettingsDialog } from './shell/SettingsDialog'
+import { AboutDialog, ShortcutsDialog } from './shell/InfoDialogs'
+import { EnhanceView } from './views/EnhanceView'
+import { BatchView } from './views/BatchView'
+import { HistoryView } from './views/HistoryView'
+import './shell/Shell.css'
 
-function App() {
-  const { state } = useAppState()
+export function Shell() {
+  const { state, dispatch } = useAppState()
   useCoreBootstrap()
+  useThemeSync()
+  useDevPreviewParams()
+
+  const [shortcutsOpen, setShortcutsOpen] = useState(false)
+  const [aboutOpen, setAboutOpen] = useState(false)
+
+  const navigate = useCallback(
+    (view: ViewId) => dispatch({ type: 'ui/navigate', view }),
+    [dispatch],
+  )
+  const openSettings = useCallback(() => dispatch({ type: 'ui/settings', open: true }), [dispatch])
+  const setTheme = useCallback(
+    (theme: ThemePreference) => {
+      persistTheme(theme)
+      dispatch({ type: 'ui/setTheme', theme })
+    },
+    [dispatch],
+  )
+  const toggleShortcuts = useCallback(() => setShortcutsOpen((v) => !v), [])
+
+  const anyDialogOpen = state.ui.settingsOpen || shortcutsOpen || aboutOpen
+
+  useKeyboardShortcuts({
+    enabled: !anyDialogOpen,
+    onNavigate: navigate,
+    onOpenSettings: openSettings,
+    onToggleShortcuts: toggleShortcuts,
+  })
+
+  function renderWorkspace() {
+    if (state.coreStatus === 'error') {
+      return (
+        <ErrorState
+          title="The application core is unavailable"
+          description={
+            state.error?.message ?? 'Something went wrong while starting the local processing core.'
+          }
+          onRetry={() => dispatch({ type: 'ui/retryCore' })}
+        />
+      )
+    }
+    if (state.coreStatus === 'connecting') {
+      return (
+        <LoadingState
+          label="Starting the local engine…"
+          description="Connecting to the application core"
+        />
+      )
+    }
+    switch (state.ui.view) {
+      case 'batch':
+        return <BatchView onGoToEnhance={() => navigate('enhance')} />
+      case 'history':
+        return <HistoryView onGoToEnhance={() => navigate('enhance')} />
+      default:
+        return <EnhanceView />
+    }
+  }
 
   return (
-    <div className="app-shell">
-      <header className="app-shell__header">
-        <div className="app-shell__brand">
-          <h1 className="app-shell__title">
-            {state.config?.productName ?? 'Local AI Image Upscaler'}
-          </h1>
-          {state.config && <span className="app-shell__version">v{state.config.version}</span>}
-        </div>
-        <StatusDot status={state.coreStatus} />
-      </header>
+    <div className="pixora-shell">
+      <TopBar
+        onOpenSettings={openSettings}
+        onOpenShortcuts={() => setShortcutsOpen(true)}
+        onOpenAbout={() => setAboutOpen(true)}
+        onSetTheme={setTheme}
+      />
+      <div className="pixora-shell__body">
+        <NavRail active={state.ui.view} onNavigate={navigate} />
+        {/* key remounts the view subtree so entry motion replays per section */}
+        <main
+          className="pixora-workspace"
+          key={state.coreStatus === 'ready' ? state.ui.view : 'core'}
+        >
+          {renderWorkspace()}
+        </main>
+      </div>
+      <StatusBar />
 
-      <main className="app-shell__main">
-        {state.coreStatus === 'ready' && state.systemInfo && (
-          <section className="core-card" aria-label="Application core status">
-            <h2 className="core-card__heading">Native core ready</h2>
-            <p className="core-card__note">
-              The application is running locally on your machine. Image processing engines will
-              connect here in upcoming stages.
-            </p>
-            <dl className="core-card__grid">
-              <div>
-                <dt>Operating system</dt>
-                <dd>{state.systemInfo.osFamily}</dd>
-              </div>
-              <div>
-                <dt>Architecture</dt>
-                <dd>{state.systemInfo.arch}</dd>
-              </div>
-              <div>
-                <dt>Build</dt>
-                <dd>{state.config?.debug ? 'debug' : 'release'}</dd>
-              </div>
-            </dl>
-          </section>
-        )}
-
-        {state.coreStatus === 'connecting' && (
-          <p className="app-shell__placeholder">Starting application core…</p>
-        )}
-
-        {state.coreStatus === 'error' && state.error && (
-          <section className="core-card core-card--error" aria-label="Startup error">
-            <h2 className="core-card__heading">Application core unavailable</h2>
-            <p className="core-card__note">{state.error.message}</p>
-          </section>
-        )}
-      </main>
-
-      <footer className="app-shell__footer">
-        <span>Your images are processed locally and never leave this computer.</span>
-      </footer>
+      <SettingsDialog
+        open={state.ui.settingsOpen}
+        onClose={() => dispatch({ type: 'ui/settings', open: false })}
+        onSetTheme={setTheme}
+      />
+      <ShortcutsDialog open={shortcutsOpen} onClose={() => setShortcutsOpen(false)} />
+      <AboutDialog open={aboutOpen} onClose={() => setAboutOpen(false)} />
     </div>
   )
 }
 
-export default App
+export default function App() {
+  return (
+    <NotificationProvider>
+      <Shell />
+    </NotificationProvider>
+  )
+}

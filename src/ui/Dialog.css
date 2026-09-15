@@ -1,0 +1,68 @@
+.pix-dialog__backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: var(--z-dialog);
+  display: grid;
+  place-items: center;
+  background: var(--overlay);
+  padding: var(--space-6);
+}
+
+.pix-dialog {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  max-height: 100%;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-lg);
+  background: var(--bg-surface);
+  box-shadow: var(--shadow-lg);
+  animation: pixora-dialog-in var(--duration-base) var(--ease-decelerate) both;
+  outline: none;
+}
+
+.pix-dialog--sm {
+  max-width: 440px;
+}
+
+.pix-dialog--md {
+  max-width: 560px;
+}
+
+.pix-dialog__header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-4);
+  padding: var(--space-5) var(--space-5) var(--space-3);
+}
+
+.pix-dialog__title {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: var(--text-lg);
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+
+.pix-dialog__description {
+  margin: var(--space-1) 0 0;
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+}
+
+.pix-dialog__body {
+  padding: var(--space-2) var(--space-5) var(--space-5);
+  overflow: auto;
+}
+
+.pix-dialog__footer {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--space-3);
+  padding: var(--space-4) var(--space-5);
+  border-top: 1px solid var(--border-subtle);
+  background: var(--bg-raised);
+  border-radius: 0 0 var(--radius-lg) var(--radius-lg);
+}

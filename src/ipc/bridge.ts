@@ -8,19 +8,23 @@
  */
 import { invoke } from '@tauri-apps/api/core'
 import type { AppConfigDto, SystemInfoDto } from '../types/ipc'
+import { previewInvoke, shouldUsePreviewBridge } from './previewBridge'
 
 /** Build configuration owned by the native side. */
 export function getConfig(): Promise<AppConfigDto> {
+  if (shouldUsePreviewBridge()) return previewInvoke('get_config') as Promise<AppConfigDto>
   return invoke<AppConfigDto>('get_config')
 }
 
 /** Native runtime snapshot (OS, arch, app data location). */
 export function getSystemInfo(): Promise<SystemInfoDto> {
+  if (shouldUsePreviewBridge()) return previewInvoke('get_system_info') as Promise<SystemInfoDto>
   return invoke<SystemInfoDto>('get_system_info')
 }
 
 /** Relay a console message into the native log file. Fire-and-forget. */
 export function writeFrontendLog(level: 'debug' | 'info' | 'warn' | 'error', message: string) {
+  if (shouldUsePreviewBridge()) return
   void invoke('write_frontend_log', { level, message }).catch(() => {
     // Log relay failing must never break the UI or loop.
   })
