@@ -1,4 +1,4 @@
-/* EnhanceControls — the Stage 05 action strip (collection bar area). */
+/* EnhanceControls — the Stage 06 action strip (collection bar area). */
 
 .pix-enhance {
   display: flex;
@@ -8,13 +8,30 @@
 
 .pix-enhance__actions {
   display: flex;
-  align-items: center;
-  gap: var(--space-3);
+  align-items: flex-end;
+  gap: var(--space-4);
+  flex-wrap: wrap;
+}
+
+/* The primary action owns the right edge; everything else is context. */
+.pix-enhance__spacer {
+  flex: 1;
+}
+
+.pix-enhance__segmented {
+  gap: var(--space-1);
 }
 
 .pix-enhance__warn {
   font-size: var(--text-xs);
   color: var(--warning);
+  align-self: center;
+}
+
+.pix-enhance__hint {
+  font-size: var(--text-xs);
+  color: var(--text-tertiary);
+  align-self: center;
 }
 
 /* Live job panel — compact, under the action row, never over the image. */
@@ -46,7 +63,23 @@
   color: var(--danger);
 }
 
+/* Completion: the result is the headline, the next steps are one tap away. */
+.pix-enhance__result {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+}
+
 .pix-enhance__done {
-  font-size: var(--text-xs);
+  font-size: var(--text-sm);
   color: var(--success);
+  font-weight: 600;
+}
+
+.pix-enhance__result-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
 }

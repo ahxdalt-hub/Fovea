@@ -10,13 +10,16 @@ import { Channel, invoke } from '@tauri-apps/api/core'
 import type {
   AppConfigDto,
   EnhanceEventDto,
+  EnhanceModeKey,
   EnhanceResultDto,
+  ExportFormatKey,
+  ExportResultDto,
   ImportOutcomeDto,
   ImageViewDto,
   InferenceStatusDto,
   SystemInfoDto,
 } from '../types/ipc'
-import { isEnhanceResult, isInferenceStatus, isImageView } from '../types/ipc'
+import { isEnhanceResult, isExportResult, isInferenceStatus, isImageView } from '../types/ipc'
 import { previewInvoke, shouldUsePreviewBridge } from './previewBridge'
 
 /** Build configuration owned by the native side. */
@@ -86,10 +89,14 @@ export async function loadImageView(imageId: string, maxEdge?: number): Promise<
 
 /**
  * Enhance one imported image with the local AI engine (nothing leaves
- * this machine). `onEvent` receives honest phase updates — preparing,
- * processing (real completed-tile counts), completing, then a terminal
- * completed/failed/cancelled. Returns the result once the output file
- * is committed; rejects with `AppErrorPayload` on failure.
+ * this machine). `mode` selects the enhancement behavior (each mode is a
+ * genuinely different model or post-processing pass — see `EnhanceModeKey`)
+ * and `scale` the product upscale factor (only values the installed
+ * models genuinely deliver are offered by the UI). `onEvent` receives
+ * honest phase updates — preparing, processing (real completed-tile
+ * counts), completing, then a terminal completed/failed/cancelled.
+ * Returns the result once the output file is committed; rejects with
+ * `AppErrorPayload` on failure.
  *
  * The Tauri `Channel` is created per call and closed automatically when
  * the command settles. Outside Tauri (browser preview/tests) this throws
@@ -97,6 +104,8 @@ export async function loadImageView(imageId: string, maxEdge?: number): Promise<
  */
 export async function enhanceImage(
   imageId: string,
+  mode: EnhanceModeKey,
+  scale: number,
   onEvent: (event: EnhanceEventDto) => void,
 ): Promise<EnhanceResultDto> {
   if (shouldUsePreviewBridge()) {
@@ -108,7 +117,7 @@ export async function enhanceImage(
   }
   const channel = new Channel<EnhanceEventDto>()
   channel.onmessage = (event) => onEvent(event)
-  const raw: unknown = await invoke('enhance_image', { imageId, onEvent: channel })
+  const raw: unknown = await invoke('enhance_image', { imageId, mode, scale, onEvent: channel })
   if (!isEnhanceResult(raw)) {
     throw {
       code: 'unexpected_error',
@@ -137,6 +146,56 @@ export async function getInferenceStatus(): Promise<InferenceStatusDto> {
   }
   const raw: unknown = await invoke('get_inference_status')
   if (!isInferenceStatus(raw)) {
+    throw {
+      code: 'unexpected_error',
+      message: 'The application core returned an unexpected reply.',
+    }
+  }
+  return raw
+}
+
+/**
+ * ── Stage 06: export ──────────────────────────────────────────────────
+ */
+
+/**
+ * Open the native folder picker for the export destination. Returns the
+ * chosen folder path (empty string on cancel — the caller then keeps the
+ * default). The dialog lives on the Rust side; the webview holds no
+ * dialog or filesystem permission.
+ */
+export async function pickExportFolder(): Promise<string> {
+  if (shouldUsePreviewBridge()) return ''
+  const paths = await invoke<string[]>('pick_export_folder')
+  return Array.isArray(paths) ? (paths[0] ?? '') : ''
+}
+
+/**
+ * Export the committed enhancement result of `imageId` into `folder`
+ * ("" = Pixora's default export folder) as `format` at `quality`
+ * (1–100; PNG ignores it — its export is a lossless copy of the master).
+ * The source is resolved server-side from the engine's own output
+ * registry, so no client-supplied path is ever read or written blindly.
+ */
+export async function exportEnhancedImage(
+  imageId: string,
+  format: ExportFormatKey,
+  quality: number,
+  folder: string,
+): Promise<ExportResultDto> {
+  if (shouldUsePreviewBridge()) {
+    throw {
+      code: 'unexpected_error',
+      message: 'Export runs in the desktop app.',
+    }
+  }
+  const raw: unknown = await invoke('export_enhanced_image', {
+    imageId,
+    format,
+    quality: Math.round(quality),
+    folder,
+  })
+  if (!isExportResult(raw)) {
     throw {
       code: 'unexpected_error',
       message: 'The application core returned an unexpected reply.',

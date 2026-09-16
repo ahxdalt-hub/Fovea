@@ -3,6 +3,7 @@ import {
   isAppErrorPayload,
   isEnhanceEvent,
   isEnhanceResult,
+  isExportResult,
   isInferenceStatus,
   isImageView,
   isImportOutcome,
@@ -119,13 +120,30 @@ describe('Stage 05 guards', () => {
   it('isInferenceStatus guards the readiness payload', () => {
     const ok = {
       device: 'DirectML GPU',
-      models: [{ id: 'm', label: 'l', scale: 4, state: 'ready' }],
+      models: [{ id: 'm', label: 'l', scale: 4, state: 'ready', mode: 'standard' }],
       ready: true,
+      scales: [2, 4],
+      modes: [{ key: 'standard', label: 'Standard', description: 'd', available: true }],
       modelsDirDisplay: 'C:/models',
     }
     expect(isInferenceStatus(ok)).toBe(true)
     expect(isInferenceStatus({ ...ok, models: 'not-an-array' })).toBe(false)
     expect(isInferenceStatus({ ...ok, ready: 'yes' })).toBe(false)
+    expect(isInferenceStatus({ ...ok, scales: 'two' })).toBe(false)
+    expect(isInferenceStatus({ ...ok, modes: [{ key: 'x' }] })).toBe(false)
     expect(isInferenceStatus(null)).toBe(false)
+  })
+
+  it('isExportResult guards the export payload', () => {
+    const ok = {
+      filePath: 'C:/Users/me/Pictures/sunset.jpg',
+      fileName: 'sunset.jpg',
+      folder: 'C:/Users/me/Pictures',
+      format: 'jpeg',
+      bytes: 1234,
+    }
+    expect(isExportResult(ok)).toBe(true)
+    expect(isExportResult({ ...ok, bytes: '1234' })).toBe(false)
+    expect(isExportResult(null)).toBe(false)
   })
 })

@@ -1,4 +1,5 @@
-//! Inference commands (Stage 05) — the native API surface for enhancing.
+//! Inference commands (Stage 05, controls in Stage 06) — the native API
+//! surface for enhancing.
 //!
 //! Entry points, thin by rule: validate args, resolve app state, spawn
 //! blocking work, map failures. All engine logic lives in
@@ -10,15 +11,16 @@
 //! when a job errors or the DirectML device resets. Session pooling is
 //! a later-stage optimization with a measured reason.
 
+use std::collections::HashMap;
 use std::path::PathBuf;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 use tauri::ipc::Channel;
 use tauri::{AppHandle, Manager, State};
 
 use crate::error::{AppError, AppResult};
 use crate::services::inference::backend::{CancelToken, OnnxBackend};
-use crate::services::inference::model::ModelRegistry;
+use crate::services::inference::model::{EnhanceMode, ModelRegistry};
 use crate::services::inference::service::{
     self, EngineConfig, EnhanceEvent, EnhanceResult, InferenceStatus, JobRegistry,
 };
@@ -30,6 +32,10 @@ pub struct EngineState {
     pub config: EngineConfig,
     /// Where enhanced PNGs are written (app-data `enhanced/`).
     pub out_dir: PathBuf,
+    /// Committed native output per image id (export authority): only
+    /// paths the engine itself wrote live here, so the export command
+    /// never opens a client-invented path.
+    pub outputs: Arc<Mutex<HashMap<String, PathBuf>>>,
 }
 
 /// Enhance one imported image locally. Runs the job on the blocking pool
@@ -37,10 +43,17 @@ pub struct EngineState {
 /// streams phase events through `on_event`. Rejects with a user-safe
 /// `AppError` when preparation fails; the same terminal phase is
 /// announced on the channel so the UI closes its progress promptly.
+///
+/// Stage 06 args: `mode` ("standard" | "natural" | "detail") selects the
+/// genuinely different processing behavior, `scale` (2 | 4) the product
+/// upscale factor. Both are validated at the boundary; an unknown mode is
+/// refused, never guessed into a default behavior.
 #[tauri::command]
 pub async fn enhance_image(
     app: AppHandle,
     image_id: String,
+    mode: String,
+    scale: usize,
     on_event: Channel<EnhanceEvent>,
 ) -> AppResult<EnhanceResult> {
     if image_id.is_empty() {
@@ -48,8 +61,15 @@ pub async fn enhance_image(
             detail: "empty image id".into(),
         });
     }
+    let mode = EnhanceMode::from_key(&mode).ok_or_else(|| AppError::UnsupportedFormat {
+        detail: format!("unknown enhancement mode {mode:?}"),
+    })?;
+    if scale == 0 {
+        return Err(AppError::UnsupportedScale {
+            detail: "zero scale".into(),
+        });
+    }
     let state = app.state::<EngineState>();
-    let model_id = state.registry.default_model_id().to_string();
     let job_id = state.jobs.next_job_id();
     let token = Arc::new(CancelToken::new());
     // Reserve the single job slot *before* spawning: a busy engine
@@ -78,7 +98,8 @@ pub async fn enhance_image(
         };
         service::enhance(
             &image_id,
-            &model_id,
+            mode,
+            scale,
             &registry,
             &config,
             &out_dir,
@@ -92,7 +113,16 @@ pub async fn enhance_image(
     .await;
 
     match result {
-        Ok(inner) => inner,
+        Ok(inner) => {
+            if let Ok(result) = &inner {
+                // Remember the committed file so export can use it without
+                // the client ever naming a path.
+                if let Ok(mut map) = state.outputs.lock() {
+                    map.insert(result.image_id.clone(), result.file_path.clone());
+                }
+            }
+            inner
+        }
         Err(join_err) => {
             // Join failure: release the slot defensively (enhance always
             // finishes it, but a panic before that would leak busy-ness).
@@ -124,7 +154,8 @@ pub async fn cancel_enhancement(job_id: String, state: State<'_, EngineState>) -
     Ok(found)
 }
 
-/// Engine + model readiness for the UI (device, per-model state).
+/// Engine + model readiness for the UI (device, per-model state, the
+/// scales and modes the installed models genuinely support).
 ///
 /// Runs off the main thread: the first call initializes the ONNX Runtime
 /// environment to probe the DirectML device, which is real work.

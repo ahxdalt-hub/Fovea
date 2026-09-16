@@ -124,8 +124,27 @@
   font-weight: 600;
 }
 
+/* A locked group (job running) reads as inert, not broken. */
+.pix-segmented__option--disabled {
+  opacity: 0.55;
+}
+
 /* The hidden radio must still paint a focus ring on its option. */
 .pix-segmented__option:has(:focus-visible) {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+
+/* Range slider (Stage 06: export quality) — native control, themed. */
+.pix-range {
+  width: 100%;
+  height: var(--control-height-sm);
+  accent-color: var(--accent);
+  background: transparent;
+  cursor: default;
+}
+
+.pix-range:focus-visible {
   outline: 2px solid var(--focus-ring);
   outline-offset: 2px;
 }

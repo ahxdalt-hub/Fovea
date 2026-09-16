@@ -9,6 +9,8 @@ import type {
   AppConfigDto,
   AppErrorPayload,
   EnhanceEventDto,
+  EnhanceModeKey,
+  ExportResultDto,
   ImageEnhancementDto,
   ImportedImageDto,
   InferenceStatusDto,
@@ -46,6 +48,48 @@ export interface EnhanceJob {
   cancelling: boolean
   /** Terminal failure detail, already user-safe. */
   error: AppErrorPayload | null
+}
+
+/** The user's enhancement choices — mode + product scale. Defaults follow
+ * what the engine genuinely supports best (4× · Standard); the controls
+ * only ever offer installed, validated options. Persisted like the theme:
+ * the workspace is the same place, and so is how you like to work. */
+export interface EnhanceSettings {
+  mode: EnhanceModeKey
+  scale: number
+}
+
+export const DEFAULT_ENHANCE_SETTINGS: EnhanceSettings = {
+  mode: 'standard',
+  scale: 4,
+}
+
+const SETTINGS_STORAGE_KEY = 'pixora:enhance-settings'
+
+/** Read the persisted enhancement choices; anything malformed → defaults. */
+export function readStoredEnhanceSettings(): EnhanceSettings {
+  try {
+    const raw = localStorage.getItem(SETTINGS_STORAGE_KEY)
+    if (!raw) return DEFAULT_ENHANCE_SETTINGS
+    const parsed = JSON.parse(raw) as Record<string, unknown>
+    const mode: EnhanceModeKey =
+      parsed.mode === 'natural' || parsed.mode === 'detail' || parsed.mode === 'standard'
+        ? parsed.mode
+        : DEFAULT_ENHANCE_SETTINGS.mode
+    const scale =
+      parsed.scale === 2 || parsed.scale === 4 ? parsed.scale : DEFAULT_ENHANCE_SETTINGS.scale
+    return { mode, scale }
+  } catch {
+    return DEFAULT_ENHANCE_SETTINGS
+  }
+}
+
+export function persistEnhanceSettings(settings: EnhanceSettings) {
+  try {
+    localStorage.setItem(SETTINGS_STORAGE_KEY, JSON.stringify(settings))
+  } catch {
+    // Persisting a working preference must never break the app.
+  }
 }
 
 export interface UiState {
@@ -91,6 +135,11 @@ export interface AppState {
   inference: InferenceStatusDto | null
   /** The single live enhancement job, if any (Stage 05). */
   enhanceJob: EnhanceJob | null
+  /** Stage 06: the user's mode + scale choice, surviving navigation. */
+  enhanceSettings: EnhanceSettings
+  /** Stage 06: the last export's result per image id — proof the file
+   * landed, shown in the completion state without a second source. */
+  exports: Record<string, ExportResultDto>
   ui: UiState
 }
 
@@ -115,6 +164,8 @@ export type AppAction =
   | { type: 'enhance/event'; event: EnhanceEventDto }
   | { type: 'enhance/cancelRequested' }
   | { type: 'enhance/clear' }
+  | { type: 'enhance/setSettings'; settings: Partial<EnhanceSettings> }
+  | { type: 'exports/set'; imageId: string; result: ExportResultDto }
 
 export const initialState: AppState = {
   coreStatus: 'connecting',
@@ -127,11 +178,24 @@ export const initialState: AppState = {
   importing: false,
   inference: null,
   enhanceJob: null,
+  enhanceSettings: readStoredEnhanceSettings(),
+  exports: {},
   ui: {
     view: 'enhance',
     theme: readStoredTheme(),
     settingsOpen: false,
   },
+}
+
+/** Fresh session state reading persisted preferences. The provider uses
+ * this lazily so a remount (or a later window) picks up what the previous
+ * one stored; `initialState` above is the snapshot for tests/static use. */
+export function createInitialState(): AppState {
+  return {
+    ...initialState,
+    enhanceSettings: readStoredEnhanceSettings(),
+    ui: { ...initialState.ui, theme: readStoredTheme() },
+  }
 }
 
 const THEME_STORAGE_KEY = 'pixora:theme'
@@ -298,5 +362,9 @@ export function appReducer(state: AppState, action: AppAction): AppState {
         : state
     case 'enhance/clear':
       return { ...state, enhanceJob: null }
+    case 'enhance/setSettings':
+      return { ...state, enhanceSettings: { ...state.enhanceSettings, ...action.settings } }
+    case 'exports/set':
+      return { ...state, exports: { ...state.exports, [action.imageId]: action.result } }
   }
 }

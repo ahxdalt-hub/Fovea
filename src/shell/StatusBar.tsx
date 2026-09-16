@@ -3,7 +3,8 @@
  *
  * Left: the privacy promise (the core promise of the product, visible
  * without opening settings). Right: real facts from the native handshake
- * (OS/arch, app version). Core connection state is not duplicated here —
+ * (OS/arch, app version) and, once the engine has reported, the device
+ * enhancements run on. Core connection state is not duplicated here —
  * the top bar pill already shows it.
  */
 import { useAppState } from '../state/useAppState'
@@ -22,6 +23,11 @@ export function StatusBar() {
       </span>
 
       <div className="pixora-statusbar__trailing">
+        {state.inference && (
+          <span className="pixora-statusbar__meta u-tabular">
+            {state.inference.device} · {state.inference.ready ? 'model ready' : 'model missing'}
+          </span>
+        )}
         {systemInfo && (
           <span className="pixora-statusbar__meta u-tabular">
             {systemInfo.osFamily} · {systemInfo.arch}

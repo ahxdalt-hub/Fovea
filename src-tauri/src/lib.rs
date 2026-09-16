@@ -3,7 +3,10 @@
 mod commands;
 mod config;
 mod error;
-mod services;
+// Public for the crate's rlib consumers: unit tests, examples, and the
+// Stage 06 manual-QA harness drive services directly (the app binary uses
+// the command layer; nothing here is exposed to the webview beyond it).
+pub mod services;
 
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -70,7 +73,9 @@ pub fn run() {
             commands::import::load_image_view,
             commands::inference::enhance_image,
             commands::inference::cancel_enhancement,
-            commands::inference::get_inference_status
+            commands::inference::get_inference_status,
+            commands::export::pick_export_folder,
+            commands::export::export_enhanced_image
         ])
         .setup(|app| {
             let cfg = config::AppConfig::from_build();
@@ -114,6 +119,7 @@ pub fn run() {
                 jobs: Arc::new(service::JobRegistry::new()),
                 config: service::EngineConfig::default(),
                 out_dir,
+                outputs: Arc::new(std::sync::Mutex::new(std::collections::HashMap::new())),
             });
             Ok(())
         })

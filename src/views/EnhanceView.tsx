@@ -1,19 +1,23 @@
 /**
- * Enhance view — the core workflow (Import → View → Enhance → Compare → Export).
+ * Enhance view — the core workflow (Import → Enhance → Compare → Export).
  *
- * Stage 04 makes the workspace real. Two shapes:
+ * Stage 04 made the workspace real; Stage 06 wrapped it in the complete
+ * user flow. Two shapes:
  * - Collection empty → the honest drop zone: native drag & drop is the
  *   hero interaction, the file picker is the keyboard path.
- * - Collection populated → a compact thumbnail rail plus the full image
- *   workspace (zoom / pan / fit / compare / fullscreen).
+ * - Collection populated → a compact thumbnail rail, the enhancement
+ *   strip (scale · mode · Enhance), and the full image workspace (zoom /
+ *   pan / fit / compare / fullscreen) with an Export action for the
+ *   result.
  *
- * Enhanced results come from app state — empty until Stage 05's engine;
+ * Enhanced results come from app state — the native engine populates them;
  * the compare slider shows an honest pending panel meanwhile, and this
- * view never fakes output.
+ * view never fakes output. Completion auto-opens compare mode so the
+ * result is immediately visible against the original.
  * Native file drag & drop is owned by the Tauri core (see
  * useNativeFileDrop), so no HTML5 drag handlers appear here.
  */
-import { useCallback, useEffect } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import type { ImageEnhancementDto, ImportedImageDto } from '../types/ipc'
 import { getInferenceStatus } from '../ipc/bridge'
 import { useAppState } from '../state/useAppState'
@@ -28,6 +32,7 @@ import type { EnhanceApi } from '../state/useEnhance'
 import { isTauriRuntime } from '../state/useNativeFileDrop'
 import { ImageWorkspace } from '../components/ImageWorkspace'
 import { EnhanceControls } from '../components/EnhanceControls'
+import { ExportDialog } from '../components/ExportDialog'
 import './Views.css'
 
 const WORKFLOW = [
@@ -81,6 +86,18 @@ export function EnhanceView({ importApi, enhanceApi, images }: EnhanceViewProps)
     : null
 
   const openImport = useCallback(() => void importApi.browse(), [importApi])
+
+  // Stage 06: the export dialog and the "open in compare" request from the
+  // completion CTA. An enhancement *finishing* already lands a new result
+  // into app state, and the workspace enters compare mode the moment its
+  // `enhanced` prop changes — no effect needed for that path.
+  const [exportOpen, setExportOpen] = useState(false)
+  const [compareRequest, setCompareRequest] = useState<{ id: string; n: number } | null>(null)
+  const requestCompare = useCallback(() => {
+    if (!selected) return
+    const id = selected.id
+    setCompareRequest((prev) => (prev && prev.id === id ? { id, n: prev.n + 1 } : { id, n: 1 }))
+  }, [selected])
 
   return (
     <div className="pixora-view pixora-view--enhance anim-fade">
@@ -145,7 +162,12 @@ export function EnhanceView({ importApi, enhanceApi, images }: EnhanceViewProps)
             </div>
           </div>
 
-          <EnhanceControls enhanceApi={enhanceApi} selectedId={selected?.id ?? null} />
+          <EnhanceControls
+            enhanceApi={enhanceApi}
+            selectedId={selected?.id ?? null}
+            onExport={() => setExportOpen(true)}
+            onCompare={requestCompare}
+          />
 
           <div className="pixora-collection__body">
             <ol className="pixora-thumbs" aria-label="Imported images">
@@ -177,11 +199,24 @@ export function EnhanceView({ importApi, enhanceApi, images }: EnhanceViewProps)
                 key={selected.id}
                 image={selected}
                 enhanced={enhanced}
+                openCompareNonce={compareRequest?.id === selected.id ? compareRequest.n : 0}
                 onAddMore={openImport}
                 onClear={importApi.clearImages}
               />
             )}
           </div>
+
+          {selected && enhanced && (
+            <ExportDialog
+              open={exportOpen}
+              onClose={() => setExportOpen(false)}
+              imageId={selected.id}
+              imageName={selected.name}
+              resultWidth={enhanced.width}
+              resultHeight={enhanced.height}
+              resultLabel={enhanced.label}
+            />
+          )}
         </div>
       )}
     </div>

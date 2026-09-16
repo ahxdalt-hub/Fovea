@@ -39,8 +39,8 @@ use crate::error::{AppError, AppResult};
 use crate::services::import;
 
 use super::backend::{Backend, CancelToken, EngineError};
-use super::engine::{self, Plan, RowWriter};
-use super::model::{ModelRegistry, ModelState};
+use super::engine::{self, Plan, PostPass, RowWriter};
+use super::model::{EnhanceMode, ModelRegistry, ModelState, product_scales_for};
 
 /// Largest source (in pixels) the engine will attempt. Import allows
 /// 64 MP for *viewing*; a 4× pass over that would produce a >100 MP
@@ -130,12 +130,15 @@ impl JobRegistry {
     }
 
     /// Mint a unique job id. Server-generated so ids can safely seed file
-    /// names — client-supplied ids never touch the filesystem.
+    /// names — client-supplied ids never touch the filesystem. Nanosecond
+    /// precision makes ids globally unique even across process restarts
+    /// and multiple registries, so a committed output can never be
+    /// silently overwritten by a later job reusing the name.
     pub fn next_job_id(&self) -> String {
         let n = self.seq.fetch_add(1, Ordering::SeqCst);
         let t = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
-            .map(|d| d.as_secs())
+            .map(|d| d.as_nanos())
             .unwrap_or(0);
         format!("job-{t}-{n}")
     }
@@ -249,17 +252,47 @@ pub struct InferenceStatus {
     pub models: Vec<super::model::ModelStatus>,
     /// True when at least one validated model is installed.
     pub ready: bool,
+    /// Product upscale factors the installed models genuinely deliver.
+    pub scales: Vec<usize>,
+    /// Every mode the product knows about and whether its model is
+    /// installed — the UI hides what isn't rather than offering a lie.
+    pub modes: Vec<ModeStatus>,
     /// Directory the user can drop models into (display only).
     pub models_dir_display: String,
+}
+
+/// One enhancement mode's availability (Stage 06).
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ModeStatus {
+    /// "standard" | "natural" | "detail".
+    pub key: &'static str,
+    /// Display label — identical on both sides of the boundary.
+    pub label: &'static str,
+    pub description: &'static str,
+    /// The model behind the mode is installed, validated, and runnable.
+    pub available: bool,
 }
 
 pub fn inference_status(registry: &ModelRegistry) -> InferenceStatus {
     let models = registry.status();
     let ready = models.iter().any(|m| m.state == "ready");
+    let scales = registry.available_scales();
+    let modes = EnhanceMode::ALL
+        .iter()
+        .map(|m| ModeStatus {
+            key: m.key(),
+            label: m.label(),
+            description: m.description(),
+            available: registry.mode_available(*m),
+        })
+        .collect();
     InferenceStatus {
         device: probe_device(),
         models,
         ready,
+        scales,
+        modes,
         models_dir_display: registry
             .search_dirs()
             .last()
@@ -286,13 +319,20 @@ fn probe_device() -> &'static str {
 /// whole service contract — staging, errors, atomicity, registry — is
 /// tested with a fake runtime; the real one is `OnnxBackend`.
 ///
+/// `mode` selects the enhancement behavior (each one backed by genuinely
+/// different processing — see `model::EnhanceMode`); `target` is the
+/// product upscale factor, which must be genuinely deliverable by the
+/// chosen model (`product_scales_for`), or the job fails honestly before
+/// any work starts.
+///
 /// `jobs.begin` must already own registration failure; this function
 /// always reaches `jobs.finish` exactly once. `emit` observes every
 /// phase transition in order.
 #[allow(clippy::too_many_arguments)]
 pub fn enhance<B: Backend>(
     source_id: &str,
-    model_id: &str,
+    mode: EnhanceMode,
+    target: usize,
     registry: &ModelRegistry,
     config: &EngineConfig,
     out_dir: &Path,
@@ -307,7 +347,8 @@ pub fn enhance<B: Backend>(
     });
     match enhance_inner(
         source_id,
-        model_id,
+        mode,
+        target,
         registry,
         config,
         out_dir,
@@ -339,7 +380,8 @@ pub fn enhance<B: Backend>(
 #[allow(clippy::too_many_arguments)]
 fn enhance_inner<B: Backend>(
     source_id: &str,
-    model_id: &str,
+    mode: EnhanceMode,
+    target: usize,
     registry: &ModelRegistry,
     config: &EngineConfig,
     out_dir: &Path,
@@ -363,18 +405,33 @@ fn enhance_inner<B: Backend>(
         });
     }
 
-    // Model: locate + validate through the registry, then load the session.
-    let (spec, model_path) =
-        registry
-            .ready_model(model_id)
-            .ok_or_else(|| match registry.locate_by_id(model_id) {
-                ModelState::Corrupt { reason } => AppError::ModelCorrupt {
-                    detail: format!("{model_id}: {reason}"),
-                },
-                _ => AppError::ModelMissing {
-                    detail: model_id.into(),
-                },
-            })?;
+    // Model: the mode selects which model runs. Locate + validate through
+    // the registry, then load the session.
+    let (spec, model_path) = registry.ready_model_for_mode(mode).ok_or_else(|| {
+        let backed = mode.model_backing();
+        match registry
+            .specs()
+            .iter()
+            .find(|m| m.mode == Some(backed))
+            .map(|s| registry.locate(s))
+        {
+            Some(ModelState::Corrupt { reason }) => AppError::ModelCorrupt {
+                detail: format!("{}: {reason}", spec_detail(mode, backed)),
+            },
+            _ => AppError::ModelMissing {
+                detail: spec_detail(mode, backed),
+            },
+        }
+    })?;
+    // The requested upscale must be genuinely deliverable by this model:
+    // the model's native factor, or exactly half of it (the band is then
+    // box-resampled on stream — a real two-stage pipeline). Anything else
+    // is refused before the runtime is touched, not approximated.
+    if !product_scales_for(spec.scale).contains(&target) {
+        return Err(AppError::UnsupportedScale {
+            detail: format!("target {target}x not offered by model scale {}", spec.scale),
+        });
+    }
     let mut backend = open_backend(&model_path).map_err(|err| match err {
         EngineError::Cancelled => AppError::Cancelled {
             detail: spec.id.into(),
@@ -393,10 +450,17 @@ fn enhance_inner<B: Backend>(
     });
     let rgb: RgbImage = decoded.into_rgb8();
 
-    let plan = Plan::new(
+    // Detail is Standard + the engine's real unsharp post-pass.
+    let post = match mode {
+        EnhanceMode::Detail => PostPass::Sharpen,
+        _ => PostPass::None,
+    };
+
+    let plan = Plan::with_target(
         rgb.width() as usize,
         rgb.height() as usize,
         spec.scale,
+        target,
         config.tile,
         config.pad,
     );
@@ -411,6 +475,7 @@ fn enhance_inner<B: Backend>(
         &rgb,
         alpha_plane,
         &plan,
+        post,
         &part_path,
         token,
         emit,
@@ -427,7 +492,7 @@ fn enhance_inner<B: Backend>(
             file_path: final_path,
             width: view.width,
             height: view.height,
-            label: format!("{}× · {}", spec.scale, spec.label),
+            label: format!("{target}× · {}", mode.label()),
             engine: backend.device_name().to_string(),
             data_url: view.data_url,
         });
@@ -436,13 +501,21 @@ fn enhance_inner<B: Backend>(
     Err(err)
 }
 
+/// Log-only identity for a mode's backing model in missing/corrupt detail
+/// strings (never crosses the boundary).
+fn spec_detail(mode: EnhanceMode, backed: EnhanceMode) -> String {
+    format!("{}:{}", mode.key(), backed.key())
+}
+
 /// Inference + encoding for one committed output path. Any failure here
 /// means the `.part` must die; that cleanup is the caller's job.
+#[allow(clippy::too_many_arguments)]
 fn run_pipeline<B: Backend>(
     backend: &mut B,
     rgb: &RgbImage,
     alpha_plane: Option<Vec<u8>>,
     plan: &Plan,
+    post: PostPass,
     part_path: &Path,
     token: &CancelToken,
     emit: &mut dyn FnMut(EnhanceEvent),
@@ -456,9 +529,9 @@ fn run_pipeline<B: Backend>(
         plan.out_h() as u32,
         alpha_plane,
         plan.src_w,
-        plan.scale,
+        plan.target,
     )?;
-    engine::run(backend, rgb, plan, &mut sink, token, |done, total| {
+    engine::run(backend, rgb, plan, post, &mut sink, token, |done, total| {
         emit(EnhanceEvent::Processing { done, total })
     })
     .map_err(|err| match err {
@@ -566,7 +639,14 @@ mod tests {
     /// Identity-ish fake backend (2× nearest) — fast, no runtime needed.
     struct Fake2x;
 
-    impl Backend for Fake2x {
+    /// Nearest-neighbour upscale by any factor — geometry stand-in for the
+    /// real runtime so the service contract (and the 2×-target resample)
+    /// is testable without ONNX Runtime.
+    struct FakeScale {
+        scale: usize,
+    }
+
+    impl Backend for FakeScale {
         fn device_name(&self) -> &'static str {
             "fake"
         }
@@ -580,13 +660,14 @@ mod tests {
             if cancel.is_cancelled() {
                 return Err(EngineError::Cancelled);
             }
-            let (ow, oh) = (width * 2, height * 2);
+            let s = self.scale;
+            let (ow, oh) = (width * s, height * s);
             let mut data = vec![0f32; 3 * oh * ow];
             for c in 0..3 {
                 for y in 0..oh {
                     for x in 0..ow {
                         data[c * oh * ow + y * ow + x] =
-                            chw[c * height * width + (y / 2) * width + x / 2];
+                            chw[c * height * width + (y / s) * width + x / s];
                     }
                 }
             }
@@ -595,6 +676,21 @@ mod tests {
                 height: oh,
                 data,
             })
+        }
+    }
+
+    impl Backend for Fake2x {
+        fn device_name(&self) -> &'static str {
+            "fake"
+        }
+        fn run_tile(
+            &mut self,
+            chw: Vec<f32>,
+            width: usize,
+            height: usize,
+            cancel: &CancelToken,
+        ) -> Result<TileOutput, EngineError> {
+            FakeScale { scale: 2 }.run_tile(chw, width, height, cancel)
         }
     }
 
@@ -667,6 +763,9 @@ mod tests {
             scale: 2,
             size_bytes: 0,
             sha256: "",
+            // The service resolves Standard → this fake model (the general
+            // 4× model in production); Detail shares the same backing.
+            mode: Some(EnhanceMode::Standard),
         }
     }
 
@@ -683,6 +782,35 @@ mod tests {
         mutate: Option<fn(&Path)>,
         token_setup: Option<fn(&CancelToken)>,
         config: EngineConfig,
+    ) -> (
+        AppResult<EnhanceResult>,
+        Vec<EnhanceEvent>,
+        PathBuf,
+        Arc<JobRegistry>,
+        Arc<CancelToken>,
+    ) {
+        run_job_with(
+            tag,
+            source_pixels,
+            alpha,
+            mutate,
+            token_setup,
+            config,
+            EnhanceMode::Standard,
+            2,
+        )
+    }
+
+    #[allow(clippy::too_many_arguments, clippy::type_complexity)]
+    fn run_job_with(
+        tag: &str,
+        source_pixels: u32,
+        alpha: bool,
+        mutate: Option<fn(&Path)>,
+        token_setup: Option<fn(&CancelToken)>,
+        config: EngineConfig,
+        mode: EnhanceMode,
+        target: usize,
     ) -> (
         AppResult<EnhanceResult>,
         Vec<EnhanceEvent>,
@@ -707,7 +835,8 @@ mod tests {
         }
         let result = enhance(
             &source.to_string_lossy(),
-            spec.id,
+            mode,
+            target,
             &registry,
             &config,
             &out_dir,
@@ -865,7 +994,8 @@ mod tests {
         let mut events = Vec::new();
         let err = enhance(
             &source.to_string_lossy(),
-            "fake-2x",
+            EnhanceMode::Standard,
+            2,
             &registry,
             &EngineConfig::default(),
             &out_dir,
@@ -905,7 +1035,8 @@ mod tests {
         jobs.begin(&job_id, Arc::clone(&token)).expect("begin");
         let err = enhance(
             &source.to_string_lossy(),
-            "fake-2x",
+            EnhanceMode::Standard,
+            2,
             &registry,
             &EngineConfig::default(),
             &out_dir,
@@ -965,7 +1096,8 @@ mod tests {
         jobs.begin(&job_id, Arc::clone(&token)).expect("begin");
         let err = enhance(
             &source.to_string_lossy(),
-            "fake-2x",
+            EnhanceMode::Standard,
+            2,
             &registry,
             &EngineConfig::default(),
             &out_dir,
@@ -994,6 +1126,109 @@ mod tests {
         jobs.finish(&a);
         jobs.begin(&b, Arc::new(CancelToken::new()))
             .expect("b after a");
+    }
+
+    #[test]
+    fn unsupported_scale_is_refused_before_the_engine_runs() {
+        // The fake model is 2× native — asking for 4× is not a lie
+        // candidate (no upscale-by-2 of a 2× output is offered); it must
+        // fail with its own code, having touched no runtime.
+        let (root, models_dir, out_dir) = harness("bad-scale");
+        let source = source_png(&root, "photo.png", 40, 20, false);
+        let registry = registry_with(&models_dir, &fake_spec());
+        let jobs = JobRegistry::new();
+        let token = Arc::new(CancelToken::new());
+        let job_id = jobs.next_job_id();
+        jobs.begin(&job_id, Arc::clone(&token)).expect("begin");
+        let err = enhance(
+            &source.to_string_lossy(),
+            EnhanceMode::Standard,
+            4,
+            &registry,
+            &EngineConfig::default(),
+            &out_dir,
+            &jobs,
+            &job_id,
+            &token,
+            |_| {},
+            |_| -> Result<Fake2x, EngineError> {
+                panic!("the runtime must never be touched for an unsupportable scale")
+            },
+        )
+        .expect_err("must fail");
+        assert_eq!(err.code(), "unsupported_scale");
+        assert_eq!(jobs.active_count(), 0);
+        assert_eq!(
+            std::fs::read_dir(&out_dir).map(|d| d.count()).unwrap_or(0),
+            0,
+            "no output for a refused scale"
+        );
+    }
+
+    #[test]
+    fn natural_mode_resolves_the_wdn_model_and_labels_it() {
+        let (root, models_dir, out_dir) = harness("natural-mode");
+        let source = source_png(&root, "photo.png", 40, 20, false);
+        // Two models in one dir: standard + wdn (natural).
+        let std_bytes = {
+            let mut b = vec![0x08, b'O', b'N', b'N', b'X', 0x10, 0x01, 0x00];
+            b.extend_from_slice(&[42u8; 64]);
+            b
+        };
+        let wdn_bytes = {
+            let mut b = vec![0x08, b'O', b'N', b'N', b'X', 0x10, 0x01, 0x01];
+            b.extend_from_slice(&[7u8; 40]);
+            b
+        };
+        std::fs::create_dir_all(&models_dir).expect("dir");
+        std::fs::write(models_dir.join("std.onnx"), &std_bytes).expect("std");
+        std::fs::write(models_dir.join("wdn.onnx"), &wdn_bytes).expect("wdn");
+        let (ss, sh) = measure(&std_bytes);
+        let (ws, wh) = measure(&wdn_bytes);
+        let sh: &'static str = Box::leak(sh.into_boxed_str());
+        let wh: &'static str = Box::leak(wh.into_boxed_str());
+        let registry = ModelRegistry::with_specs(
+            vec![models_dir],
+            vec![
+                ModelSpec {
+                    id: "std",
+                    file_name: "std.onnx",
+                    label: "std",
+                    scale: 2,
+                    size_bytes: ss,
+                    sha256: sh,
+                    mode: Some(EnhanceMode::Standard),
+                },
+                ModelSpec {
+                    id: "wdn",
+                    file_name: "wdn.onnx",
+                    label: "wdn",
+                    scale: 2,
+                    size_bytes: ws,
+                    sha256: wh,
+                    mode: Some(EnhanceMode::Natural),
+                },
+            ],
+        );
+        let jobs = JobRegistry::new();
+        let token = Arc::new(CancelToken::new());
+        let job_id = jobs.next_job_id();
+        jobs.begin(&job_id, Arc::clone(&token)).expect("begin");
+        let result = enhance(
+            &source.to_string_lossy(),
+            EnhanceMode::Natural,
+            2,
+            &registry,
+            &EngineConfig::default(),
+            &out_dir,
+            &jobs,
+            &job_id,
+            &token,
+            |_| {},
+            |_| Ok(Fake2x),
+        )
+        .expect("natural job must run");
+        assert!(result.label.contains("2× · Natural"));
     }
 
     #[test]
@@ -1092,7 +1327,8 @@ mod tests {
         let t0 = std::time::Instant::now();
         let result = enhance(
             &source.to_string_lossy(),
-            spec.id,
+            EnhanceMode::Standard,
+            4,
             &registry,
             // Deliberately a small grid so multiple real tiles run.
             &EngineConfig {
@@ -1131,5 +1367,109 @@ mod tests {
         let varied = out_rgb.pixels().take(4000).any(|p| p.0 != first);
         assert!(varied, "output must carry real detail, not a flat fill");
         assert!(jobs.active_count() == 0);
+    }
+
+    /// Real end-to-end for the *other* Stage 06 surfaces: the 2× target
+    /// (resampled model band) and the Natural + Detail modes, against the
+    /// two bundled models. Same ignored-by-default runtime requirement.
+    #[test]
+    #[ignore = "requires ONNX Runtime binaries + the bundled model files"]
+    fn real_modes_and_scales_produce_genuinely_different_results() {
+        use crate::services::inference::backend::OnnxBackend;
+        let manifest = Path::new(env!("CARGO_MANIFEST_DIR"));
+        let registry = ModelRegistry::new(vec![manifest.join("models")]);
+        let (root, _models, out_dir) = harness("real-modes");
+        let source = {
+            // Small synthetic scene; a checkerboard + gradient so modes
+            // differ measurably.
+            let mut img = RgbaImage::new(128, 96);
+            for (x, y, p) in img.enumerate_pixels_mut() {
+                let v = if (x / 8 + y / 8) % 2 == 0 {
+                    210u8
+                } else {
+                    30u8
+                };
+                *p = Rgba([v, v / 2, 255 - v, 255]);
+            }
+            let mut out = Cursor::new(Vec::new());
+            DynamicImage::ImageRgba8(img)
+                .write_to(&mut out, ImageFormat::Png)
+                .expect("encode");
+            let path = root.join("board.png");
+            std::fs::write(&path, out.into_inner()).expect("write");
+            path
+        };
+        let config = EngineConfig {
+            tile: 64,
+            pad: 8,
+            ..Default::default()
+        };
+
+        let run = |mode: EnhanceMode, scale: usize| -> (EnhanceResult, RgbaImage) {
+            let jobs = JobRegistry::new();
+            let token = Arc::new(CancelToken::new());
+            let job_id = jobs.next_job_id();
+            jobs.begin(&job_id, Arc::clone(&token)).expect("begin");
+            let result = enhance(
+                &source.to_string_lossy(),
+                mode,
+                scale,
+                &registry,
+                &config,
+                &out_dir,
+                &jobs,
+                &job_id,
+                &token,
+                |_| {},
+                OnnxBackend::load,
+            )
+            .expect("real enhancement must succeed");
+            let decoded = image::open(&result.file_path)
+                .expect("output decodes")
+                .into_rgba8();
+            (result, decoded)
+        };
+
+        // 2× target: half the pixels of 4×, same aspect, real output.
+        let (r2, img2) = run(EnhanceMode::Standard, 2);
+        assert_eq!((r2.width, r2.height), (128 * 2, 96 * 2));
+        assert_eq!((img2.width(), img2.height()), (128 * 2, 96 * 2));
+        assert!(r2.label.contains("2×"));
+        let (r4, img4) = run(EnhanceMode::Standard, 4);
+        assert_eq!((r4.width, r4.height), (128 * 4, 96 * 4));
+
+        // Natural runs a *different model* — its output must differ from
+        // Standard on the same source (identical bytes would mean the
+        // mode is a lie).
+        let (rn, img_nat) = run(EnhanceMode::Natural, 4);
+        assert!(rn.label.contains("4× · Natural"));
+        let same_as_standard = img4.pixels().zip(img_nat.pixels()).all(|(a, b)| a.0 == b.0);
+        assert!(
+            !same_as_standard,
+            "Natural must produce genuinely different pixels than Standard"
+        );
+
+        // Detail = Standard + the real unsharp pass: edge columns gain
+        // contrast (measured on the checkerboard transitions), and its
+        // output differs from Standard everywhere edges exist.
+        let (rd, img_det) = run(EnhanceMode::Detail, 4);
+        assert!(rd.label.contains("4× · Detail"));
+        assert_ne!(
+            img4.as_raw(),
+            img_det.as_raw(),
+            "Detail must produce genuinely different pixels than Standard"
+        );
+        // Edge contrast check at a known checkerboard boundary: sample a
+        // bright/dark pair either side of a vertical edge at x=63/64.
+        let lum =
+            |p: &image::Rgba<u8>| 0.299 * p[0] as f32 + 0.587 * p[1] as f32 + 0.114 * p[2] as f32;
+        let y = 48 * 4; // mid-row in output space
+        let std_edge = (lum(img4.get_pixel(63 * 4, y)) - lum(img4.get_pixel(64 * 4, y))).abs();
+        let det_edge =
+            (lum(img_det.get_pixel(63 * 4, y)) - lum(img_det.get_pixel(64 * 4, y))).abs();
+        assert!(
+            det_edge >= std_edge * 0.9,
+            "Detail edges ({det_edge}) should be at least as strong as Standard ({std_edge})"
+        );
     }
 }

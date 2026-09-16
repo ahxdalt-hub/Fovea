@@ -1,8 +1,9 @@
 /**
- * EnhanceControls (Stage 05) integration: the strip reflects the real
- * job lifecycle — readiness gating, progress from native tile counts,
- * cancellation, and failure/retry. The native calls are mocked at the
- * `invoke` boundary; a captured Tauri `Channel` lets the fake engine
+ * EnhanceControls (Stage 06) integration: the strip reflects the real job
+ * lifecycle — readiness gating, the native-provided scale/mode choices,
+ * progress from native tile counts, cancellation, failure/retry, and the
+ * completion handoff to compare + export. The native calls are mocked at
+ * the `invoke` boundary; a captured Tauri `Channel` lets the fake engine
  * stream events exactly like the real one does.
  */
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
@@ -36,7 +37,7 @@ const result: EnhanceResultDto = {
   filePath: 'C:/appdata/enhanced/job-1.png',
   width: 400,
   height: 300,
-  label: '4× · Real-ESRGAN general',
+  label: '4× · Standard',
   engine: 'DirectML GPU',
   dataUrl: 'data:image/png;base64,RESULT',
 }
@@ -49,7 +50,9 @@ function Harness({ seed }: { seed?: InferenceStatusDto }) {
   useEffect(() => {
     if (seed) dispatch({ type: 'inference/set', status: seed })
   }, [dispatch, seed])
-  return <EnhanceControls enhanceApi={api} selectedId="a" />
+  return (
+    <EnhanceControls enhanceApi={api} selectedId="a" onExport={() => {}} onCompare={() => {}} />
+  )
 }
 
 function renderHarness(seed?: InferenceStatusDto) {
@@ -64,15 +67,26 @@ function renderHarness(seed?: InferenceStatusDto) {
 
 const readyStatus: InferenceStatusDto = {
   device: 'DirectML GPU',
-  models: [{ id: 'm', label: 'Real-ESRGAN general', scale: 4, state: 'ready' }],
+  models: [
+    { id: 'm', label: 'Real-ESRGAN general', scale: 4, state: 'ready', mode: 'standard' },
+    { id: 'w', label: 'Real-ESRGAN WDN', scale: 4, state: 'ready', mode: 'natural' },
+  ],
   ready: true,
+  scales: [2, 4],
+  modes: [
+    { key: 'standard', label: 'Standard', description: 'Reconstructs detail', available: true },
+    { key: 'natural', label: 'Natural', description: 'Denoise-first', available: true },
+    { key: 'detail', label: 'Detail', description: 'Standard + sharpen', available: true },
+  ],
   modelsDirDisplay: 'C:/models',
 }
 
 const missingStatus: InferenceStatusDto = {
   ...readyStatus,
   ready: false,
-  models: [{ id: 'm', label: 'Real-ESRGAN general', scale: 4, state: 'missing' }],
+  scales: [],
+  modes: readyStatus.modes.map((m) => ({ ...m, available: false })),
+  models: readyStatus.models.map((m) => ({ ...m, state: 'missing' })),
 }
 
 beforeEach(() => {
@@ -83,20 +97,50 @@ beforeEach(() => {
   localStorage.clear()
 })
 
-describe('EnhanceControls (Stage 05)', () => {
-  it('is idle without a job and enables the button when the engine is ready', () => {
+describe('EnhanceControls (Stage 06)', () => {
+  it('is idle without a job and enables the primary action when the engine is ready', () => {
     renderHarness(readyStatus)
     expect(screen.getByRole('button', { name: /enhance 4×/i })).toBeEnabled()
     expect(screen.queryByRole('progressbar')).toBeNull()
   })
 
-  it('warns and disables when the model is missing', () => {
+  it('offers exactly the scales and modes the native status reports', () => {
+    renderHarness(readyStatus)
+    const scaleGroup = screen.getByRole('group', { name: 'Scale' })
+    expect(scaleGroup).toHaveTextContent('2×')
+    expect(scaleGroup).toHaveTextContent('4×')
+    const modeGroup = screen.getByRole('group', { name: 'Mode' })
+    expect(modeGroup).toHaveTextContent('Standard')
+    expect(modeGroup).toHaveTextContent('Natural')
+    expect(modeGroup).toHaveTextContent('Detail')
+  })
+
+  it('hides unavailable modes instead of offering a lie', () => {
+    const partial: InferenceStatusDto = {
+      ...readyStatus,
+      modes: readyStatus.modes.map((m) => (m.key === 'natural' ? { ...m, available: false } : m)),
+      models: readyStatus.models.filter((mo) => mo.mode !== 'natural'),
+    }
+    renderHarness(partial)
+    expect(screen.queryByRole('radio', { name: 'Natural' })).not.toBeInTheDocument()
+    expect(screen.getByRole('radio', { name: 'Standard' })).toBeInTheDocument()
+  })
+
+  it('explains the chosen mode with the native description', () => {
+    renderHarness(readyStatus)
+    // Default Standard's description shows under the strip (from native).
+    expect(screen.getByText('Reconstructs detail')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('radio', { name: 'Natural' }))
+    expect(screen.getByText('Denoise-first')).toBeInTheDocument()
+  })
+
+  it('warns and disables when no model is installed', () => {
     renderHarness(missingStatus)
     expect(screen.getByRole('button', { name: /enhance 4×/i })).toBeDisabled()
     expect(screen.getByText(/ai model not installed/i)).toBeInTheDocument()
   })
 
-  it('runs a full job: native events drive the panel, result lands in state', async () => {
+  it('runs a full job with the chosen scale + mode: events drive the panel', async () => {
     invoke.mockImplementation((cmd: string) => {
       if (cmd !== 'enhance_image') return Promise.resolve(null)
       let settle: (r: EnhanceResultDto) => void = () => {}
@@ -124,17 +168,30 @@ describe('EnhanceControls (Stage 05)', () => {
       return pending
     })
     renderHarness(readyStatus)
-    fireEvent.click(screen.getByRole('button', { name: /enhance 4×/i }))
 
+    // Choose 2× and Natural before running.
+    fireEvent.click(screen.getByRole('radio', { name: '2×' }))
+    fireEvent.click(screen.getByRole('radio', { name: 'Natural' }))
+    expect(screen.getByRole('button', { name: /enhance 2×/i })).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: /enhance 2×/i }))
+
+    // The native call carries the chosen mode + scale.
+    await waitFor(() =>
+      expect(invoke).toHaveBeenCalledWith(
+        'enhance_image',
+        expect.objectContaining({ imageId: 'a', mode: 'natural', scale: 2 }),
+      ),
+    )
     // Preparing shows immediately (optimistically via enhance/start).
     expect(await screen.findByText(/preparing image…/i)).toBeInTheDocument()
     // Tile counts are displayed as measured, not faked.
     expect(await screen.findByText(/tile 3 of 3/i)).toBeInTheDocument()
     expect(screen.getByRole('progressbar')).toHaveAttribute('aria-valuenow', '100')
-    // Completion: honest done note + success notification with the device.
-    expect(await screen.findByText(/result is in the compare view/i)).toBeInTheDocument()
+    // Completion: result headline + Compare and Export actions.
+    expect(await screen.findByText(/in the compare view below/i)).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /^compare$/i })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /^export$/i })).toBeInTheDocument()
     expect(await screen.findByText(/enhanced to 400 × 300 on directml gpu/i)).toBeInTheDocument()
-    await waitFor(() => expect(invoke).toHaveBeenCalledWith('enhance_image', expect.anything()))
   })
 
   it('cancel asks the native engine by job id and flags the panel', async () => {
@@ -161,6 +218,7 @@ describe('EnhanceControls (Stage 05)', () => {
     // The native terminal event settles the real state.
     lastChannel?.onmessage?.({ phase: 'cancelled' })
     expect(await screen.findByText(/^cancelled$/i)).toBeInTheDocument()
+    expect(screen.getByText(/nothing was written/i)).toBeInTheDocument()
   })
 
   it('failed jobs surface the user-safe message with a retry action', async () => {
@@ -186,5 +244,17 @@ describe('EnhanceControls (Stage 05)', () => {
     delete (window as unknown as Record<string, unknown>).__TAURI_INTERNALS__
     renderHarness(readyStatus)
     expect(screen.getByRole('button', { name: /enhance 4×/i })).toBeDisabled()
+  })
+
+  it('persists the user’s choices across a remount', () => {
+    const first = renderHarness(readyStatus)
+    fireEvent.click(screen.getByRole('radio', { name: '2×' }))
+    fireEvent.click(screen.getByRole('radio', { name: 'Detail' }))
+    expect(screen.getByRole('button', { name: /enhance 2×/i })).toBeInTheDocument()
+    first.unmount()
+    // A fresh workspace session (as after navigation) reads back the choice.
+    renderHarness(readyStatus)
+    expect(screen.getByRole('button', { name: /enhance 2×/i })).toBeInTheDocument()
+    expect((screen.getByRole('radio', { name: 'Detail' }) as HTMLInputElement).checked).toBe(true)
   })
 })

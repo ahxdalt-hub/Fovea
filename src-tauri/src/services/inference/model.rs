@@ -38,19 +38,126 @@ pub struct ModelSpec {
     pub size_bytes: u64,
     /// Lowercase hex SHA-256 of the expected file.
     pub sha256: &'static str,
+    /// The user-facing enhancement behavior this model provides. None for
+    /// models not wired to a visible mode.
+    pub mode: Option<EnhanceMode>,
 }
 
-/// The Stage 05 model set: Real-ESRGAN's general-purpose 4× upscaler
-/// (`realesr-general-x4v3` — BSD-3-Clause, commercially redistributable;
-/// same license as xinntao/Real-ESRGAN upstream).
-pub const MODELS: &[ModelSpec] = &[ModelSpec {
-    id: "realesrgan-general-4x",
-    file_name: "realesr-general-x4v3.onnx",
-    label: "Real-ESRGAN general",
-    scale: 4,
-    size_bytes: 4_871_181,
-    sha256: "09b757accd747d7e423c1d352b3e8f23e77cc5742d04bae958d4eb8082b76fa4",
-}];
+/// The enhancement modes the UI may offer. Each one must change the pixels
+/// it produces (Stage 06 rule: every visible option has a real effect, or
+/// it doesn't exist):
+/// - **Standard** — Real-ESRGAN general: reconstructs texture/detail.
+/// - **Natural** — the WDN (wavelet denoise) variant of the same net:
+///   genuinely different trained weights; suppresses noise and compression
+///   artifacts and keeps the photo's character instead of rebuilding it.
+/// - **Detail** — the general model plus the engine's real unsharp pass
+///   (`PostPass::Sharpen`): extra local contrast on flat reconstruction.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum EnhanceMode {
+    Standard,
+    Natural,
+    Detail,
+}
+
+impl EnhanceMode {
+    pub const ALL: [EnhanceMode; 3] = [
+        EnhanceMode::Standard,
+        EnhanceMode::Natural,
+        EnhanceMode::Detail,
+    ];
+
+    pub fn key(self) -> &'static str {
+        match self {
+            Self::Standard => "standard",
+            Self::Natural => "natural",
+            Self::Detail => "detail",
+        }
+    }
+
+    /// Parse the wire form a command receives (`mode` is untrusted input).
+    pub fn from_key(key: &str) -> Option<Self> {
+        match key {
+            "standard" => Some(Self::Standard),
+            "natural" => Some(Self::Natural),
+            "detail" => Some(Self::Detail),
+            _ => None,
+        }
+    }
+
+    /// The mode's user-facing name (kept identical across the boundary so
+    /// labels can never drift).
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Standard => "Standard",
+            Self::Natural => "Natural",
+            Self::Detail => "Detail",
+        }
+    }
+
+    /// One-line description surfaced in the UI — factual about what the
+    /// model (or model + pass) does, no marketing.
+    pub fn description(self) -> &'static str {
+        match self {
+            Self::Standard => "Reconstructs detail — best for clean photos",
+            Self::Natural => "Denoise-first — calmer, keeps the original grain",
+            Self::Detail => "Standard plus a real sharpening pass — crisp edges",
+        }
+    }
+
+    /// Which model-backed mode actually provides the model for this mode.
+    /// (Detail shares the general model; the difference is the post-pass.)
+    pub fn model_backing(self) -> EnhanceMode {
+        match self {
+            Self::Detail => Self::Standard,
+            other => other,
+        }
+    }
+}
+
+/// The known model set (Stage 06):
+/// - `realesr-general-x4v3` — Real-ESRGAN's general-purpose 4× upscaler
+///   (BSD-3-Clause, commercially redistributable; xinntao/Real-ESRGAN).
+/// - `realesr-general-wdn-x4v3` — the WDN denoising variant of the same
+///   architecture: same graph, different trained weights; upstream
+///   recommends it for noisy/compressed photos (officially *blended* with
+///   the general model — Pixora exposes the two pure behaviors instead of
+///   a fake blend knob).
+pub const MODELS: &[ModelSpec] = &[
+    ModelSpec {
+        id: "realesrgan-general-4x",
+        file_name: "realesr-general-x4v3.onnx",
+        label: "Real-ESRGAN general",
+        scale: 4,
+        size_bytes: 4_871_181,
+        sha256: "09b757accd747d7e423c1d352b3e8f23e77cc5742d04bae958d4eb8082b76fa4",
+        mode: Some(EnhanceMode::Standard),
+    },
+    ModelSpec {
+        id: "realesrgan-general-wdn-4x",
+        file_name: "realesr-general-wdn-x4v3.onnx",
+        label: "Real-ESRGAN WDN",
+        scale: 4,
+        size_bytes: 4_866_499,
+        sha256: "7132e99f7bc09342e31cfee9276cb4c77b6d94d0ed2acc2c9586398b334d4792",
+        mode: Some(EnhanceMode::Natural),
+    },
+];
+
+/// Product upscale factors genuinely deliverable from a model with native
+/// `scale`: the native factor itself, plus half of it when even (the 2×
+/// path runs the model at full factor and box-downsamples the AI output —
+/// a real two-stage pipeline, not a relabel). 1× is never a product option
+/// (there would be nothing to enhance). Later factors follow the same
+/// rule.
+pub fn product_scales_for(model_scale: usize) -> Vec<usize> {
+    let mut scales = Vec::new();
+    if model_scale >= 4 && model_scale % 2 == 0 {
+        scales.push(model_scale / 2);
+    }
+    scales.push(model_scale.max(2));
+    scales
+}
 
 /// Where one model currently stands.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -74,6 +181,9 @@ pub struct ModelStatus {
     pub scale: usize,
     /// "ready" | "missing" | "corrupt" — mirrors [`ModelState`].
     pub state: &'static str,
+    /// The enhancement mode this model backs ("standard" | "natural"),
+    /// or null for models not wired to a visible mode.
+    pub mode: &'static str,
 }
 
 /// Resolves model files across ordered search directories.
@@ -119,6 +229,12 @@ impl ModelRegistry {
         &self.search_dirs
     }
 
+    /// Every known model spec (for surfaces that explain *which* model a
+    /// mode maps to — status, error detail).
+    pub fn specs(&self) -> &[ModelSpec] {
+        &self.specs
+    }
+
     /// Locate + validate the model registered under `id`.
     pub fn locate_by_id(&self, id: &str) -> ModelState {
         let Some(spec) = self.specs.iter().find(|m| m.id == id) else {
@@ -142,12 +258,53 @@ impl ModelRegistry {
     }
 
     /// The first ready model matching `id`: (spec, validated path).
+    /// Production resolves by mode (`ready_model_for_mode`); this lookup
+    /// by id serves status/diagnostic paths and tests.
+    #[allow(
+        dead_code,
+        reason = "diagnostic id-lookup kept beside the mode-based production path"
+    )]
     pub fn ready_model(&self, id: &str) -> Option<(ModelSpec, PathBuf)> {
         let spec = *self.specs.iter().find(|m| m.id == id)?;
         match self.locate(&spec) {
             ModelState::Ready { path } => Some((spec, path)),
             _ => None,
         }
+    }
+
+    /// The first ready model providing `mode` (Stage 06: the UI selects a
+    /// mode, not a file — the registry answers which model backs it).
+    /// Detail runs on the model behind its `model_backing`; the sharpening
+    /// pass is the service's job.
+    pub fn ready_model_for_mode(&self, mode: EnhanceMode) -> Option<(ModelSpec, PathBuf)> {
+        let backed = mode.model_backing();
+        for spec in self.specs.iter().filter(|m| m.mode == Some(backed)) {
+            if let ModelState::Ready { path } = self.locate(spec) {
+                return Some((*spec, path));
+            }
+        }
+        None
+    }
+
+    /// Whether the model backing `mode` is installed and valid.
+    pub fn mode_available(&self, mode: EnhanceMode) -> bool {
+        self.ready_model_for_mode(mode).is_some()
+    }
+
+    /// Product upscale factors the installed models can genuinely deliver
+    /// (sorted, deduplicated). Empty when no model is ready — the UI then
+    /// shows no scale control rather than options that would fail.
+    pub fn available_scales(&self) -> Vec<usize> {
+        let mut scales: Vec<usize> = self
+            .specs
+            .iter()
+            .filter(|m| m.mode.is_some())
+            .filter(|spec| matches!(self.locate(spec), ModelState::Ready { .. }))
+            .flat_map(|spec| product_scales_for(spec.scale))
+            .collect();
+        scales.sort_unstable();
+        scales.dedup();
+        scales
     }
 
     /// Status pass over every known model (runs sha256 on candidates).
@@ -165,6 +322,7 @@ impl ModelRegistry {
                     label: spec.label,
                     scale: spec.scale,
                     state,
+                    mode: spec.mode.map(|m| m.key()).unwrap_or("none"),
                 }
             })
             .collect()
@@ -287,6 +445,7 @@ mod tests {
             scale: 2,
             size_bytes: bytes.len() as u64,
             sha256: sha256_hex(bytes),
+            mode: None,
         }
     }
 
@@ -318,6 +477,7 @@ mod tests {
             scale: 2,
             size_bytes: 10,
             sha256: "00",
+            mode: None,
         };
         let reg = ModelRegistry::with_specs(vec![dir], vec![spec]);
         assert_eq!(reg.locate_by_id("x"), ModelState::Missing);
@@ -337,6 +497,7 @@ mod tests {
             scale: 2,
             size_bytes: 999_999,
             sha256: "00",
+            mode: None,
         };
         let reg = ModelRegistry::with_specs(vec![dir], vec![spec]);
         assert!(matches!(reg.locate_by_id("x"), ModelState::Corrupt { .. }));
@@ -403,23 +564,94 @@ mod tests {
         assert!(list.iter().all(|m| m.state == "missing"));
         let json = serde_json::to_string(&list).expect("serialize");
         assert!(json.contains("realesrgan-general-4x"));
+        assert!(json.contains("realesrgan-general-wdn-4x"));
+        assert!(json.contains("\"mode\":\"standard\""));
+        assert!(json.contains("\"mode\":\"natural\""));
     }
 
     #[test]
-    fn bundled_model_file_matches_its_spec() {
-        // The repo copy of the model is the ground truth the spec claims.
+    fn modes_map_to_distinct_ready_models() {
+        let dir = temp_dir("modes");
+        // Two fake model files with matching size + hash — one per mode.
+        let good = onnx_bytes();
+        let other = vec![0x08, 0x41, 0x09, 0x10];
+        std::fs::write(dir.join("std.onnx"), &good).expect("write std");
+        std::fs::write(dir.join("nat.onnx"), &other).expect("write nat");
+        let specs = vec![
+            ModelSpec {
+                id: "std",
+                file_name: "std.onnx",
+                label: "std",
+                scale: 4,
+                size_bytes: good.len() as u64,
+                sha256: sha256_hex(&good),
+                mode: Some(EnhanceMode::Standard),
+            },
+            ModelSpec {
+                id: "nat",
+                file_name: "nat.onnx",
+                label: "nat",
+                scale: 4,
+                size_bytes: other.len() as u64,
+                sha256: sha256_hex(&other),
+                mode: Some(EnhanceMode::Natural),
+            },
+        ];
+        let reg = ModelRegistry::with_specs(vec![dir], specs);
+        let (s, _) = reg
+            .ready_model_for_mode(EnhanceMode::Standard)
+            .expect("std");
+        assert_eq!(s.id, "std");
+        let (n, _) = reg.ready_model_for_mode(EnhanceMode::Natural).expect("nat");
+        assert_eq!(n.id, "nat");
+        assert!(reg.mode_available(EnhanceMode::Standard));
+        assert!(reg.mode_available(EnhanceMode::Natural));
+        // Both 4× models → scales {2, 4} once, deduped.
+        assert_eq!(reg.available_scales(), vec![2, 4]);
+    }
+
+    #[test]
+    fn unavailable_mode_reports_false_and_offers_no_scales() {
+        let reg = ModelRegistry::new(vec![temp_dir("no-modes")]);
+        assert!(!reg.mode_available(EnhanceMode::Standard));
+        assert!(!reg.mode_available(EnhanceMode::Natural));
+        assert!(reg.ready_model_for_mode(EnhanceMode::Standard).is_none());
+        assert!(reg.available_scales().is_empty());
+    }
+
+    #[test]
+    fn product_scales_follow_model_scale_rule() {
+        assert_eq!(product_scales_for(4), vec![2, 4]);
+        // A native 2× model offers 2× only — halving would reach 1×, which
+        // is not enhancement.
+        assert_eq!(product_scales_for(2), vec![2]);
+        // Odd native factors deliver only themselves.
+        assert_eq!(product_scales_for(3), vec![3]);
+    }
+
+    #[test]
+    fn bundled_model_files_match_their_specs() {
+        // The repo copies of the models are the ground truth the registry
+        // claims (one per enhancement mode).
         let manifest = Path::new(env!("CARGO_MANIFEST_DIR")).join("models");
-        let spec = &MODELS[0];
-        let path = manifest.join(spec.file_name);
-        if !path.is_file() {
-            // Only when models/ genuinely absent (e.g. trimmed checkout).
-            return;
+        let reg = ModelRegistry::new(vec![manifest.clone()]);
+        for spec in MODELS {
+            let path = manifest.join(spec.file_name);
+            if !path.is_file() {
+                // Only when models/ genuinely absent (e.g. trimmed checkout).
+                continue;
+            }
+            assert_eq!(
+                reg.locate_by_id(spec.id),
+                ModelState::Ready { path },
+                "bundled model {} must hash-match its registry spec",
+                spec.id
+            );
         }
-        let reg = ModelRegistry::new(vec![manifest]);
-        assert_eq!(
-            reg.locate_by_id(spec.id),
-            ModelState::Ready { path },
-            "bundled model must hash-match its registry spec"
-        );
+        // Both bundled models are ready from the manifest dir → the product
+        // offers 2× and 4× in both modes.
+        assert_eq!(reg.available_scales(), vec![2, 4]);
+        assert!(reg.mode_available(EnhanceMode::Standard));
+        assert!(reg.mode_available(EnhanceMode::Natural));
     }
 }

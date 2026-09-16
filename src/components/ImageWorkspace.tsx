@@ -75,10 +75,14 @@ import './ImageWorkspace.css'
 
 export interface ImageWorkspaceProps {
   image: ImportedImageDto
-  /** Enhanced counterpart when one exists — Stage 05 fills this. */
+  /** Enhanced counterpart when one exists — the Stage 05/06 engine fills this. */
   enhanced: ImageEnhancementDto | null
   onAddMore: () => void
   onClear: () => void
+  /** Stage 06: incrementing nonce — each change asks the viewer to enter
+   * compare mode (set when an enhancement for *this* image completes, and
+   * by the completion CTA). Keyed by image, so a mount never replays. */
+  openCompareNonce?: number
 }
 
 type Mode = 'single' | 'compare'
@@ -96,7 +100,13 @@ function qualityOf(source: ImageViewDto | null): number {
   return source.deliveredEdge / Math.max(source.width, source.height)
 }
 
-export function ImageWorkspace({ image, enhanced, onAddMore, onClear }: ImageWorkspaceProps) {
+export function ImageWorkspace({
+  image,
+  enhanced,
+  onAddMore,
+  onClear,
+  openCompareNonce = 0,
+}: ImageWorkspaceProps) {
   const natural = useMemo(
     () => ({ width: image.width, height: image.height }),
     [image.width, image.height],
@@ -120,6 +130,22 @@ export function ImageWorkspace({ image, enhanced, onAddMore, onClear }: ImageWor
   const [panning, setPanning] = useState(false)
   const [fullscreen, setFullscreen] = useState(false)
   const [idle, setIdle] = useState(false)
+
+  // Stage 06: enter compare mode the moment an enhancement result lands
+  // for this image (the result must be immediately understandable), and
+  // on explicit requests from the completion CTA (`openCompareNonce`).
+  // This is React's "adjusting state during a render" pattern — derived
+  // from the props it reacts to, not an effect firing afterwards. Mount
+  // initial state equals the props, so replaying a stored result on an
+  // image switch never forces compare.
+  const [seen, setSeen] = useState({ enhanced, nonce: openCompareNonce })
+  if (seen.enhanced !== enhanced) {
+    setSeen({ enhanced, nonce: openCompareNonce })
+    if (enhanced) setMode('compare')
+  } else if (seen.nonce !== openCompareNonce) {
+    setSeen({ enhanced, nonce: openCompareNonce })
+    setMode('compare')
+  }
 
   // ── Source tiers: preview → view → full (lazy escalation) ──────────
   // The cache is consulted during render (a plain map read): a warm hit

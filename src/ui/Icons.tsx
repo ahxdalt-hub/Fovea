@@ -116,6 +116,25 @@ export function IconImport(props: IconProps) {
   )
 }
 
+/** Export: arrow out of a tray (the mirror of import — same tray glyph). */
+export function IconExport(props: IconProps) {
+  return (
+    <Svg {...props}>
+      <path d="M12 14.5v-11m0 0 4 4m-4-4-4 4" />
+      <path d="M4.5 17v1.5a2 2 0 0 0 2 2h11a2 2 0 0 0 2-2V17" />
+    </Svg>
+  )
+}
+
+/** Folder: the location glyph for "choose where files go". */
+export function IconFolder(props: IconProps) {
+  return (
+    <Svg {...props}>
+      <path d="M3.5 6.5A1.5 1.5 0 0 1 5 5h4l1.8 2.2H19a1.5 1.5 0 0 1 1.5 1.5v8.8A1.5 1.5 0 0 1 19 19H5a1.5 1.5 0 0 1-1.5-1.5V6.5Z" />
+    </Svg>
+  )
+}
+
 /** Image placeholder glyph for the empty state. */
 export function IconImage(props: IconProps) {
   return (

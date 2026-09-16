@@ -36,6 +36,7 @@ export interface AppErrorPayload {
     | 'engine_unavailable'
     | 'model_missing'
     | 'model_corrupt'
+    | 'unsupported_scale'
     | 'cancelled'
     | 'unexpected_error'
   message: string
@@ -155,9 +156,9 @@ export function isImageView(value: unknown): value is ImageViewDto {
 
 /**
  * The enhanced counterpart of one imported image. Stage 04 defined the
- * shape; Stage 05's engine produces it via `enhance_image`. The UI must
- * still treat `null`/absent as the honest normal state, never a
- * placeholder image.
+ * shape; the Stage 05 engine produces it and Stage 06's controls drive it.
+ * The UI must still treat `null`/absent as the honest normal state, never
+ * a placeholder image.
  */
 export interface ImageEnhancementDto {
   /** The `ImportedImageDto.id` this result belongs to. */
@@ -174,18 +175,23 @@ export interface ImageEnhancementDto {
 }
 
 /**
- * ── Stage 05: local AI inference ─────────────────────────────────────
+ * ── Stage 05/06: local AI inference + enhancement controls ───────────
  */
+
+/** Enhancement modes — keys match Rust `EnhanceMode::key()` exactly.
+ * Each is genuinely different processing (different model or a real
+ * post-pass), or it would not exist in the UI. */
+export type EnhanceModeKey = 'standard' | 'natural' | 'detail'
 
 /** Serialized `EnhanceResult` from Rust (the `enhance_image` reply). */
 export interface EnhanceResultDto {
   /** The imported image's canonical id this result belongs to. */
   imageId: string
-  /** Pixora's committed output file path (export stage consumes it). */
+  /** Pixora's committed output file path (export uses it server-side). */
   filePath: string
   width: number
   height: number
-  /** e.g. "4× · Real-ESRGAN general". */
+  /** e.g. "4× · Standard". */
   label: string
   /** Engine device: "DirectML GPU" | "CPU". */
   engine: string
@@ -249,6 +255,18 @@ export interface ModelStatusDto {
   scale: number
   /** "ready" | "missing" | "corrupt" */
   state: string
+  /** The enhancement mode this model backs ("standard" | "natural"), or
+   * "none" for models not wired to a visible mode. */
+  mode: string
+}
+
+/** One enhancement mode's availability, per `ModeStatus` in Rust. */
+export interface ModeStatusDto {
+  key: string
+  label: string
+  description: string
+  /** The model behind the mode is installed, validated, and runnable. */
+  available: boolean
 }
 
 /** Serialized `InferenceStatus` from Rust — engine readiness. */
@@ -258,6 +276,10 @@ export interface InferenceStatusDto {
   models: ModelStatusDto[]
   /** True when at least one validated model is installed. */
   ready: boolean
+  /** Product upscale factors the installed models genuinely deliver. */
+  scales: number[]
+  /** Every mode the product knows about, with per-mode availability. */
+  modes: ModeStatusDto[]
   /** Where the user can drop model files (display only). */
   modelsDirDisplay: string
 }
@@ -277,6 +299,45 @@ export function isInferenceStatus(value: unknown): value is InferenceStatusDto {
         typeof (m as ModelStatusDto).state === 'string',
     ) &&
     typeof v.ready === 'boolean' &&
+    Array.isArray(v.scales) &&
+    v.scales.every((s) => typeof s === 'number') &&
+    Array.isArray(v.modes) &&
+    v.modes.every(
+      (m) =>
+        typeof m === 'object' &&
+        m !== null &&
+        typeof (m as ModeStatusDto).key === 'string' &&
+        typeof (m as ModeStatusDto).available === 'boolean',
+    ) &&
     typeof v.modelsDirDisplay === 'string'
+  )
+}
+
+/**
+ * ── Stage 06: export ──────────────────────────────────────────────────
+ */
+
+/** Export formats — keys match Rust `ExportFormat::key()`. */
+export type ExportFormatKey = 'png' | 'jpeg' | 'webp'
+
+/** Serialized `ExportResult` from Rust (the `export_enhanced_image` reply). */
+export interface ExportResultDto {
+  filePath: string
+  fileName: string
+  folder: string
+  format: string
+  bytes: number
+}
+
+/** Runtime guard for the export result payload. */
+export function isExportResult(value: unknown): value is ExportResultDto {
+  if (typeof value !== 'object' || value === null) return false
+  const v = value as Record<string, unknown>
+  return (
+    typeof v.filePath === 'string' &&
+    typeof v.fileName === 'string' &&
+    typeof v.folder === 'string' &&
+    typeof v.format === 'string' &&
+    typeof v.bytes === 'number'
   )
 }

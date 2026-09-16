@@ -4,9 +4,9 @@
  */
 import { useReducer, type ReactNode } from 'react'
 import { AppStateContext } from './appStateContext'
-import { appReducer, initialState } from './appReducer'
+import { appReducer, createInitialState } from './appReducer'
 
 export function AppStateProvider({ children }: { children: ReactNode }) {
-  const [state, dispatch] = useReducer(appReducer, initialState)
+  const [state, dispatch] = useReducer(appReducer, undefined, createInitialState)
   return <AppStateContext.Provider value={{ state, dispatch }}>{children}</AppStateContext.Provider>
 }

@@ -34,13 +34,36 @@ pub trait RowWriter {
     fn write_row(&mut self, rgb: &[u8]) -> Result<(), EngineError>;
 }
 
+/// Which real post-processing pass runs over each model output tile before
+/// compositing. Each variant is a measurable pixel operation — never a
+/// relabeling of the same pixels (Stage 06 rule). `Sharpen` is an unsharp
+/// mask (output + amount × (output − 3×3 blur)) applied inside the padded
+/// tile, so the bleed context gives every edge real neighbors and no seam
+/// is possible.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PostPass {
+    /// Model output as-is (Standard / Natural).
+    None,
+    /// Unsharp detail pass on top of the model output (Detail).
+    Sharpen,
+}
+
+/// How strongly the Detail pass amplifies local contrast. 0.5 is a
+/// visible-but-natural crispness step; tested to leave flat areas untouched
+/// and strengthen edges.
+pub const SHARPEN_AMOUNT: f32 = 0.5;
+
 /// Tile-grid geometry for one job.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Plan {
     pub src_w: usize,
     pub src_h: usize,
-    /// Model's upscale factor (output = input × scale).
+    /// Model's upscale factor (model output = input × scale).
     pub scale: usize,
+    /// Product upscale factor delivered to the sink (`scale`, or `scale/2`
+    /// when the target is smaller — the band is box-resampled by
+    /// scale/target before it is written).
+    pub target: usize,
     /// Interior tile edge in input px.
     pub tile: usize,
     /// Context bleed around each tile in input px.
@@ -50,12 +73,23 @@ pub struct Plan {
 }
 
 impl Plan {
-    pub fn new(src_w: usize, src_h: usize, scale: usize, tile: usize, pad: usize) -> Self {
+    /// Plan for a product scale ≤ model scale that divides it evenly
+    /// (`target == scale` is the model-native case).
+    pub fn with_target(
+        src_w: usize,
+        src_h: usize,
+        scale: usize,
+        target: usize,
+        tile: usize,
+        pad: usize,
+    ) -> Self {
         let tile = tile.max(16);
+        debug_assert!(target >= 1 && scale >= target && scale % target == 0);
         Plan {
             src_w,
             src_h,
             scale,
+            target,
             tile,
             pad,
             cols: src_w.div_ceil(tile),
@@ -63,11 +97,16 @@ impl Plan {
         }
     }
 
+    /// Integer box factor between model output and delivered output.
+    pub fn resample_factor(&self) -> usize {
+        (self.scale / self.target).max(1)
+    }
+
     pub fn out_w(&self) -> usize {
-        self.src_w * self.scale
+        self.src_w * self.target
     }
     pub fn out_h(&self) -> usize {
-        self.src_h * self.scale
+        self.src_h * self.target
     }
     pub fn total_tiles(&self) -> usize {
         self.cols * self.bands
@@ -83,11 +122,13 @@ pub const DEFAULT_PAD: usize = 8;
 
 /// Run the whole pipeline. `progress(done, total)` is called after every
 /// completed tile with *measured* counts (tiles finished / tiles planned)
-/// — never an invented estimate.
+/// — never an invented estimate. `post` selects the real post-processing
+/// pass applied to each tile's f32 output before compositing.
 pub fn run<B: Backend, W: RowWriter>(
     backend: &mut B,
     src: &RgbImage,
     plan: &Plan,
+    post: PostPass,
     sink: &mut W,
     cancel: &CancelToken,
     mut progress: impl FnMut(u32, u32),
@@ -96,16 +137,17 @@ pub fn run<B: Backend, W: RowWriter>(
         return Err(EngineError::Cancelled);
     }
     let scale = plan.scale;
-    let out_w = plan.out_w();
+    let out_w_model = plan.src_w * scale;
     let total = plan.total_tiles() as u32;
     let mut done: u32 = 0;
 
     for band in 0..plan.bands {
         let band_y0 = band * plan.tile;
         let band_h = plan.tile.min(plan.src_h - band_y0);
-        // Composite buffer for this band's interior, in finished u8 RGB.
-        let band_out_h = band_h * scale;
-        let mut band_buf = vec![0u8; out_w * band_out_h * 3];
+        // Composite buffer for this band's interior, at *model* resolution
+        // in finished u8 RGB (resampling to the target happens on stream).
+        let band_buf_h = band_h * scale;
+        let mut band_buf = vec![0u8; out_w_model * band_buf_h * 3];
 
         for col in 0..plan.cols {
             if cancel.is_cancelled() {
@@ -130,12 +172,15 @@ pub fn run<B: Backend, W: RowWriter>(
             }
 
             // ── Inference ────────────────────────────────────────────────
-            let out = backend.run_tile(chw, ew, eh, cancel)?;
+            let mut out = backend.run_tile(chw, ew, eh, cancel)?;
             if out.width != ew * scale || out.height != eh * scale {
                 return Err(EngineError::Failed(format!(
                     "backend returned {}x{} for {ew}x{eh}@{scale}x",
                     out.width, out.height
                 )));
+            }
+            if post == PostPass::Sharpen {
+                unsharp_tile(&mut out.data, ew * scale, eh * scale);
             }
 
             // ── Postprocess + composite the interior (pad cropped) ───────
@@ -147,7 +192,7 @@ pub fn run<B: Backend, W: RowWriter>(
                     continue;
                 }
                 let dst_row = (sy - band_y0) * scale + oy % scale;
-                let dst_base = dst_row * out_w * 3;
+                let dst_base = dst_row * out_w_model * 3;
                 let src_row = oy * ow;
                 for ox in 0..ow {
                     let sx = ex0 + ox / scale;
@@ -167,13 +212,84 @@ pub fn run<B: Backend, W: RowWriter>(
             progress(done, total);
         }
 
-        // ── Stream the finished band rows out; buffer dies with the band ──
-        for r in 0..band_out_h {
-            let row = &band_buf[r * out_w * 3..(r + 1) * out_w * 3];
-            sink.write_row(row)?;
+        // ── Stream the finished band rows out (box-resampled when the
+        //    product target is smaller than the model factor). A band only
+        //    exists in model resolution in memory; the target row buffer is
+        //    one row — peak stays bounded either way. ──
+        let f = plan.resample_factor();
+        let out_w = plan.out_w();
+        if f == 1 {
+            for r in 0..band_buf_h {
+                let row = &band_buf[r * out_w_model * 3..(r + 1) * out_w_model * 3];
+                sink.write_row(row)?;
+            }
+        } else {
+            let mut row_buf = vec![0u8; out_w * 3];
+            for r in 0..band_h * plan.target {
+                resample_box_row(&band_buf, out_w_model, r, f, &mut row_buf);
+                sink.write_row(&row_buf)?;
+            }
         }
     }
     Ok(())
+}
+
+/// Box-average one band row from model resolution to target resolution.
+/// `f` is the integer factor (model px per target px, both axes); exact
+/// because the model band is always an integer multiple of the target.
+fn resample_box_row(band: &[u8], model_w: usize, out_row: usize, f: usize, dst: &mut [u8]) {
+    debug_assert_eq!(dst.len(), model_w / f * 3);
+    let inv = 1.0 / (f * f) as f32;
+    for ox in 0..model_w / f {
+        let mut acc = [0u32; 3];
+        for dy in 0..f {
+            let mrow = (out_row * f + dy) * model_w * 3;
+            for dx in 0..f {
+                let base = mrow + (ox * f + dx) * 3;
+                for c in 0..3 {
+                    acc[c] += band[base + c] as u32;
+                }
+            }
+        }
+        let o = ox * 3;
+        for c in 0..3 {
+            dst[o + c] = ((acc[c] as f32) * inv + 0.5) as u8;
+        }
+    }
+}
+
+/// Unsharp mask on one tile's planar f32 output: out + A·(out − blur₃ₓ₃).
+/// Operates over the *whole padded tile*, so interior pixels near the pad
+/// boundary get their real (bleed) neighborhood — the pass is seam-free by
+/// construction, and the pad is cropped on composite anyway. Flat regions
+/// stay exactly flat (out − blur = 0); edges gain contrast.
+fn unsharp_tile(data: &mut [f32], width: usize, height: usize) {
+    let plane = width * height;
+    let mut blurred = vec![0f32; data.len()];
+    for c in 0..3 {
+        let base = c * plane;
+        for y in 0..height {
+            let y0 = y.saturating_sub(1);
+            let y1 = (y + 2).min(height);
+            for x in 0..width {
+                let x0 = x.saturating_sub(1);
+                let x1 = (x + 2).min(width);
+                let mut sum = 0f32;
+                let mut n = 0u32;
+                for yy in y0..y1 {
+                    let row = base + yy * width;
+                    for xx in x0..x1 {
+                        sum += data[row + xx];
+                        n += 1;
+                    }
+                }
+                blurred[base + y * width + x] = sum / n as f32;
+            }
+        }
+    }
+    for (i, v) in data.iter_mut().enumerate() {
+        *v += SHARPEN_AMOUNT * (*v - blurred[i]);
+    }
 }
 
 /// f32 [0,1] → u8 with rounding. Values outside [0,1] (models can ring)
@@ -281,10 +397,26 @@ mod tests {
     }
 
     fn assert_exact_upscale(src: &RgbImage, scale: usize, tile: usize, pad: usize) {
-        let plan = Plan::new(
+        assert_exact_upscale_target(src, scale, scale, tile, pad)
+    }
+
+    /// Round-trip a plan whose *model* factor is `scale` and whose product
+    /// target is `target` (≤ scale, dividing it). The nearest fake doubles
+    /// pixels without inventing any, so a box downsample from scale to
+    /// target must land exactly on source pixels: the 2× path and the 4×
+    /// path share identical geometry guarantees.
+    fn assert_exact_upscale_target(
+        src: &RgbImage,
+        scale: usize,
+        target: usize,
+        tile: usize,
+        pad: usize,
+    ) {
+        let plan = Plan::with_target(
             src.width() as usize,
             src.height() as usize,
             scale,
+            target,
             tile,
             pad,
         );
@@ -298,6 +430,7 @@ mod tests {
             &mut backend,
             src,
             &plan,
+            PostPass::None,
             &mut sink,
             &CancelToken::new(),
             |d, t| progress.push((d, t)),
@@ -310,11 +443,12 @@ mod tests {
             progress.windows(2).all(|w2| w2[0].0 + 1 == w2[1].0),
             "progress must count every tile once, in order"
         );
-        // Every output pixel equals its source pixel (nearest fake) → the
-        // tiling/compositing round-trip is pixel-exact for any grid.
+        // Every output pixel equals its source pixel (nearest fake; box
+        // averaging identical values is exact) → the tiling/compositing/
+        // resampling round-trip is pixel-exact for any grid.
         for (y, row) in sink.rows.iter().enumerate() {
             for (x, px) in row.chunks(3).enumerate() {
-                let s = src.get_pixel((x / scale) as u32, (y / scale) as u32);
+                let s = src.get_pixel((x / target) as u32, (y / target) as u32);
                 assert_eq!(px, [s[0], s[1], s[2]], "mismatch at output ({x},{y})");
             }
         }
@@ -340,6 +474,64 @@ mod tests {
     #[test]
     fn tiles_odd_sizes_with_scale_four() {
         assert_exact_upscale(&gradient(61, 33), 4, 24, 8);
+    }
+
+    #[test]
+    fn half_target_resamples_the_model_band_exactly() {
+        // The Stage 06 2× path: a 4× model band box-averaged to 2×.
+        assert_exact_upscale_target(&gradient(61, 33), 4, 2, 24, 8);
+        assert_exact_upscale_target(&gradient(100, 90), 4, 2, 40, 8);
+        assert_exact_upscale_target(&gradient(48, 32), 2, 2, 256, 8);
+    }
+
+    /// A flat region must stay exactly flat under the Detail pass, while a
+    /// hard edge gains contrast on both sides (the unsharp signature).
+    #[test]
+    fn sharpen_postpass_preserves_flats_and_strengthens_edges() {
+        // Constant 0.5 field with a vertical black/white split mid-image.
+        let mut chw = vec![0.5f32; 3 * 32 * 16];
+        for c in 0..3 {
+            for y in 0..16 {
+                for x in 0..32 {
+                    chw[c * 32 * 16 + y * 32 + x] = if x < 16 { 0.0 } else { 1.0 };
+                }
+            }
+        }
+        // A flat corner patch inside the white half for the flat check.
+        for c in 0..3 {
+            for y in 8..14 {
+                for x in 26..30 {
+                    chw[c * 32 * 16 + y * 32 + x] = 0.5;
+                }
+            }
+        }
+        let mut out = chw.clone();
+        unsharp_tile(&mut out, 32, 16);
+        // Flats unchanged (every checked pixel's 3×3 window lies wholly
+        // inside the flat patch, so blur == value == out).
+        for c in 0..3 {
+            for y in 9..12 {
+                for x in 27..29 {
+                    let i = c * 32 * 16 + y * 32 + x;
+                    assert!((out[i] - 0.5).abs() < 1e-3, "flat pixel moved");
+                }
+            }
+        }
+        // Edge columns pushed apart on channel 0 (plane stride 32*16): the
+        // black side got darker and the white side brighter (toward the
+        // boundary).
+        let row = 8usize;
+        let dark_left = out[row * 32 + 15];
+        let dark_far = out[row * 32 + 5];
+        let bright_right = out[row * 32 + 16];
+        let bright_far = out[row * 32 + 25];
+        assert!(dark_left < dark_far, "black side should darken toward edge");
+        assert!(
+            bright_right > bright_far,
+            "white side should brighten toward edge"
+        );
+        // Clamping in to_u8 keeps the composite in [0,255].
+        assert!(to_u8(-0.2) == 0 && to_u8(1.4) == 255);
     }
 
     /// A backend that cancels the job right after its first successful
@@ -373,7 +565,7 @@ mod tests {
     #[test]
     fn cancellation_between_tiles_stops_immediately() {
         let src = gradient(120, 60);
-        let plan = Plan::new(120, 60, 2, 40, 8);
+        let plan = Plan::with_target(120, 60, 2, 2, 40, 8);
         let mut sink = CollectSink {
             out_w: plan.out_w(),
             rows: Vec::new(),
@@ -385,9 +577,15 @@ mod tests {
             cancel: Arc::clone(&cancel),
         };
         let mut progress_log: Vec<u32> = Vec::new();
-        let err = run(&mut backend, &src, &plan, &mut sink, &cancel, |d, _t| {
-            progress_log.push(d)
-        });
+        let err = run(
+            &mut backend,
+            &src,
+            &plan,
+            PostPass::None,
+            &mut sink,
+            &cancel,
+            |d, _t| progress_log.push(d),
+        );
         assert!(matches!(err, Err(EngineError::Cancelled)));
         assert_eq!(
             progress_log.len(),
@@ -399,7 +597,7 @@ mod tests {
     #[test]
     fn pre_cancelled_run_does_nothing() {
         let src = gradient(60, 40);
-        let plan = Plan::new(60, 40, 2, 40, 8);
+        let plan = Plan::with_target(60, 40, 2, 2, 40, 8);
         let mut sink = CollectSink {
             out_w: plan.out_w(),
             rows: Vec::new(),
@@ -407,7 +605,15 @@ mod tests {
         let cancel = CancelToken::new();
         cancel.cancel();
         let mut backend = FakeUpscaler::new(2);
-        let err = run(&mut backend, &src, &plan, &mut sink, &cancel, |_, _| {});
+        let err = run(
+            &mut backend,
+            &src,
+            &plan,
+            PostPass::None,
+            &mut sink,
+            &cancel,
+            |_, _| {},
+        );
         assert!(matches!(err, Err(EngineError::Cancelled)));
         assert_eq!(
             backend.calls.load(Ordering::SeqCst),
@@ -419,7 +625,7 @@ mod tests {
     #[test]
     fn backend_failure_propagates_and_writes_nothing_from_the_failed_band() {
         let src = gradient(100, 60);
-        let plan = Plan::new(100, 60, 2, 40, 8); // 3 cols → band 0 = tiles 0..2
+        let plan = Plan::with_target(100, 60, 2, 2, 40, 8); // 3 cols → band 0 = tiles 0..2
         let mut sink = CollectSink {
             out_w: plan.out_w(),
             rows: Vec::new(),
@@ -430,6 +636,7 @@ mod tests {
             &mut backend,
             &src,
             &plan,
+            PostPass::None,
             &mut sink,
             &CancelToken::new(),
             |_, _| {},
@@ -442,10 +649,10 @@ mod tests {
 
     #[test]
     fn plan_geometry() {
-        let p = Plan::new(100, 90, 4, 40, 8);
+        let p = Plan::with_target(100, 90, 4, 4, 40, 8);
         assert_eq!((p.cols, p.bands, p.total_tiles()), (3, 3, 9));
         assert_eq!((p.out_w(), p.out_h()), (400, 360));
         // Tile floors at 16 so a nonsense config can't make one tile per pixel.
-        assert_eq!(Plan::new(64, 64, 2, 1, 8).tile, 16);
+        assert_eq!(Plan::with_target(64, 64, 2, 2, 1, 8).tile, 16);
     }
 }

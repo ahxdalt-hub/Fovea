@@ -39,6 +39,12 @@ sha2 = "0.10"
 # Same major the `image` crate already pulls — declared explicitly because
 # the encoder API lives here, not behind `image`.
 png = "0.18"
+# Stage 06 export: lossy WebP encoding. `image`'s built-in WebP encoder is
+# lossless-only, and a "quality" slider for WebP must mean real VP8 quality
+# — so the actual libwebp encoder (vendored C source compiled at build
+# time; zero runtime downloads, matching the app's no-network promise).
+# `img` feature off: we encode from raw pixel buffers, not DynamicImage.
+webp = { version = "0.3", default-features = false }
 
 # Release profile tuned for a small, fast native binary.
 [profile.release]

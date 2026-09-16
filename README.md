@@ -3,18 +3,58 @@
 Premium Windows-first desktop app for local AI image enhancement and upscaling.
 Your images are processed on your own machine and never uploaded.
 
-**Current status:** Stage 05 — local AI inference engine. The core promise
-is now real end to end: an imported image is upscaled 4× **on this machine**
-by Real-ESRGAN running on ONNX Runtime (DirectML GPU, CPU fallback), with
-measured tile progress, working cancellation, and the result streaming into
-the Stage 04 compare slider. The batch queue and licensing arrive in later
-stages.
+**Current status:** Stage 06 — enhancement controls. The full workflow is
+live: import → choose 2×/4× and a real enhancement mode → Enhance → the
+result opens in the compare slider → export as PNG/JPEG/WebP with quality
+and folder choices. Everything runs on this machine: Real-ESRGAN models on
+ONNX Runtime (DirectML GPU, CPU fallback). The batch queue and licensing
+arrive in later stages.
+
+## Enhancement controls (Stage 06)
+
+```
+EnhanceControls strip (src/components/EnhanceControls.tsx)
+  Scale 2×/4× · Mode Standard/Natural/Detail — SegmentedFields offering
+  only what the installed models genuinely deliver (from native status)
+  ↓ Enhance {scale}× (primary action) — transforms to Enhancing… while a
+  measured job runs (cancel; failure → retry; completion → result row +
+  Compare/Export; compare mode opens automatically on completion)
+  ↓ useEnhance → ipc/bridge enhanceImage(imageId, mode, scale, onEvent)
+enhance_image command (commands/inference.rs) — validates mode + scale at
+the boundary, reserves the single job slot, records the committed master
+per image (export authority)
+  ↓ services/inference/service.rs — EnhanceMode resolution: Standard →
+  general model; Natural → WDN model (genuinely different weights);
+  Detail → general model + the engine's real unsharp post-pass. Target
+  scale is verified against the model's deliverable set (4× native; 2×
+  via model 4× + exact box resample on stream), refused honestly as
+  `unsupported_scale` otherwise.
+  ↓ services/inference/engine.rs — per-tile PostPass (3×3 blur →
+  unsharp mask with bleed context, seam-free) + target-resolution band
+  resampling; geometry stays pixel-exact under tests
+Export (Stage 06)
+  ExportDialog (PNG/JPEG/WebP, quality slider for lossy, native folder
+  picker with default `exports/`) → export_enhanced_image command →
+  services/export.rs: PNG = byte-identical copy of the master, JPEG =
+  alpha flattened on white + quality, WebP = libwebp lossy + alpha;
+  atomic `.part` → rename, collision-safe names
+```
+
+- **No fake options.** Every visible mode is a different model or a real
+  pixel pass; every scale is genuinely produced (verified in the app and
+  in `stage06_qa.rs`, which asserts the three modes' outputs are
+  byte-different and that q40 < q90 < lossless in file size).
+- **Choices persist** (localStorage, like the theme) and self-heal when
+  the engine changes under the user (a removed model drops its modes).
+- Privacy unchanged: new commands follow the same boundary rules —
+  webview gets no dialog/filesystem ACL; the export source is resolved
+  server-side from the engine's own registry, never a client path.
 
 ## Inference pipeline (Stage 05)
 
 ```
-Enhance 4× (src/components/EnhanceControls.tsx)
-  ↓ src/ipc/bridge.ts — enhanceImage(imageId, onEvent) via a Tauri Channel
+Enhance {scale}× / mode choice (src/components/EnhanceControls.tsx)
+  ↓ src/ipc/bridge.ts — enhanceImage(imageId, mode, scale, onEvent) via a Tauri Channel
 enhance_image command (src-tauri/src/commands/inference.rs) — reserves the
 single job slot, spawns blocking work
   ↓ services/inference/
@@ -43,12 +83,13 @@ enhanced/job-*.png (app-data) + display view for the compare slider
   only** (ORT binary download); the app's runtime capability list is
   unchanged (`core:default` + `log:default` — no network). ONNX Runtime's
   Windows telemetry is explicitly disabled at init.
-- **Model:** `realesr-general-x4v3.onnx` (Real-ESRGAN general 4×,
-  BSD-3-Clause — see `src-tauri/models/README.md`). The engine layer is
-  trait-based: swapping the runtime/model never touches UI, commands, or
-  pipeline geometry.
+- **Model:** `realesr-general-x4v3.onnx` (Standard/Detail) and
+  `realesr-general-wdn-x4v3.onnx` (Natural) — Real-ESRGAN general 4× and
+  its WDN denoising variant, BSD-3-Clause (see `src-tauri/models/README.md`).
+  The engine layer is trait-based: swapping the runtime/model never touches
+  UI, commands, or pipeline geometry.
 - Engine errors reach the UI as new user-safe codes: `model_missing`,
-  `model_corrupt`, `engine_unavailable`, `cancelled`.
+  `model_corrupt`, `engine_unavailable`, `unsupported_scale`, `cancelled`.
 
 ## Image workspace (Stage 04)
 
@@ -193,7 +234,8 @@ src/
 ├── shell/        # application chrome: TopBar, NavRail, StatusBar, dialogs
 ├── views/        # one file per navigation destination (Enhance/Batch/History)
 ├── components/   # workspace pieces: ImageWorkspace, CompareSplit,
-│                 # CrossfadeImage (+ pre-Stage-02 StatusDot)
+│                 # CrossfadeImage, EnhanceControls, ExportDialog
+│                 # (+ pre-Stage-02 StatusDot)
 └── types/        # IPC payload types shared across the native boundary
 ```
 

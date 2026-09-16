@@ -46,6 +46,9 @@ pub enum AppError {
     ModelMissing { detail: String },
     /// A model file exists but failed validation (hash/size/structure).
     ModelCorrupt { detail: String },
+    /// The requested upscale isn't genuinely deliverable by the installed
+    /// model (e.g. asking an odd-factor model for a half-size pass).
+    UnsupportedScale { detail: String },
     /// The user cancelled the operation. Carries no fault.
     Cancelled { detail: String },
     /// Anything that did not fit the expected failure categories.
@@ -66,6 +69,7 @@ impl AppError {
             AppError::EngineUnavailable { .. } => "engine_unavailable",
             AppError::ModelMissing { .. } => "model_missing",
             AppError::ModelCorrupt { .. } => "model_corrupt",
+            AppError::UnsupportedScale { .. } => "unsupported_scale",
             AppError::Cancelled { .. } => "cancelled",
             AppError::Unexpected { .. } => "unexpected_error",
         }
@@ -103,6 +107,9 @@ impl AppError {
             }
             AppError::ModelCorrupt { .. } => {
                 "The enhancement model file is damaged or incomplete. Re-download it into Pixora's models folder."
+            }
+            AppError::UnsupportedScale { .. } => {
+                "This upscale size isn't supported by the installed model. Pick a supported size."
             }
             AppError::Cancelled { .. } => "Processing was cancelled.",
             AppError::Unexpected { .. } => "Something went wrong. The application log may help.",
@@ -144,6 +151,7 @@ fn other_detail(err: &AppError) -> &str {
         | AppError::EngineUnavailable { detail }
         | AppError::ModelMissing { detail }
         | AppError::ModelCorrupt { detail }
+        | AppError::UnsupportedScale { detail }
         | AppError::Cancelled { detail }
         | AppError::Unexpected { detail } => detail,
     }

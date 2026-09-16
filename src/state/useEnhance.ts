@@ -1,25 +1,33 @@
 /**
- * Enhancement orchestration (Stage 05) — the single funnel for running
- * the local AI engine on an imported image.
+ * Enhancement orchestration (Stage 05, controls in Stage 06) — the single
+ * funnel for running the local AI engine on an imported image.
  *
- * Responsibilities mirror `useImport`'s contract: run the native job,
- * translate events into app state (the job's six honest phases), and
- * surface terminal outcomes as user-safe notifications. The engine's
- * progress is real: completed-tile counts arrive from native, and the
- * reducer stores them without inventing anything in between.
+ * Responsibilities mirror `useImport`'s contract: run the native job with
+ * the user's chosen mode + scale, translate events into app state (the
+ * job's six honest phases), and surface terminal outcomes as user-safe
+ * notifications. The engine's progress is real: completed-tile counts
+ * arrive from native, and the reducer stores them without inventing
+ * anything in between.
  *
  * One job at a time — the native registry enforces the same, so the UI
  * shows a busy engine rather than a queue that doesn't exist.
  */
 import { useCallback, useRef } from 'react'
 import { cancelEnhancement, enhanceImage } from '../ipc/bridge'
-import { toAppError } from '../types/ipc'
+import { toAppError, type EnhanceModeKey } from '../types/ipc'
 import { useAppState } from './useAppState'
 import { useNotify } from '../ui/notificationContext'
 
+/** The parameters of one enhancement run — chosen by the user, never
+ * defaulted inside this funnel. */
+export interface EnhanceRunParams {
+  mode: EnhanceModeKey
+  scale: number
+}
+
 export interface EnhanceApi {
   /** Start enhancing the given image (no-op while a job runs). */
-  run: (imageId: string) => Promise<void>
+  run: (imageId: string, params: EnhanceRunParams) => Promise<void>
   /** Ask the native engine to stop the current job. */
   cancel: () => Promise<void>
   /** Dismiss a finished/failed job panel. */
@@ -32,12 +40,12 @@ export function useEnhance(): EnhanceApi {
   const running = useRef(false)
 
   const run = useCallback(
-    async (imageId: string) => {
+    async (imageId: string, params: EnhanceRunParams) => {
       if (running.current) return
       running.current = true
       dispatch({ type: 'enhance/start', imageId })
       try {
-        const result = await enhanceImage(imageId, (event) =>
+        const result = await enhanceImage(imageId, params.mode, params.scale, (event) =>
           dispatch({ type: 'enhance/event', event }),
         )
         // The result is authoritative — the completed event may already

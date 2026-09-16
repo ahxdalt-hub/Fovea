@@ -106,6 +106,9 @@ export interface SegmentedFieldProps {
   onChange: (value: string) => void
   name?: string
   className?: string
+  /** Locks the whole group (e.g. while a job is running). */
+  disabled?: boolean
+  hint?: string
 }
 
 export function SegmentedField({
@@ -115,6 +118,8 @@ export function SegmentedField({
   onChange,
   name,
   className,
+  disabled = false,
+  hint,
 }: SegmentedFieldProps) {
   const groupName = useId()
   return (
@@ -127,6 +132,7 @@ export function SegmentedField({
             className={cx(
               'pix-segmented__option',
               value === option.value && 'pix-segmented__option--checked',
+              disabled && 'pix-segmented__option--disabled',
             )}
           >
             <input
@@ -135,6 +141,7 @@ export function SegmentedField({
               className="u-visually-hidden"
               value={option.value}
               checked={value === option.value}
+              disabled={disabled}
               onChange={() => onChange(option.value)}
             />
             {option.icon}
@@ -142,6 +149,7 @@ export function SegmentedField({
           </label>
         ))}
       </div>
+      {hint && <span className="pix-field__message">{hint}</span>}
     </div>
   )
 }

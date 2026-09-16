@@ -24,9 +24,13 @@ import { useAppState } from '../state/useAppState'
 import { useImport, type ImportApi } from '../state/useImport'
 import type { EnhanceApi } from '../state/useEnhance'
 
-/** Stage 05: the view renders the enhance controls strip too; idle in
+/** Stage 05/06: the view renders the enhance controls strip too; idle in
  * jsdom (not the Tauri runtime), so a stub api keeps tests focused. */
-const enhanceApi: EnhanceApi = { run: async () => {}, cancel: async () => {}, dismiss: () => {} }
+const enhanceApi: EnhanceApi = {
+  run: async () => {},
+  cancel: async () => {},
+  dismiss: () => {},
+}
 
 function importedImage(overrides: Partial<ImportedImageDto> & { id: string }): ImportedImageDto {
   return {

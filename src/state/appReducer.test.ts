@@ -321,11 +321,41 @@ describe('appReducer — enhance job (Stage 05)', () => {
   it('inference/set records engine readiness', () => {
     const status = {
       device: 'DirectML GPU',
-      models: [{ id: 'm', label: 'l', scale: 4, state: 'ready' }],
+      models: [{ id: 'm', label: 'l', scale: 4, state: 'ready', mode: 'standard' }],
       ready: true,
+      scales: [2, 4],
+      modes: [{ key: 'standard', label: 'Standard', description: 'd', available: true }],
       modelsDirDisplay: 'C:/models',
     }
     const s = appReducer(initialState, { type: 'inference/set', status })
     expect(s.inference?.ready).toBe(true)
+    expect(s.inference?.scales).toEqual([2, 4])
+    expect(s.inference?.modes).toHaveLength(1)
+  })
+
+  it('enhance/setSettings merges partial choices', () => {
+    const s = appReducer(initialState, { type: 'enhance/setSettings', settings: { scale: 2 } })
+    expect(s.enhanceSettings.scale).toBe(2)
+    expect(s.enhanceSettings.mode).toBe('standard') // default stands
+    const t = appReducer(s, { type: 'enhance/setSettings', settings: { mode: 'detail' } })
+    expect(t.enhanceSettings).toEqual({ scale: 2, mode: 'detail' })
+  })
+
+  it('exports/set records the last export per image', () => {
+    const result = {
+      filePath: 'C:/out/a.png',
+      fileName: 'a.png',
+      folder: 'C:/out',
+      format: 'png',
+      bytes: 4321,
+    }
+    const s = appReducer(initialState, { type: 'exports/set', imageId: 'a', result })
+    expect(s.exports['a']).toEqual(result)
+    const again = appReducer(s, {
+      type: 'exports/set',
+      imageId: 'a',
+      result: { ...result, format: 'jpeg' },
+    })
+    expect(again.exports['a']?.format).toBe('jpeg')
   })
 })
