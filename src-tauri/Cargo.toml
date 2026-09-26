@@ -46,6 +46,23 @@ png = "0.18"
 # `img` feature off: we encode from raw pixel buffers, not DynamicImage.
 webp = { version = "0.3", default-features = false }
 
+# Stage 07 hardware detection: DXGI adapter enumeration + a D3D12 feature
+# probe (the honest "can DirectML run here" question), memory status, CPU
+# topology, and the process working set for the benchmark harness. 0.61 is
+# the windows-rs major Tauri's own usage already pins in the lockfile —
+# one binding set, no duplicate metadata.
+[target.'cfg(windows)'.dependencies]
+windows = { version = "0.61", features = [
+    "Win32_Foundation",
+    "Win32_Graphics_Direct3D",
+    "Win32_Graphics_Direct3D12",
+    "Win32_Graphics_Dxgi",
+    "Win32_System_ProcessStatus",
+    "Win32_System_Registry",
+    "Win32_System_SystemInformation",
+    "Win32_System_Threading",
+] }
+
 # Release profile tuned for a small, fast native binary.
 [profile.release]
 codegen-units = 1

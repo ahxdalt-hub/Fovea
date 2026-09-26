@@ -68,7 +68,7 @@ fn enhance(
         &job_id,
         &token,
         |_| {},
-        OnnxBackend::load,
+        OnnxBackend::load_with,
     )
     .unwrap_or_else(|e| panic!("{mode:?} {scale}× enhance failed: {e}"))
 }

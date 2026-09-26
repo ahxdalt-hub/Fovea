@@ -129,17 +129,48 @@ pub(crate) fn init_environment() {
     });
 }
 
+/// Which execution path a session should be built for.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum GpuPreference {
+    /// Try DirectML first; a load-time fallback to CPU is automatic and
+    /// honest (the session's `device_name()` reports what actually won).
+    PreferGpu,
+    /// Never touch the GPU EP — the ladder's "GPU is out of memory,
+    /// continue on CPU" path. Also the CPU-forcing door for tests/QA.
+    CpuOnly,
+}
+
 impl OnnxBackend {
-    /// Load a validated model file. Tries the DirectML GPU EP first and
-    /// falls back to CPU when it is unavailable (old drivers, no DX12
-    /// adapter, EP missing from the binary).
+    /// Load a validated model file with GPU preference (Stage 05
+    /// behavior, kept as the default entry point).
     pub fn load(model_path: &std::path::Path) -> Result<Self, EngineError> {
+        Self::load_with(model_path, GpuPreference::PreferGpu)
+    }
+
+    /// Load a validated model file for a chosen path. With `PreferGpu` it
+    /// tries the DirectML GPU EP first and falls back to CPU when it is
+    /// unavailable (old drivers, no DX12 adapter, EP missing from the
+    /// binary) — the application *never* crashes over an unusable GPU, it
+    /// keeps working slower. `CpuOnly` skips the GPU attempt entirely.
+    pub fn load_with(
+        model_path: &std::path::Path,
+        preference: GpuPreference,
+    ) -> Result<Self, EngineError> {
         init_environment();
         let build = |dml: bool| -> Result<ort::session::Session, ort::Error> {
             let mut builder = ort::session::Session::builder()?;
             if dml {
                 builder =
                     builder.with_execution_providers([ort::ep::DirectML::default().build()])?;
+            } else {
+                // CPU path: cap intra-op threads at the physical core
+                // count. ORT's default claims every *logical* processor,
+                // which on a small laptop starves the UI thread and the
+                // compositor during a multi-minute job. The enhancement
+                // finishes milliseconds slower; the app stays responsive.
+                let hw = crate::services::hardware::detect();
+                let threads = hw.physical_cores.max(1).min(hw.logical_processors.max(1));
+                builder = builder.with_intra_threads(threads)?;
             }
             let session = builder.commit_from_file(model_path)?;
             // The Stage 05 models are single-input; assert early with a
@@ -149,23 +180,30 @@ impl OnnxBackend {
             }
             Ok(session)
         };
-        match build(true) {
-            Ok(session) => Ok(OnnxBackend {
-                session,
-                device: "DirectML GPU",
-            }),
-            Err(dml_err) => {
-                log::info!("DirectML unavailable for inference, falling back to CPU: {dml_err}");
-                match build(false) {
-                    Ok(session) => Ok(OnnxBackend {
+        let try_gpu = matches!(preference, GpuPreference::PreferGpu);
+        if try_gpu {
+            match build(true) {
+                Ok(session) => {
+                    return Ok(OnnxBackend {
                         session,
-                        device: "CPU",
-                    }),
-                    Err(cpu_err) => Err(EngineError::Failed(format!(
-                        "session load failed (dml: {dml_err}; cpu: {cpu_err})"
-                    ))),
+                        device: "DirectML GPU",
+                    });
+                }
+                Err(dml_err) => {
+                    log::info!(
+                        "DirectML unavailable for inference, falling back to CPU: {dml_err}"
+                    );
                 }
             }
+        }
+        match build(false) {
+            Ok(session) => Ok(OnnxBackend {
+                session,
+                device: "CPU",
+            }),
+            Err(cpu_err) => Err(EngineError::Failed(format!(
+                "session load failed (cpu: {cpu_err})"
+            ))),
         }
     }
 }

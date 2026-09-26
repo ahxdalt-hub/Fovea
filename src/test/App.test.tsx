@@ -41,6 +41,30 @@ function mockSuccessfulCore() {
         appDataDir: 'C:/Users/test/AppData',
       })
     if (cmd === 'write_frontend_log') return Promise.resolve(null)
+    if (cmd === 'get_diagnostics')
+      return Promise.resolve({
+        hardware: {
+          cpuName: 'Test CPU 1234',
+          physicalCores: 6,
+          logicalProcessors: 12,
+          totalMemoryBytes: 16 * 1024 * 1024 * 1024,
+          availableMemoryBytes: 8 * 1024 * 1024 * 1024,
+          gpus: [
+            {
+              name: 'Test GPU X',
+              vendorId: 4318,
+              dedicatedVideoBytes: 4 * 1024 * 1024 * 1024,
+              sharedSystemBytes: 8 * 1024 * 1024 * 1024,
+              software: false,
+              directx12: true,
+            },
+          ],
+        },
+        engineDevice: 'DirectML GPU',
+        maxTileBytes: 536870912,
+        maxBandBytes: 536870912,
+        memoryLimit: 'GPU video memory',
+      })
     return Promise.reject(new Error(`unexpected command: ${cmd}`))
   })
 }
@@ -112,6 +136,10 @@ describe('Pixora shell', () => {
     const dialog = await screen.findByRole('dialog', { name: 'Settings' })
     expect(dialog).toBeInTheDocument()
 
+    // Stage 07: the Processing section reports the engine diagnostics.
+    expect(await screen.findByText('GPU acceleration (DirectML GPU)')).toBeInTheDocument()
+    expect(screen.getByText(/Test GPU X/)).toBeInTheDocument()
+
     fireEvent.click(screen.getByRole('radio', { name: 'Dark' }))
     expect(document.documentElement.getAttribute('data-theme')).toBe('dark')
     expect(localStorage.getItem('pixora:theme')).toBe('dark')
@@ -120,6 +148,33 @@ describe('Pixora shell', () => {
     await waitFor(() =>
       expect(screen.queryByRole('dialog', { name: 'Settings' })).not.toBeInTheDocument(),
     )
+  })
+
+  it('settings diagnostics degrade honestly when the probe fails', async () => {
+    mockSuccessfulCore()
+    invoke.mockImplementation((cmd: string) => {
+      if (cmd === 'get_diagnostics')
+        return Promise.reject({ code: 'unexpected_error', message: 'no' })
+      if (cmd === 'get_config')
+        return Promise.resolve({
+          productName: 'Pixora',
+          version: '0.2.0',
+          identifier: 'com.pixora.desktop',
+          debug: true,
+        })
+      if (cmd === 'get_system_info')
+        return Promise.resolve({
+          osFamily: 'windows',
+          arch: 'x86_64',
+          appDataDir: 'C:/Users/test/AppData',
+        })
+      return Promise.resolve(null)
+    })
+    renderApp()
+    await screen.findByText(/core connected/i)
+    fireEvent.keyDown(window, { key: ',', ctrlKey: true })
+    await screen.findByRole('dialog', { name: 'Settings' })
+    expect(await screen.findByText(/diagnostics are unavailable/i)).toBeInTheDocument()
   })
 
   it('returns focus to the trigger when a dialog closes', async () => {

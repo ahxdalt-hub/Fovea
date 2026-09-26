@@ -27,44 +27,108 @@
 
 use std::collections::HashMap;
 use std::fs::File;
-use std::io::{BufWriter, Write};
+use std::io::{BufWriter, Cursor, Write};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
 
-use image::RgbImage;
+use base64::Engine as _;
+use image::{DynamicImage, RgbImage};
 use serde::Serialize;
 
 use crate::error::{AppError, AppResult};
+use crate::services::hardware::{self, MemoryBudgets};
 use crate::services::import;
 
-use super::backend::{Backend, CancelToken, EngineError};
+use super::backend::{Backend, CancelToken, EngineError, GpuPreference};
 use super::engine::{self, Plan, PostPass, RowWriter};
 use super::model::{EnhanceMode, ModelRegistry, ModelState, product_scales_for};
 
-/// Largest source (in pixels) the engine will attempt. Import allows
-/// 64 MP for *viewing*; a 4× pass over that would produce a >100 MP
-/// output and hundreds of MB of intermediates — reject honestly instead
-/// of grinding or crashing.
-pub const MAX_ENHANCE_INPUT_PIXELS: u64 = 16_000_000;
+/// Largest *output* (in pixels) the engine will attempt. Import allows
+/// 64 MP for viewing; the honest cap for enhancement is on the finished
+/// frame (decode + encode + disk + the display view all scale with it),
+/// which gives each target scale its own input headroom: 16 MP at 4×
+/// (as before), 64 MP at 2×. A 256 MP 4× output is where professional
+/// usage stops being "reliable" on consumer machines — refuse honestly
+/// instead of grinding or crashing.
+pub const MAX_ENHANCE_OUTPUT_PIXELS: u64 = 256_000_000;
 
-/// Tile edge / pad defaults live in `engine`; surfaced here as the tunable
-/// process configuration so "where do tile sizes come from" has one answer.
+/// Tile edge / pad / memory configuration for the process. Tile sizes
+/// start from `tile` and shrink per plan through [`engine::adaptive_tile`]
+/// against `max_tile_bytes`/`max_band_bytes`, so the engine never asks
+/// the runtime for more memory than this machine's budget can cover
+/// (Stage 07). Defaults come from the one-time hardware snapshot.
 #[derive(Debug, Clone, Copy)]
 pub struct EngineConfig {
     pub tile: usize,
     pub pad: usize,
-    pub max_input_pixels: u64,
+    pub max_output_pixels: u64,
+    /// Cap on one tile's model-output float buffer (hardware-budgeted).
+    pub max_tile_bytes: usize,
+    /// Cap on one composited output band buffer (hardware-budgeted).
+    pub max_band_bytes: usize,
 }
 
 impl Default for EngineConfig {
     fn default() -> Self {
+        let hw = hardware::detect();
+        // Match what the job ladder will actually do: forced-CPU or no
+        // DX12 adapter → RAM budgets; otherwise the GPU-squeezed ones.
+        let budgets = if force_cpu() || hw.acceleration_gpu().is_none() {
+            hardware::cpu_only_budgets(hw)
+        } else {
+            hardware::memory_budgets(hw)
+        };
+        // QA doors (Stage 07, dev-only like PIXORA_MODELS_DIR):
+        // PIXORA_TILE pins the ceiling; PIXORA_BUDGET_MB clamps both
+        // budgets to reproduce low-VRAM/low-RAM conditions on a healthy
+        // machine — the adaptive shrink and the ladder then run for real.
+        let budgets = match std::env::var("PIXORA_BUDGET_MB")
+            .ok()
+            .and_then(|v| v.parse::<usize>().ok())
+        {
+            Some(mb) if mb >= 1 => MemoryBudgets {
+                max_tile_bytes: mb * (1 << 20),
+                max_band_bytes: mb * (1 << 20),
+            },
+            _ => budgets,
+        };
+        let tile = std::env::var("PIXORA_TILE")
+            .ok()
+            .and_then(|v| v.parse::<usize>().ok())
+            .filter(|t| (16..=1024).contains(t))
+            .unwrap_or(engine::DEFAULT_TILE);
+        EngineConfig::with_budgets(tile, budgets)
+    }
+}
+
+impl EngineConfig {
+    /// Explicit budgets (tests, benchmarks) over the usual defaults.
+    pub fn with_budgets(tile: usize, budgets: MemoryBudgets) -> Self {
         EngineConfig {
-            tile: engine::DEFAULT_TILE,
+            tile,
             pad: engine::DEFAULT_PAD,
-            max_input_pixels: MAX_ENHANCE_INPUT_PIXELS,
+            max_output_pixels: MAX_ENHANCE_OUTPUT_PIXELS,
+            max_tile_bytes: budgets.max_tile_bytes,
+            max_band_bytes: budgets.max_band_bytes,
         }
     }
+
+    /// Budgets as reported to diagnostics.
+    pub fn budgets(&self) -> MemoryBudgets {
+        MemoryBudgets {
+            max_tile_bytes: self.max_tile_bytes,
+            max_band_bytes: self.max_band_bytes,
+        }
+    }
+}
+
+/// QA/dev door: `PIXORA_FORCE_CPU=1` makes every run start on the CPU
+/// path — how the unsupported-GPU scenario is tested on a GPU machine.
+/// Read once; the cached answer keeps status probing and jobs consistent.
+fn force_cpu() -> bool {
+    static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *ON.get_or_init(|| std::env::var_os("PIXORA_FORCE_CPU").is_some())
 }
 
 /// One enhancement result — serialized to the UI (`EnhanceResultDto`).
@@ -95,6 +159,11 @@ pub enum EnhanceEvent {
     /// Validating the source + loading the model. Carries the server-side
     /// job id so the UI can cancel this exact run.
     Preparing { job_id: String },
+    /// The device an *attempt* is running on. Emitted once per backend
+    /// open and again whenever a retry changes the path (GPU OOM → CPU)
+    /// or the tile geometry shrinks — the UI's subtle "on GPU / on CPU"
+    /// readout follows the truth, never an assumption.
+    Device { device: &'static str, tile: u32 },
     /// Inference running. `done`/`total` are completed tiles — a real
     /// measurement, not an estimate.
     Processing { done: u32, total: u32 },
@@ -303,9 +372,14 @@ pub fn inference_status(registry: &ModelRegistry) -> InferenceStatus {
 
 /// Which device a newly-created session will land on. `ort` decides per
 /// session; the answer is stable for the process, so probe + cache.
-fn probe_device() -> &'static str {
+/// `PIXORA_FORCE_CPU` short-circuits it (QA door — the probe and the job
+/// ladder must agree).
+pub fn probe_device() -> &'static str {
     static DEVICE: OnceLock<&'static str> = OnceLock::new();
     DEVICE.get_or_init(|| {
+        if force_cpu() {
+            return "CPU";
+        }
         use ort::ep::ExecutionProvider;
         super::backend::init_environment();
         match ort::ep::DirectML::default().is_available() {
@@ -316,8 +390,9 @@ fn probe_device() -> &'static str {
 }
 
 /// Run one enhancement job to completion. Generic over [`Backend`] so the
-/// whole service contract — staging, errors, atomicity, registry — is
-/// tested with a fake runtime; the real one is `OnnxBackend`.
+/// whole service contract — staging, errors, atomicity, registry, the
+/// Stage 07 memory ladder — is tested with a fake runtime; the real one
+/// is `OnnxBackend`.
 ///
 /// `mode` selects the enhancement behavior (each one backed by genuinely
 /// different processing — see `model::EnhanceMode`); `target` is the
@@ -325,9 +400,10 @@ fn probe_device() -> &'static str {
 /// chosen model (`product_scales_for`), or the job fails honestly before
 /// any work starts.
 ///
-/// `jobs.begin` must already own registration failure; this function
-/// always reaches `jobs.finish` exactly once. `emit` observes every
-/// phase transition in order.
+/// `open_backend` is *callable per attempt*: the GPU/CPU path may retry
+/// (see [`enhance_inner`]'s ladder). `jobs.begin` must already own
+/// registration failure; this function always reaches `jobs.finish`
+/// exactly once. `emit` observes every phase transition in order.
 #[allow(clippy::too_many_arguments)]
 pub fn enhance<B: Backend>(
     source_id: &str,
@@ -340,7 +416,7 @@ pub fn enhance<B: Backend>(
     job_id: &str,
     token: &Arc<CancelToken>,
     mut emit: impl FnMut(EnhanceEvent),
-    open_backend: impl FnOnce(&Path) -> Result<B, EngineError>,
+    open_backend: impl FnMut(&Path, GpuPreference) -> Result<B, EngineError>,
 ) -> AppResult<EnhanceResult> {
     emit(EnhanceEvent::Preparing {
         job_id: job_id.to_string(),
@@ -388,7 +464,7 @@ fn enhance_inner<B: Backend>(
     job_id: &str,
     token: &Arc<CancelToken>,
     emit: &mut dyn FnMut(EnhanceEvent),
-    open_backend: impl FnOnce(&Path) -> Result<B, EngineError>,
+    mut open_backend: impl FnMut(&Path, GpuPreference) -> Result<B, EngineError>,
 ) -> AppResult<EnhanceResult> {
     let source = Path::new(source_id);
 
@@ -396,11 +472,12 @@ fn enhance_inner<B: Backend>(
     // now fails with its right user-safe code, not an engine mystery.
     let (decoded, _size) = import::decode_validated(source)?;
     let pixels = u64::from(decoded.width()) * u64::from(decoded.height());
-    if pixels > config.max_input_pixels {
+    let out_pixels = pixels * (target * target) as u64;
+    if out_pixels > config.max_output_pixels {
         return Err(AppError::FileTooLarge {
             detail: format!(
-                "enhancement source {pixels} px exceeds the {} px engine cap",
-                config.max_input_pixels
+                "enhancement output {out_pixels} px exceeds the {} px engine cap",
+                config.max_output_pixels
             ),
         });
     }
@@ -432,13 +509,6 @@ fn enhance_inner<B: Backend>(
             detail: format!("target {target}x not offered by model scale {}", spec.scale),
         });
     }
-    let mut backend = open_backend(&model_path).map_err(|err| match err {
-        EngineError::Cancelled => AppError::Cancelled {
-            detail: spec.id.into(),
-        },
-        EngineError::OutOfMemory(detail) => AppError::InsufficientResources { detail },
-        EngineError::Failed(detail) => AppError::EngineUnavailable { detail },
-    })?;
 
     // Flatten to the pipeline's input format. Alpha sources keep their
     // transparency: the mask is nearest-resampled onto the output while
@@ -456,49 +526,173 @@ fn enhance_inner<B: Backend>(
         _ => PostPass::None,
     };
 
-    let plan = Plan::with_target(
-        rgb.width() as usize,
-        rgb.height() as usize,
-        spec.scale,
-        target,
-        config.tile,
-        config.pad,
-    );
-
     // Atomic output: write `*.part`, rename on success, delete otherwise.
+    // The `.part` name is per *attempt* so a failed GPU run can never
+    // collide with its own CPU retry mid-write.
     std::fs::create_dir_all(out_dir)?;
     let final_path = out_dir.join(format!("{job_id}.png"));
-    let part_path = out_dir.join(format!("{job_id}.png.part"));
-    let _ = std::fs::remove_file(&part_path);
-    let outcome = run_pipeline(
-        &mut backend,
-        &rgb,
-        alpha_plane,
-        &plan,
-        post,
-        &part_path,
-        token,
-        emit,
-    );
-    let Err(err) = outcome else {
-        // Commit, then build the display view through the viewer ladder.
-        if let Err(e) = std::fs::rename(&part_path, &final_path) {
-            let _ = std::fs::remove_file(&part_path);
-            return Err(AppError::unexpected(format!("commit output: {e}")));
-        }
-        let view = import::load_image_view(&final_path, import::VIEW_MAX_EDGE)?;
-        return Ok(EnhanceResult {
-            image_id: source_id.to_string(),
-            file_path: final_path,
-            width: view.width,
-            height: view.height,
-            label: format!("{target}× · {}", mode.label()),
-            engine: backend.device_name().to_string(),
-            data_url: view.data_url,
-        });
+    let _ = std::fs::remove_file(&final_path);
+
+    // ── The processing ladder (Stage 07) ──────────────────────────────
+    //
+    //   attempt 1: GPU preferred (unless PIXORA_FORCE_CPU) with the
+    //              hardware-derived budgets and an adaptive tile
+    //   attempt 2: any GPU-path failure (session build, device removed,
+    //              OOM mid-run) drops to the CPU session with a halved
+    //              tile ceiling — slower, never fatal
+    //   attempt 3: still OOM → halve the ceilings once more
+    //   then:      honest `insufficient_resources` — no crash, no silent
+    //              quality lie, the output scratch dies clean
+    //
+    // The process config's budgets stay authoritative throughout (they
+    // were derived from hardware at startup); retries only ever *shrink*
+    // them. Every failed attempt deletes its `.part`; every retry is
+    // logged with the real error text so diagnostics can reconstruct
+    // exactly what happened.
+    let mut preference = if force_cpu() {
+        GpuPreference::CpuOnly
+    } else {
+        GpuPreference::PreferGpu
     };
-    let _ = std::fs::remove_file(&part_path);
-    Err(err)
+    let mut budgets = config.budgets();
+    let mut tile_ceiling = config.tile;
+
+    let mut last_oom = String::new();
+    for attempt in 0..3 {
+        if token.is_cancelled() {
+            return Err(AppError::Cancelled {
+                detail: "before attempt".into(),
+            });
+        }
+        let backend = match open_backend(&model_path, preference) {
+            Ok(b) => b,
+            Err(err) => {
+                // A GPU *session* failing to build must never be fatal:
+                // retry once on CPU. A CPU session failing to build is a
+                // genuinely broken runtime — report it.
+                match err {
+                    EngineError::Cancelled => {
+                        return Err(AppError::Cancelled {
+                            detail: spec.id.into(),
+                        });
+                    }
+                    EngineError::OutOfMemory(detail) | EngineError::Failed(detail)
+                        if preference == GpuPreference::PreferGpu =>
+                    {
+                        log::warn!("GPU path could not open ({detail}) — continuing on CPU");
+                        last_oom = detail;
+                        preference = GpuPreference::CpuOnly;
+                        tile_ceiling = tile_ceiling.div_ceil(2);
+                        continue;
+                    }
+                    EngineError::OutOfMemory(detail) => {
+                        return Err(AppError::InsufficientResources { detail });
+                    }
+                    EngineError::Failed(detail) => {
+                        return Err(AppError::EngineUnavailable { detail });
+                    }
+                }
+            }
+        };
+        let mut backend = backend;
+        // A "DirectML preferred" session that fell back internally runs on
+        // the CPU EP — its budget pool is system RAM, not VRAM. Recompute
+        // (clamped, never enlarged beyond the machine's honest quarters).
+        if backend.device_name() == "CPU" && preference == GpuPreference::PreferGpu {
+            preference = GpuPreference::CpuOnly;
+            let cpu = hardware::cpu_only_budgets(hardware::detect());
+            let cfg = config.budgets();
+            budgets = MemoryBudgets {
+                max_tile_bytes: cpu.max_tile_bytes.min(cfg.max_tile_bytes),
+                max_band_bytes: cpu.max_band_bytes.min(cfg.max_band_bytes),
+            };
+        }
+        let (tile, _fits) = engine::adaptive_tile(
+            rgb.width() as usize,
+            spec.scale,
+            budgets.max_tile_bytes,
+            budgets.max_band_bytes,
+            config.pad,
+            tile_ceiling,
+        );
+        let plan = Plan::with_target(
+            rgb.width() as usize,
+            rgb.height() as usize,
+            spec.scale,
+            target,
+            tile,
+            config.pad,
+        );
+        emit(EnhanceEvent::Device {
+            device: backend.device_name(),
+            tile: tile as u32,
+        });
+        let part_path = out_dir.join(format!("{job_id}.a{attempt}.png.part"));
+        let _ = std::fs::remove_file(&part_path);
+        let outcome = run_pipeline(
+            &mut backend,
+            &rgb,
+            alpha_plane.clone(),
+            &plan,
+            post,
+            &part_path,
+            token,
+            emit,
+        );
+        match outcome {
+            Ok(tee_view) => {
+                // Commit, then hand the display view through the viewer
+                // contract. A tee-produced view (oversized master) is the
+                // honest streaming result; small masters go through the
+                // original ladder unchanged.
+                if let Err(e) = std::fs::rename(&part_path, &final_path) {
+                    let _ = std::fs::remove_file(&part_path);
+                    return Err(AppError::unexpected(format!("commit output: {e}")));
+                }
+                let view = match tee_view {
+                    Some(v) => v,
+                    None => import::load_image_view(&final_path, import::VIEW_MAX_EDGE)?,
+                };
+                return Ok(EnhanceResult {
+                    image_id: source_id.to_string(),
+                    file_path: final_path,
+                    width: view.width,
+                    height: view.height,
+                    label: format!("{target}× · {}", mode.label()),
+                    engine: backend.device_name().to_string(),
+                    data_url: view.data_url,
+                });
+            }
+            Err(AppError::InsufficientResources { detail }) => {
+                // The band or a tile could not be allocated (or the
+                // runtime reported OOM). Downgrade the path and shrink:
+                // GPU→CPU first, then tighter tile ceilings.
+                let _ = std::fs::remove_file(&part_path);
+                if preference == GpuPreference::PreferGpu {
+                    log::warn!(
+                        "GPU run out of memory ({detail}) — continuing on CPU with smaller tiles"
+                    );
+                    preference = GpuPreference::CpuOnly;
+                    tile_ceiling = tile_ceiling.div_ceil(2);
+                    last_oom = detail;
+                    continue;
+                }
+                log::warn!("out of memory ({detail}) — retrying with half the tile budget");
+                budgets.max_tile_bytes /= 2;
+                budgets.max_band_bytes /= 2;
+                tile_ceiling = tile_ceiling.div_ceil(2);
+                last_oom = detail;
+                continue;
+            }
+            Err(err) => {
+                let _ = std::fs::remove_file(&part_path);
+                return Err(err);
+            }
+        }
+    }
+    Err(AppError::InsufficientResources {
+        detail: format!("exhausted memory retries; last: {last_oom}"),
+    })
 }
 
 /// Log-only identity for a mode's backing model in missing/corrupt detail
@@ -509,6 +703,10 @@ fn spec_detail(mode: EnhanceMode, backed: EnhanceMode) -> String {
 
 /// Inference + encoding for one committed output path. Any failure here
 /// means the `.part` must die; that cleanup is the caller's job.
+/// Returns the master's display view when the output is too large for the
+/// classic re-decode path (see [`ViewTee`]) — `None` means "use the
+/// original view ladder as before", which only ever happens for masters
+/// at or below the display edge.
 #[allow(clippy::too_many_arguments)]
 fn run_pipeline<B: Backend>(
     backend: &mut B,
@@ -519,7 +717,7 @@ fn run_pipeline<B: Backend>(
     part_path: &Path,
     token: &CancelToken,
     emit: &mut dyn FnMut(EnhanceEvent),
-) -> AppResult<()> {
+) -> AppResult<Option<import::ImageView>> {
     let file =
         File::create(part_path).map_err(|e| AppError::unexpected(format!("create output: {e}")))?;
     let writer = BufWriter::with_capacity(1 << 16, file);
@@ -546,18 +744,108 @@ fn run_pipeline<B: Backend>(
     sink.finish()
 }
 
+/// Streaming display view for oversized masters (Stage 07 memory rule:
+/// a 256 MP output must never be fully re-decoded just to preview it).
+/// Rows arrive top-to-bottom from the encoder; each view pixel is the
+/// exact box average of its source block — the same honest resample the
+/// engine already uses for 2× targets, done as it streams. Peak extra
+/// memory: one accumulator row plus the finished ≤2600-edge image
+/// (~27 MB) regardless of master size.
+struct ViewTee {
+    step: usize,
+    vw: usize,
+    ch: usize,
+    /// u32 channel sums for the current view-row block.
+    acc: Vec<u32>,
+    /// Finished view rows, top to bottom.
+    out: Vec<u8>,
+    /// Source rows counted into the current block.
+    rows_in_block: usize,
+}
+
+impl ViewTee {
+    fn new(out_w: usize, out_h: usize, ch: usize) -> Self {
+        let step = out_w.max(out_h).div_ceil(import::VIEW_MAX_EDGE as usize);
+        let step = step.max(2); // a tee exists only when downscaling is real
+        let vw = (out_w / step).max(1);
+        let vh = (out_h / step).max(1);
+        ViewTee {
+            step,
+            vw,
+            ch,
+            acc: vec![0u32; vw * ch],
+            out: Vec::with_capacity(vw * vh * ch),
+            rows_in_block: 0,
+        }
+    }
+    fn push_row(&mut self, rgb: &[u8], alpha: Option<&[u8]>) {
+        debug_assert!(rgb.len() >= self.vw * self.step * 3);
+        for vx in 0..self.vw {
+            let base = vx * self.step * 3;
+            let a = &mut self.acc[vx * self.ch..][..self.ch];
+            for px in rgb[base..base + self.step * 3].chunks_exact(3) {
+                for c in 0..3 {
+                    a[c] += px[c] as u32;
+                }
+            }
+            if self.ch == 4 {
+                let asum = &mut a[3];
+                for av in alpha.unwrap()[base / 3..base / 3 + self.step].iter() {
+                    *asum += *av as u32;
+                }
+            }
+        }
+        self.rows_in_block += 1;
+        if self.rows_in_block == self.step {
+            self.flush_block();
+        }
+    }
+
+    fn flush_block(&mut self) {
+        let rows = self.rows_in_block.max(1) as u32;
+        let denom = (self.step as u32 * rows).max(1);
+        let vw = self.vw;
+        let ch = self.ch;
+        for vx in 0..vw {
+            for c in 0..ch {
+                let i = vx * ch + c;
+                let v = self.acc[i];
+                self.out.push(((v + denom / 2) / denom).min(255) as u8);
+            }
+        }
+        self.acc.iter_mut().for_each(|v| *v = 0);
+        self.rows_in_block = 0;
+    }
+
+    /// Finish and return (view_bytes, view_w, view_h, channels).
+    fn finish(mut self) -> (Vec<u8>, usize, usize, usize) {
+        if self.rows_in_block > 0 {
+            self.flush_block();
+        }
+        let vh = self.out.len() / (self.vw * self.ch);
+        (self.out, self.vw, vh, self.ch)
+    }
+}
+
 /// Streaming PNG sink: one row in, compressed bytes out — the full frame
 /// is never materialized. RGB sources encode as Rgb8 PNG; sources that
 /// had alpha re-attach it via nearest sampling (alpha is a coverage mask;
-/// "sharpening" it would invent transparency).
+/// "sharpening" it would invent transparency). Masters larger than the
+/// display edge accumulate a [`ViewTee`] on the way through, so the
+/// compare view exists without ever re-decoding the giant file.
 struct PngSink {
     stream: Option<png::StreamWriter<'static, BufWriter<File>>>,
     alpha: Option<Vec<u8>>,
     src_w: usize,
     scale: usize,
     out_w: usize,
+    out_h: usize,
     rows_written: usize,
     row_buf: Vec<u8>,
+    tee: Option<ViewTee>,
+    /// Scratch row holding the master's per-pixel alpha (alpha sources
+    /// only) so the tee averages exactly what was written.
+    alpha_row: Vec<u8>,
 }
 
 impl PngSink {
@@ -569,8 +857,9 @@ impl PngSink {
         src_w: usize,
         scale: usize,
     ) -> AppResult<Self> {
+        let has_alpha = alpha.is_some();
         let mut encoder = png::Encoder::new(w, out_w, out_h);
-        encoder.set_color(if alpha.is_some() {
+        encoder.set_color(if has_alpha {
             png::ColorType::Rgba
         } else {
             png::ColorType::Rgb
@@ -582,24 +871,62 @@ impl PngSink {
         let stream = writer
             .into_stream_writer()
             .map_err(|e| AppError::unexpected(format!("png stream: {e}")))?;
+        let tee = if out_w.max(out_h) > import::VIEW_MAX_EDGE {
+            Some(ViewTee::new(
+                out_w as usize,
+                out_h as usize,
+                if has_alpha { 4 } else { 3 },
+            ))
+        } else {
+            None
+        };
         Ok(PngSink {
             stream: Some(stream),
             alpha,
             src_w,
             scale: scale.max(1),
             out_w: out_w as usize,
+            out_h: out_h as usize,
             rows_written: 0,
             row_buf: Vec::new(),
+            tee,
+            alpha_row: Vec::new(),
         })
     }
 
-    fn finish(&mut self) -> AppResult<()> {
-        let Some(stream) = self.stream.take() else {
-            return Ok(());
+    /// Finish the PNG stream; for oversized masters also return the
+    /// display view (see [`ViewTee`]).
+    fn finish(&mut self) -> AppResult<Option<import::ImageView>> {
+        if let Some(stream) = self.stream.take() {
+            stream
+                .finish()
+                .map_err(|e| AppError::unexpected(format!("png finish: {e}")))?;
+        }
+        let Some(tee) = self.tee.take() else {
+            return Ok(None);
         };
-        stream
-            .finish()
-            .map_err(|e| AppError::unexpected(format!("png finish: {e}")))
+        let (bytes, vw, vh, ch) = tee.finish();
+        let image = if ch == 4 {
+            let img = image::RgbaImage::from_raw(vw as u32, vh as u32, bytes)
+                .ok_or_else(|| AppError::unexpected("view buffer geometry"))?;
+            DynamicImage::ImageRgba8(img)
+        } else {
+            let img = image::RgbImage::from_raw(vw as u32, vh as u32, bytes)
+                .ok_or_else(|| AppError::unexpected("view buffer geometry"))?;
+            DynamicImage::ImageRgb8(img)
+        };
+        let mut out = Cursor::new(Vec::new());
+        image
+            .write_to(&mut out, image::ImageFormat::Png)
+            .map_err(|e| AppError::unexpected(format!("view encode png: {e}")))?;
+        let b64 = base64::engine::general_purpose::STANDARD.encode(out.into_inner());
+        Ok(Some(import::ImageView {
+            width: self.out_w as u32,
+            height: self.out_h as u32,
+            delivered_edge: (vw as u32).max(vh as u32),
+            original: false,
+            data_url: format!("data:image/png;base64,{b64}"),
+        }))
     }
 }
 
@@ -614,15 +941,21 @@ impl RowWriter for PngSink {
             Some(plane) => {
                 let src_y = (self.rows_written / self.scale).min(plane.len() / self.src_w);
                 self.row_buf.clear();
+                self.alpha_row.clear();
                 for (x, px) in rgb.chunks_exact(3).enumerate() {
                     self.row_buf.extend_from_slice(px);
                     let sx = (x / self.scale).min(self.src_w - 1);
-                    self.row_buf.push(plane[src_y * self.src_w + sx]);
+                    let a = plane[src_y * self.src_w + sx];
+                    self.row_buf.push(a);
+                    self.alpha_row.push(a);
                 }
                 stream.write_all(&self.row_buf)
             }
         };
         result.map_err(|e| EngineError::Failed(format!("png row: {e}")))?;
+        if let Some(tee) = self.tee.as_mut() {
+            tee.push_row(rgb, (!self.alpha_row.is_empty()).then_some(&self.alpha_row));
+        }
         self.rows_written += 1;
         Ok(())
     }
@@ -633,8 +966,7 @@ mod tests {
     use super::*;
     use crate::services::inference::backend::TileOutput;
     use crate::services::inference::model::ModelSpec;
-    use image::{DynamicImage, ImageFormat, Rgba, RgbaImage};
-    use std::io::Cursor;
+    use image::{ImageFormat, Rgba, RgbaImage};
 
     /// Identity-ish fake backend (2× nearest) — fast, no runtime needed.
     struct Fake2x;
@@ -844,7 +1176,7 @@ mod tests {
             &job_id,
             &token,
             |e| events.push(e),
-            |_| Ok(Fake2x),
+            |_, _| Ok(Fake2x),
         );
         (result, events, root, jobs, token)
     }
@@ -875,6 +1207,7 @@ mod tests {
             .iter()
             .map(|e| match e {
                 EnhanceEvent::Preparing { .. } => "preparing",
+                EnhanceEvent::Device { .. } => "device",
                 EnhanceEvent::Processing { .. } => "processing",
                 EnhanceEvent::Completing => "completing",
                 EnhanceEvent::Completed => "completed",
@@ -1003,7 +1336,7 @@ mod tests {
             &job_id,
             &token,
             |e| events.push(e),
-            |_| Ok(Fake2x),
+            |_, _| Ok(Fake2x),
         )
         .expect_err("must fail");
         assert_eq!(err.code(), "model_missing");
@@ -1044,7 +1377,7 @@ mod tests {
             &job_id,
             &token,
             |_| {},
-            |_| Ok(Fake2x),
+            |_, _| Ok(Fake2x),
         )
         .expect_err("must fail");
         assert_eq!(err.code(), "model_corrupt");
@@ -1052,21 +1385,56 @@ mod tests {
     }
 
     #[test]
-    fn oversized_input_is_refused_before_the_engine_runs() {
+    fn oversized_output_is_refused_before_the_engine_runs() {
+        // A 600×300 source at 2× → 360K output px. With the cap at 100K,
+        // the job must fail as file_too_large without touching the runtime.
         let (result, events, _root, _jobs, _) = run_job(
             "oversize",
-            6_000,
+            600,
             false,
             None,
             None,
             EngineConfig {
-                max_input_pixels: 1_000_000,
+                max_output_pixels: 100_000,
                 ..Default::default()
             },
         );
         let err = result.expect_err("must fail");
         assert_eq!(err.code(), "file_too_large");
         assert!(matches!(events.last(), Some(EnhanceEvent::Failed { .. })));
+    }
+
+    /// Stage 07: the cap gates the *output*, not the input — so a source
+    /// that would bust the cap at 4× is fine at 2× (and vice versa).
+    #[test]
+    fn the_cap_measures_output_pixels_not_input() {
+        // 600×300 = 180K input, 2× → 720K output. A 800K cap passes it,
+        // a 700K cap refuses it: the *same source* flips verdict on the
+        // *target*, which is the rule.
+        let (ok, _e, _r, _j, _t) = run_job(
+            "cap-pass",
+            600,
+            false,
+            None,
+            None,
+            EngineConfig {
+                max_output_pixels: 800_000,
+                ..Default::default()
+            },
+        );
+        assert!(ok.is_ok(), "720K output ≤ 800K cap must run");
+        let (no, _e, _r, _j, _t) = run_job(
+            "cap-fail",
+            600,
+            false,
+            None,
+            None,
+            EngineConfig {
+                max_output_pixels: 700_000,
+                ..Default::default()
+            },
+        );
+        assert_eq!(no.expect_err("must fail").code(), "file_too_large");
     }
 
     #[test]
@@ -1105,11 +1473,274 @@ mod tests {
             &job_id,
             &token,
             |_| {},
-            |_| Err::<Fake2x, EngineError>(EngineError::Failed("dml device removed".into())),
+            |_, _| Err::<Fake2x, EngineError>(EngineError::Failed("dml device removed".into())),
         )
         .expect_err("must fail");
         assert_eq!(err.code(), "engine_unavailable");
         assert_eq!(jobs.active_count(), 0);
+    }
+
+    // ── Stage 07: the GPU→CPU→smaller-tile ladder ────────────────────
+
+    /// A backend whose behavior depends on which path opened it: the GPU
+    /// persona can OOM its first tile (a runtime losing the VRAM fight),
+    /// the CPU persona always works. One type serves both ladder attempts
+    /// because `enhance` is generic over a *single* `B: Backend`.
+    struct LadderBackend {
+        device: &'static str,
+        fail_first: bool,
+        fired: bool,
+    }
+
+    impl Backend for LadderBackend {
+        fn device_name(&self) -> &'static str {
+            self.device
+        }
+        fn run_tile(
+            &mut self,
+            chw: Vec<f32>,
+            width: usize,
+            height: usize,
+            cancel: &CancelToken,
+        ) -> Result<TileOutput, EngineError> {
+            if self.fail_first && !self.fired {
+                self.fired = true;
+                return Err(EngineError::OutOfMemory("DML: out of memory".into()));
+            }
+            FakeScale { scale: 2 }.run_tile(chw, width, height, cancel)
+        }
+    }
+
+    #[test]
+    fn gpu_open_failure_retries_on_cpu_and_completes() {
+        let (root, models_dir, out_dir) = harness("ladder-open");
+        let source = source_png(&root, "photo.png", 40, 20, false);
+        let registry = registry_with(&models_dir, &fake_spec());
+        let jobs = JobRegistry::new();
+        let token = Arc::new(CancelToken::new());
+        let job_id = jobs.next_job_id();
+        jobs.begin(&job_id, Arc::clone(&token)).expect("begin");
+        let mut prefs = Vec::new();
+        let result = enhance(
+            &source.to_string_lossy(),
+            EnhanceMode::Standard,
+            2,
+            &registry,
+            &EngineConfig::default(),
+            &out_dir,
+            &jobs,
+            &job_id,
+            &token,
+            |_| {},
+            |_, pref| {
+                prefs.push(pref);
+                match pref {
+                    GpuPreference::PreferGpu => {
+                        Err::<Fake2x, EngineError>(EngineError::Failed("no DX12 driver".into()))
+                    }
+                    GpuPreference::CpuOnly => Ok(Fake2x),
+                }
+            },
+        )
+        .expect("a dead GPU path must fall back, not fail the job");
+        assert_eq!(
+            prefs,
+            vec![GpuPreference::PreferGpu, GpuPreference::CpuOnly]
+        );
+        assert_eq!(result.engine, "fake"); // the CPU retry produced it
+    }
+
+    #[test]
+    fn gpu_runtime_oom_mid_run_downgrades_to_cpu_and_completes() {
+        let (root, models_dir, out_dir) = harness("ladder-oom");
+        let source = source_png(&root, "photo.png", 90, 45, false);
+        let registry = registry_with(&models_dir, &fake_spec());
+        let jobs = JobRegistry::new();
+        let token = Arc::new(CancelToken::new());
+        let job_id = jobs.next_job_id();
+        jobs.begin(&job_id, Arc::clone(&token)).expect("begin");
+        let mut events = Vec::new();
+        let mut opens = 0;
+        let result = enhance(
+            &source.to_string_lossy(),
+            EnhanceMode::Standard,
+            2,
+            &registry,
+            &EngineConfig::default(),
+            &out_dir,
+            &jobs,
+            &job_id,
+            &token,
+            |e| events.push(e),
+            |_, pref| {
+                opens += 1;
+                Ok(LadderBackend {
+                    device: if pref == GpuPreference::PreferGpu {
+                        "gpu-persona"
+                    } else {
+                        "cpu-persona"
+                    },
+                    fail_first: pref == GpuPreference::PreferGpu,
+                    fired: false,
+                })
+            },
+        )
+        .expect("the ladder must complete on the CPU retry");
+        assert_eq!(opens, 2, "gpu attempt, then cpu retry");
+        assert_eq!(result.engine, "cpu-persona");
+        let devices: Vec<(&'static str, u32)> = events
+            .iter()
+            .filter_map(|e| match e {
+                EnhanceEvent::Device { device, tile } => Some((*device, *tile)),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(devices.len(), 2, "one Device event per attempt");
+        assert_eq!(devices[0].0, "gpu-persona");
+        assert_eq!(devices[1].0, "cpu-persona");
+        assert_eq!(
+            devices[1].1 * 2,
+            devices[0].1,
+            "the retry runs with a halved tile ceiling: {:?} → {:?}",
+            devices[0].1,
+            devices[1].1
+        );
+        // The failed attempt's scratch died; only the committed PNG remains.
+        let parts: Vec<_> = std::fs::read_dir(&out_dir)
+            .expect("dir")
+            .flatten()
+            .filter(|e| e.path().extension().is_some_and(|x| x == "part"))
+            .collect();
+        assert!(
+            parts.is_empty(),
+            "no .part leftovers from the failed GPU run"
+        );
+    }
+
+    /// A GPU-preferred *open* that internally settled on the CPU (the
+    /// device name is the CPU's own — what `OnnxBackend::load_with` does
+    /// when the DirectML session can't be built) must simply run: budget
+    /// recomputation is internal, the job never fails over it.
+    #[test]
+    fn internally_settled_cpu_session_runs_without_a_visible_retry() {
+        let (root, models_dir, out_dir) = harness("ladder-settled");
+        let source = source_png(&root, "photo.png", 40, 20, false);
+        let registry = registry_with(&models_dir, &fake_spec());
+        let jobs = JobRegistry::new();
+        let token = Arc::new(CancelToken::new());
+        let job_id = jobs.next_job_id();
+        jobs.begin(&job_id, Arc::clone(&token)).expect("begin");
+        let mut events = Vec::new();
+        let mut opens = 0;
+        let result = enhance(
+            &source.to_string_lossy(),
+            EnhanceMode::Standard,
+            2,
+            &registry,
+            &EngineConfig::default(),
+            &out_dir,
+            &jobs,
+            &job_id,
+            &token,
+            |e| events.push(e),
+            |_, _| {
+                opens += 1;
+                Ok(LadderBackend {
+                    device: "CPU", // reports the CPU name on a PreferGpu open
+                    fail_first: false,
+                    fired: false,
+                })
+            },
+        )
+        .expect("a settled session must just run");
+        assert_eq!(opens, 1, "no retry for a healthy settled session");
+        assert_eq!(result.engine, "CPU");
+        assert_eq!(
+            events
+                .iter()
+                .filter(|e| matches!(e, EnhanceEvent::Device { .. }))
+                .count(),
+            1
+        );
+    }
+
+    #[test]
+    fn exhausted_memory_retries_report_honestly_and_clean_up() {
+        let (root, models_dir, out_dir) = harness("ladder-exhausted");
+        let source = source_png(&root, "photo.png", 60, 30, false);
+        let registry = registry_with(&models_dir, &fake_spec());
+        let jobs = JobRegistry::new();
+        let token = Arc::new(CancelToken::new());
+        let job_id = jobs.next_job_id();
+        jobs.begin(&job_id, Arc::clone(&token)).expect("begin");
+        let mut events = Vec::new();
+        let err = enhance(
+            &source.to_string_lossy(),
+            EnhanceMode::Standard,
+            2,
+            &registry,
+            &EngineConfig::default(),
+            &out_dir,
+            &jobs,
+            &job_id,
+            &token,
+            |e| events.push(e),
+            |_, _| {
+                Ok(LadderBackend {
+                    device: "always-oom",
+                    fail_first: true, // every attempt dies on its first tile
+                    fired: false,
+                })
+            },
+        )
+        .expect_err("must fail as resource exhaustion");
+        assert_eq!(err.code(), "insufficient_resources");
+        assert!(matches!(events.last(), Some(EnhanceEvent::Failed { .. })));
+        let devices = events
+            .iter()
+            .filter(|e| matches!(e, EnhanceEvent::Device { .. }))
+            .count();
+        assert_eq!(devices, 3, "every attempt announced its path");
+        assert_eq!(jobs.active_count(), 0);
+        assert_eq!(
+            std::fs::read_dir(&out_dir).map(|d| d.count()).unwrap_or(0),
+            0,
+            "no files of any kind survive an exhausted ladder"
+        );
+    }
+
+    #[test]
+    fn repeated_runs_commit_fresh_results_without_scratch_leaks() {
+        let (root, models_dir, out_dir) = harness("repeat");
+        let source = source_png(&root, "photo.png", 60, 30, false);
+        let registry = registry_with(&models_dir, &fake_spec());
+        for _ in 0..3 {
+            let jobs = JobRegistry::new();
+            let token = Arc::new(CancelToken::new());
+            let job_id = jobs.next_job_id();
+            jobs.begin(&job_id, Arc::clone(&token)).expect("begin");
+            enhance(
+                &source.to_string_lossy(),
+                EnhanceMode::Standard,
+                2,
+                &registry,
+                &EngineConfig::default(),
+                &out_dir,
+                &jobs,
+                &job_id,
+                &token,
+                |_| {},
+                |_, _| Ok(Fake2x),
+            )
+            .expect("each run must succeed");
+        }
+        let entries: Vec<_> = std::fs::read_dir(&out_dir)
+            .expect("dir")
+            .flatten()
+            .map(|e| e.file_name().to_string_lossy().into_owned())
+            .collect();
+        assert_eq!(entries.len(), 3, "one committed result per run");
+        assert!(entries.iter().all(|n| n.ends_with(".png")));
     }
 
     #[test]
@@ -1151,7 +1782,7 @@ mod tests {
             &job_id,
             &token,
             |_| {},
-            |_| -> Result<Fake2x, EngineError> {
+            |_, _| -> Result<Fake2x, EngineError> {
                 panic!("the runtime must never be touched for an unsupportable scale")
             },
         )
@@ -1225,7 +1856,7 @@ mod tests {
             &job_id,
             &token,
             |_| {},
-            |_| Ok(Fake2x),
+            |_, _| Ok(Fake2x),
         )
         .expect("natural job must run");
         assert!(result.label.contains("2× · Natural"));
@@ -1245,6 +1876,47 @@ mod tests {
     }
 
     #[test]
+    fn view_tee_produces_box_average_display_view_for_oversized_masters() {
+        // Drive a PngSink directly: a 6000×3999 master (step = 3 → view
+        // 2000×1333). Rows alternate black/white bands exactly 3 tall, so
+        // every box block is a pure average of one color — deterministic
+        // check without touching ONNX or the file system beyond the .part.
+        let dir = scratch("tee");
+        let part = dir.join("t.png.part");
+        let file = File::create(&part).expect("part file");
+        let mut sink = PngSink::new(
+            BufWriter::new(file),
+            6000,
+            3999, // 1333 exact view rows
+            None,
+            1500,
+            4,
+        )
+        .expect("sink");
+        let black = vec![0u8; 6000 * 3];
+        let white = vec![255u8; 6000 * 3];
+        for r in 0..3999usize {
+            let row = if (r / 3) % 2 == 0 { &black } else { &white };
+            sink.write_row(row).expect("row");
+        }
+        let view = sink.finish().expect("finish").expect("tee view");
+        assert_eq!((view.width, view.height), (6000, 3999));
+        assert_eq!(view.delivered_edge, 2000);
+        // Decode the delivered PNG and check pure band averages.
+        let raw = base64::engine::general_purpose::STANDARD
+            .decode(view.data_url.split_once(',').unwrap().1)
+            .expect("b64");
+        let img = image::load_from_memory(&raw).expect("view decodes");
+        assert_eq!((img.width(), img.height()), (2000, 1333));
+        let rgb = img.into_rgb8();
+        for (vy, expect) in [0u8, 255, 0, 255].iter().enumerate() {
+            let px = rgb.get_pixel(10, vy as u32).0;
+            assert_eq!(px, [*expect; 3], "view row {vy}");
+        }
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
     fn scratch_cleanup_removes_parts_only() {
         let dir = scratch("cleanup");
         std::fs::write(dir.join("a.png.part"), b"x").expect("part");
@@ -1257,6 +1929,7 @@ mod tests {
     fn phase(e: &EnhanceEvent) -> &'static str {
         match e {
             EnhanceEvent::Preparing { .. } => "preparing",
+            EnhanceEvent::Device { .. } => "device",
             EnhanceEvent::Processing { .. } => "processing",
             EnhanceEvent::Completing => "completing",
             EnhanceEvent::Completed => "completed",
@@ -1341,7 +2014,7 @@ mod tests {
             &job_id,
             &token,
             |e| events.push(e),
-            OnnxBackend::load,
+            OnnxBackend::load_with,
         )
         .expect("real enhancement must succeed");
         println!(
@@ -1421,7 +2094,7 @@ mod tests {
                 &job_id,
                 &token,
                 |_| {},
-                OnnxBackend::load,
+                OnnxBackend::load_with,
             )
             .expect("real enhancement must succeed");
             let decoded = image::open(&result.file_path)

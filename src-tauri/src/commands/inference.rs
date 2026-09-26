@@ -107,7 +107,7 @@ pub async fn enhance_image(
             &job_id,
             &token,
             emit,
-            OnnxBackend::load,
+            OnnxBackend::load_with,
         )
     })
     .await;

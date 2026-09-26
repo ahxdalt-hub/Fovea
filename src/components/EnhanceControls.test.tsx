@@ -194,6 +194,27 @@ describe('EnhanceControls (Stage 06)', () => {
     expect(await screen.findByText(/enhanced to 400 × 300 on directml gpu/i)).toBeInTheDocument()
   })
 
+  it('shows the engine device while processing, following a GPU→CPU retry', async () => {
+    invoke.mockImplementation((cmd: string) => {
+      if (cmd !== 'enhance_image') return Promise.resolve(null)
+      setTimeout(() => {
+        lastChannel?.onmessage?.({ phase: 'preparing', jobId: 'job-d' })
+        lastChannel?.onmessage?.({ phase: 'device', device: 'DirectML GPU', tile: 256 })
+        lastChannel?.onmessage?.({ phase: 'processing', done: 1, total: 4 })
+      }, 0)
+      setTimeout(() => {
+        // The ladder downgraded mid-job: the chip must follow the truth.
+        lastChannel?.onmessage?.({ phase: 'device', device: 'CPU', tile: 128 })
+        lastChannel?.onmessage?.({ phase: 'processing', done: 2, total: 8 })
+      }, 20)
+      return new Promise<EnhanceResultDto>(() => {})
+    })
+    renderHarness(readyStatus)
+    fireEvent.click(screen.getByRole('button', { name: /enhance 4×/i }))
+    expect(await screen.findByText('GPU')).toBeInTheDocument()
+    expect(await screen.findByText('Processor')).toBeInTheDocument()
+  })
+
   it('cancel asks the native engine by job id and flags the panel', async () => {
     invoke.mockImplementation((cmd: string) => {
       if (cmd === 'cancel_enhancement') return Promise.resolve(true)

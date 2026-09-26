@@ -3,12 +3,85 @@
 Premium Windows-first desktop app for local AI image enhancement and upscaling.
 Your images are processed on your own machine and never uploaded.
 
-**Current status:** Stage 06 — enhancement controls. The full workflow is
+**Current status:** Stage 07 — GPU + CPU optimization. The full workflow is
 live: import → choose 2×/4× and a real enhancement mode → Enhance → the
 result opens in the compare slider → export as PNG/JPEG/WebP with quality
-and folder choices. Everything runs on this machine: Real-ESRGAN models on
-ONNX Runtime (DirectML GPU, CPU fallback). The batch queue and licensing
-arrive in later stages.
+and folder choices. Pixora now detects the machine it runs on, budgets
+memory honestly, and degrades gracefully: GPU acceleration when available,
+automatic CPU fallback when not — never a crash. Everything still runs on
+this machine: Real-ESRGAN models on ONNX Runtime (DirectML GPU, CPU
+fallback). The batch queue and licensing arrive in later stages.
+
+## GPU + CPU optimization (Stage 07)
+
+```
+services/hardware.rs — detection, once per process, zero personal data:
+  CPU brand/cores (public registry value), RAM total/free
+  (GlobalMemoryStatusEx), every DXGI adapter with a real
+  D3D12CreateDevice(12_0) probe — "can DirectML run here" answered by
+  the API itself, not guessed
+        ↓
+memory_budgets(): the tile buffer and the streaming band buffer are
+  capped at conservative quarters of the applicable pool (VRAM on the
+  GPU path, free RAM on the CPU path), floored so a 64 px tile always
+  fits and clamped so no machine gets over-reached
+        ↓
+engine::adaptive_tile(): the largest tile ≤ 256 whose runtime output
+  and per-band composite fit those budgets; wide panoramas shrink via
+  the band term, tiny-VRAM machines via the tile term
+        ↓
+service ladder (every job):
+  PreferGpu → any GPU failure (session build, device removed, OOM
+  mid-run) → retry on CpuOnly → still OOM → halve the tile ceiling →
+  still OOM at the 64 px floor → honest `insufficient_resources`
+  Each attempt announces itself with a `device` event — the UI chip and
+  the completion message follow the truth, including a mid-job switch.
+  Oversized masters (256 MP output) build their compare-view
+  representation from a box-downsample tee *during* the streaming
+  encode — the giant file is never re-decoded (peak RSS stayed ≈ 380 MB).
+```
+
+- **Measured benchmarks** (`examples/stage07_bench.rs`, release build,
+  RTX 3050 Laptop 6 GB + Ryzen 5 5600, 4× Standard, end-to-end: decode →
+  session → tiles → encode → commit):
+
+  | fixture | source    | engine       | tile | time   | output MP/s | peak RSS |
+  | ------- | --------- | ------------ | ---- | ------ | ----------- | -------- |
+  | small   | 512×384   | DirectML GPU | 256  | 1.0 s  | 3.0         | 301 MB   |
+  | typical | 1920×1440 | DirectML GPU | 256  | 5.6 s  | 7.8         | 331 MB   |
+  | hi-res  | 4032×3024 | DirectML GPU | 256  | 19.8 s | 9.8         | 362 MB   |
+  | large   | 5300×3000 | DirectML GPU | 256  | 23.3 s | 10.9        | 385 MB   |
+  | small   | 512×384   | CPU (forced) | 256  | 1.8 s  | 1.8         | 178 MB   |
+  | typical | 1920×1440 | CPU (forced) | 256  | 22.8 s | 1.9         | 214 MB   |
+  | hires   | 4032×3024 | DirectML GPU | 64   | 49.9 s | 3.9         | 319 MB   |
+
+  The last row reproduces low-VRAM conditions for real
+  (`PIXORA_BUDGET_MB=16`): the adaptive planner drops to 64 px tiles and
+  the job completes ~2.5× slower — degraded, never broken.
+
+- **The honest cap moved to the output:** `MAX_ENHANCE_OUTPUT_PIXELS` =
+  256 MP (16 MP in at 4×, 64 MP in at 2×). Sources above it refuse with
+  `file_too_large` before any work.
+- **Memory is bounded at every stage:** tiles sized from the budget,
+  band allocation via `try_reserve` (allocation failure = a recoverable
+  `out-of-memory`, not an abort), alpha re-attached at source resolution,
+  per-band buffers dropped as the PNG streams to disk, the session drops
+  with the job. CPU sessions cap intra-op threads at the physical core
+  count so the UI stays responsive during a long pass.
+- **Never a crash for a device reason:** session-load DML→CPU fallback
+  (Stage 05) plus the runtime ladder plus `panic = "unwind"` on release
+  — a panicking inference task now surfaces as an error to the UI
+  instead of taking the app down.
+- **Detection doors for QA (dev env vars, same family as
+  `PIXORA_MODELS_DIR`):** `PIXORA_FORCE_CPU=1` runs the CPU path on a GPU
+  machine (reproducible "unsupported GPU"), `PIXORA_TILE` pins the tile
+  ceiling, `PIXORA_BUDGET_MB` squeezes the budgets (reproducible
+  low-VRAM). Production defaults are the detected budgets.
+- **UX:** the status bar keeps its one-word device readout (GPU / CPU);
+  the job panel adds a small pill following the engine's own `device`
+  events, including a mid-job downgrade; full hardware/strategy detail
+  lives in Settings → Processing (a `get_diagnostics` snapshot — Task
+  Manager class facts, no personal data).
 
 ## Enhancement controls (Stage 06)
 

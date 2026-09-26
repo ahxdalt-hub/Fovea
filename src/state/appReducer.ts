@@ -44,6 +44,10 @@ export interface EnhanceJob {
   phase: EnhancePhase
   done: number
   total: number
+  /** Stage 07: the device the running attempt reports ("DirectML GPU" |
+   * "CPU"), from the native `device` event — a fact about the engine,
+   * never a UI-side guess. Re-set if the job's path changes mid-run. */
+  device: string | null
   /** True once the user pressed cancel, before the terminal event. */
   cancelling: boolean
   /** Terminal failure detail, already user-safe. */
@@ -304,6 +308,7 @@ export function appReducer(state: AppState, action: AppAction): AppState {
           phase: 'preparing',
           done: 0,
           total: 0,
+          device: null,
           cancelling: false,
           error: null,
         },
@@ -315,6 +320,12 @@ export function appReducer(state: AppState, action: AppAction): AppState {
       switch (e.phase) {
         case 'preparing':
           return { ...state, enhanceJob: { ...job, jobId: e.jobId } }
+        case 'device':
+          // The engine announcing which path (and tile size) an attempt
+          // runs on. A retry may re-emit it with a different device; the
+          // last truth wins. It never rewrites a terminal phase.
+          if (job.phase === 'failed' || job.phase === 'cancelled') return state
+          return { ...state, enhanceJob: { ...job, device: e.device } }
         case 'processing':
           // Guard against a stale/out-of-order event clobbering a
           // terminal phase; tile counts are monotonic from native.

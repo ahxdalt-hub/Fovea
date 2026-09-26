@@ -25,7 +25,8 @@ export function StatusBar() {
       <div className="pixora-statusbar__trailing">
         {state.inference && (
           <span className="pixora-statusbar__meta u-tabular">
-            {state.inference.device} · {state.inference.ready ? 'model ready' : 'model missing'}
+            {state.inference.device === 'CPU' ? 'CPU' : 'GPU'} ·{' '}
+            {state.inference.ready ? 'model ready' : 'model missing'}
           </span>
         )}
         {systemInfo && (

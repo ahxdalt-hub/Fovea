@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   isAppErrorPayload,
+  isDiagnostics,
   isEnhanceEvent,
   isEnhanceResult,
   isExportResult,
@@ -91,15 +92,49 @@ describe('isImageView (Stage 04)', () => {
 describe('Stage 05 guards', () => {
   it('isEnhanceEvent accepts the native stream shapes', () => {
     expect(isEnhanceEvent({ phase: 'preparing', jobId: 'job-1-0' })).toBe(true)
+    expect(isEnhanceEvent({ phase: 'device', device: 'DirectML GPU', tile: 256 })).toBe(true)
     expect(isEnhanceEvent({ phase: 'processing', done: 3, total: 9 })).toBe(true)
     expect(isEnhanceEvent({ phase: 'completing' })).toBe(true)
     expect(isEnhanceEvent({ phase: 'completed' })).toBe(true)
     expect(isEnhanceEvent({ phase: 'cancelled' })).toBe(true)
     expect(isEnhanceEvent({ phase: 'failed', code: 'model_missing', message: 'x' })).toBe(true)
     expect(isEnhanceEvent({ phase: 'preparing' })).toBe(false) // jobId required
+    expect(isEnhanceEvent({ phase: 'device', device: 'CPU' })).toBe(false) // tile required
     expect(isEnhanceEvent({ phase: 'processing', done: 1 })).toBe(false)
     expect(isEnhanceEvent({ phase: 'nope' })).toBe(false)
     expect(isEnhanceEvent(null)).toBe(false)
+  })
+
+  it('isDiagnostics guards the hardware payload', () => {
+    const ok = {
+      hardware: {
+        cpuName: 'AMD Ryzen 5 5600',
+        physicalCores: 6,
+        logicalProcessors: 12,
+        totalMemoryBytes: 16000000000,
+        availableMemoryBytes: 8000000000,
+        gpus: [
+          {
+            name: 'NVIDIA GeForce RTX 3050',
+            vendorId: 4318,
+            dedicatedVideoBytes: 4000000000,
+            sharedSystemBytes: 8000000000,
+            software: false,
+            directx12: true,
+          },
+        ],
+      },
+      engineDevice: 'DirectML GPU',
+      maxTileBytes: 536870912,
+      maxBandBytes: 536870912,
+      memoryLimit: 'GPU video memory',
+    }
+    expect(isDiagnostics(ok)).toBe(true)
+    expect(isDiagnostics({ ...ok, engineDevice: undefined })).toBe(false)
+    expect(isDiagnostics({ ...ok, hardware: { ...ok.hardware, gpus: [{ name: 'x' }] } })).toBe(
+      false,
+    )
+    expect(isDiagnostics(null)).toBe(false)
   })
 
   it('isEnhanceResult guards the committed result payload', () => {

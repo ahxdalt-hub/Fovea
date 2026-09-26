@@ -1,7 +1,12 @@
-//! Application-level commands: config, system info, frontend log relay.
+//! Application-level commands: config, system info, diagnostics, frontend
+//! log relay.
+
+use serde::Serialize;
 
 use crate::config::AppConfig;
 use crate::error::{AppError, AppResult};
+use crate::services::hardware::{self, HardwareInfo};
+use crate::services::inference::service;
 use crate::services::system::SystemInfo;
 use tauri::{AppHandle, Manager};
 
@@ -24,6 +29,47 @@ pub fn get_system_info(app: AppHandle) -> AppResult<SystemInfo> {
     // the app owning its storage location.
     std::fs::create_dir_all(&dir)?;
     Ok(SystemInfo::collect(dir.display().to_string()))
+}
+
+/// Stage 07 diagnostics: what the engine sees about this machine and how
+/// it plans to spend it. Everything here is a hardware fact (Task Manager
+/// class); no identity, no user data, no image paths.
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DiagnosticsDto {
+    /// CPU/GPU/memory snapshot (collected once, cached).
+    pub hardware: HardwareInfo,
+    /// Device a *new* session will use, as the DirectML EP itself answers
+    /// it ("DirectML GPU" | "CPU") — not a guess from the adapter list.
+    pub engine_device: &'static str,
+    /// Tile-output float buffer cap, in bytes (the runtime's budget).
+    pub max_tile_bytes: usize,
+    /// Streaming band buffer cap, in bytes (Pixora's own budget).
+    pub max_band_bytes: usize,
+    /// Which pool the tile budget is squeezed by, for display.
+    pub memory_limit: &'static str,
+}
+
+/// Cheap after first call: the hardware snapshot is cached, and the EP
+/// availability question too — but both are real native work, so they run
+/// off the UI thread (the first call initializes ONNX Runtime's view of
+/// the DirectML provider).
+#[tauri::command]
+pub async fn get_diagnostics(app: AppHandle) -> AppResult<DiagnosticsDto> {
+    use crate::commands::inference::EngineState;
+    let config = app.state::<EngineState>().config;
+    tauri::async_runtime::spawn_blocking(move || {
+        let hw = hardware::detect();
+        Ok(DiagnosticsDto {
+            hardware: hw.clone(),
+            engine_device: service::probe_device(),
+            max_tile_bytes: config.max_tile_bytes,
+            max_band_bytes: config.max_band_bytes,
+            memory_limit: hw.memory_limit_label(),
+        })
+    })
+    .await
+    .map_err(|e| AppError::unexpected(format!("diagnostics task failed: {e}")))?
 }
 
 /// Relay a message from the webview console into the native log file.

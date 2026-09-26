@@ -116,9 +116,58 @@ impl Plan {
 /// Default tile edge (input px). 256 → 1024 output px at 4×: ~12 MB of
 /// float per output tile, comfortable on a 6 GB laptop GPU, and small
 /// enough that dozens of progress steps are visible for typical photos.
+/// `adaptive_tile` may shrink it on constrained machines (Stage 07).
 pub const DEFAULT_TILE: usize = 256;
+/// Smallest tile edge the adaptive strategy may use. Below this the
+/// per-tile runtime overhead (session call, bleed work) outweighs the
+/// memory savings — and the memory floors guarantee 64 px always fits.
+pub const MIN_TILE: usize = 64;
 /// Default context bleed (input px) — cropped from the output.
 pub const DEFAULT_PAD: usize = 8;
+
+/// Approximate *model-output* float bytes for one tile of `tile` input px:
+/// the runtime materializes ~3·((tile+2·pad)·scale)² f32 for the padded
+/// tile. This is the buffer DirectML/the CPU EP must fit in its arena.
+pub fn tile_output_bytes(tile: usize, pad: usize, scale: usize) -> usize {
+    let side = (tile + 2 * pad) * scale;
+    3 * side * side * std::mem::size_of::<f32>()
+}
+
+/// Approximate composited-band bytes for one band: `src_w · scale` wide,
+/// `tile · scale` tall, u8 RGB. This buffer is Pixora's own (not the
+/// runtime's), allocated once per band and freed after streaming.
+pub fn band_bytes(src_w: usize, tile: usize, scale: usize) -> usize {
+    src_w * scale * tile * scale * 3
+}
+
+/// Pick the largest tile edge ≤ `ceiling` whose runtime output *and*
+/// per-band composite buffer fit the machine's budgets. Halving keeps the
+/// retry ladder predictable; an explicitly configured ceiling below
+/// [`MIN_TILE`] (a test's small grid) is honored as-is — adaptivity
+/// shrinks for memory, it never grows the caller's choice.
+///
+/// Returns `(tile, fits)`; `fits == false` means even the smallest tile
+/// exceeds a budget (only reachable with absurd inputs on tiny-memory
+/// machines — the caller decides whether to proceed or refuse).
+pub fn adaptive_tile(
+    src_w: usize,
+    scale: usize,
+    max_tile_bytes: usize,
+    max_band_bytes: usize,
+    pad: usize,
+    ceiling: usize,
+) -> (usize, bool) {
+    let floor = ceiling.min(MIN_TILE);
+    let mut tile = ceiling.max(16);
+    let over = |t: usize| {
+        tile_output_bytes(t, pad, scale) > max_tile_bytes
+            || band_bytes(src_w, t, scale) > max_band_bytes
+    };
+    while tile > floor && over(tile) {
+        tile /= 2;
+    }
+    (tile, !over(tile))
+}
 
 /// Run the whole pipeline. `progress(done, total)` is called after every
 /// completed tile with *measured* counts (tiles finished / tiles planned)
@@ -147,7 +196,18 @@ pub fn run<B: Backend, W: RowWriter>(
         // Composite buffer for this band's interior, at *model* resolution
         // in finished u8 RGB (resampling to the target happens on stream).
         let band_buf_h = band_h * scale;
-        let mut band_buf = vec![0u8; out_w_model * band_buf_h * 3];
+        // Fallible allocation: a plan whose band still exceeds what the OS
+        // will hand us (real pressure beyond the modeled budget) surfaces
+        // as OutOfMemory so the service ladder can shrink the tile — a
+        // raw `vec![]` here would abort the process instead.
+        let mut band_buf = Vec::new();
+        let band_len = out_w_model * band_buf_h * 3;
+        if band_buf.try_reserve_exact(band_len).is_err() {
+            return Err(EngineError::OutOfMemory(format!(
+                "band buffer {band_len} B"
+            )));
+        }
+        band_buf.resize(band_len, 0u8);
 
         for col in 0..plan.cols {
             if cancel.is_cancelled() {
@@ -163,7 +223,14 @@ pub fn run<B: Backend, W: RowWriter>(
             let ey1 = (band_y0 + band_h + plan.pad).min(plan.src_h);
             let ew = ex1 - ex0;
             let eh = ey1 - ey0;
-            let mut chw = vec![0f32; 3 * ew * eh];
+            let mut chw = Vec::new();
+            let chw_len = 3 * ew * eh;
+            if chw.try_reserve_exact(chw_len).is_err() {
+                return Err(EngineError::OutOfMemory(format!(
+                    "tile input {chw_len} f32"
+                )));
+            }
+            chw.resize(chw_len, 0f32);
             for (c, plane) in chw.chunks_exact_mut(ew * eh).enumerate() {
                 for (i, v) in plane.iter_mut().enumerate() {
                     let (y, x) = ((i / ew), (i % ew));
@@ -654,5 +721,61 @@ mod tests {
         assert_eq!((p.out_w(), p.out_h()), (400, 360));
         // Tile floors at 16 so a nonsense config can't make one tile per pixel.
         assert_eq!(Plan::with_target(64, 64, 2, 2, 1, 8).tile, 16);
+    }
+
+    // ── Stage 07: adaptive tiling math ───────────────────────────────
+
+    #[test]
+    fn adaptive_tile_keeps_the_ceiling_when_budgets_are_generous() {
+        // 4× model, 256 px tile → 3·((256+16)·4)²·4 B ≈ 14 MB of output
+        // floats. A 2 GB tile budget keeps the 256 ceiling untouched.
+        let (tile, fits) = adaptive_tile(4000, 4, 2 << 30, 2 << 30, 8, DEFAULT_TILE);
+        assert_eq!((tile, fits), (256, true));
+        // The estimate is monotonic in tile size — sanity for the ladder.
+        assert!(tile_output_bytes(128, 8, 4) < tile_output_bytes(256, 8, 4));
+    }
+
+    #[test]
+    fn adaptive_tile_shrinks_to_fit_the_runtime_budget() {
+        // Budget just above a 64 px tile's footprint → ladder lands on 64.
+        let need64 = tile_output_bytes(64, 8, 4);
+        let (tile, fits) = adaptive_tile(4000, 4, need64 + 1024, 512 << 20, 8, 256);
+        assert_eq!((tile, fits), (64, true));
+        // A budget that fits 128 but not 256 → 128.
+        let need128 = tile_output_bytes(128, 8, 4);
+        let (tile, fits) = adaptive_tile(4000, 4, need128, 512 << 20, 8, 256);
+        assert_eq!((tile, fits), (128, true));
+    }
+
+    #[test]
+    fn adaptive_tile_shrinks_to_fit_the_band_budget_too() {
+        // Wide source: the composite band (src_w·scale × tile·scale × 3 B)
+        // is the constraint, not the runtime tile. 8000·4 wide × 256·4 tall
+        // × 3 ≈ 98 MB → a 60 MB band budget forces 128 px tiles (49 MB).
+        let band_256 = band_bytes(8000, 256, 4);
+        let band_128 = band_bytes(8000, 128, 4);
+        assert!(band_256 > 60 << 20 && band_128 < 60 << 20, "fixture math");
+        let (tile, fits) = adaptive_tile(8000, 4, 512 << 20, 60 << 20, 8, 256);
+        assert_eq!((tile, fits), (128, true));
+    }
+
+    #[test]
+    fn adaptive_tile_reports_when_even_the_floor_busts() {
+        // A band budget smaller than any tile can fit: the ladder stops at
+        // the 64 px floor and says so — the caller decides whether to
+        // proceed (try_reserve makes the final allocation call honestly)
+        // or refuse.
+        let (tile, fits) = adaptive_tile(16000, 4, 512 << 20, 1 << 20, 8, 256);
+        assert_eq!(tile, 64);
+        assert!(!fits, "16000·4 × 64·4 × 3 B is way over 1 MB");
+    }
+
+    #[test]
+    fn adaptive_tile_honors_small_explicit_ceilings() {
+        // A test/QA config with tile=40 is below MIN_TILE: adaptivity
+        // never *grows* the caller's grid, and generous budgets leave it
+        // exactly where it was set.
+        let (tile, fits) = adaptive_tile(100, 2, 512 << 20, 512 << 20, 8, 40);
+        assert_eq!((tile, fits), (40, true));
     }
 }

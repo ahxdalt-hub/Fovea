@@ -221,6 +221,7 @@ describe('appReducer — enhance job (Stage 05)', () => {
       phase: 'preparing',
       done: 0,
       total: 0,
+      device: null,
       cancelling: false,
       error: null,
     })
@@ -230,6 +231,27 @@ describe('appReducer — enhance job (Stage 05)', () => {
     let s = appReducer(initialState, start)
     s = appReducer(s, { type: 'enhance/event', event: { phase: 'preparing', jobId: 'job-1' } })
     expect(s.enhanceJob?.jobId).toBe('job-1')
+  })
+
+  it('device events record the engine path — including a GPU→CPU retry', () => {
+    let s = appReducer(initialState, start)
+    s = appReducer(s, {
+      type: 'enhance/event',
+      event: { phase: 'device', device: 'DirectML GPU', tile: 256 },
+    })
+    expect(s.enhanceJob?.device).toBe('DirectML GPU')
+    s = appReducer(s, {
+      type: 'enhance/event',
+      event: { phase: 'device', device: 'CPU', tile: 64 },
+    })
+    expect(s.enhanceJob?.device).toBe('CPU')
+    // A late device event never resurrects a terminal phase.
+    s = appReducer(s, { type: 'enhance/event', event: { phase: 'cancelled' } })
+    s = appReducer(s, {
+      type: 'enhance/event',
+      event: { phase: 'device', device: 'CPU', tile: 64 },
+    })
+    expect(s.enhanceJob?.phase).toBe('cancelled')
   })
 
   it('processing stores real tile counts', () => {

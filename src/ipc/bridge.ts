@@ -9,6 +9,7 @@
 import { Channel, invoke } from '@tauri-apps/api/core'
 import type {
   AppConfigDto,
+  DiagnosticsDto,
   EnhanceEventDto,
   EnhanceModeKey,
   EnhanceResultDto,
@@ -19,7 +20,13 @@ import type {
   InferenceStatusDto,
   SystemInfoDto,
 } from '../types/ipc'
-import { isEnhanceResult, isExportResult, isInferenceStatus, isImageView } from '../types/ipc'
+import {
+  isDiagnostics,
+  isEnhanceResult,
+  isExportResult,
+  isInferenceStatus,
+  isImageView,
+} from '../types/ipc'
 import { previewInvoke, shouldUsePreviewBridge } from './previewBridge'
 
 /** Build configuration owned by the native side. */
@@ -196,6 +203,35 @@ export async function exportEnhancedImage(
     folder,
   })
   if (!isExportResult(raw)) {
+    throw {
+      code: 'unexpected_error',
+      message: 'The application core returned an unexpected reply.',
+    }
+  }
+  return raw
+}
+
+/**
+ * ── Stage 07: hardware diagnostics ────────────────────────────────────
+ */
+
+/**
+ * What the engine sees about this machine and the memory ceilings it
+ * derives from that (GPU adapters + VRAM, CPU cores, RAM, which device a
+ * new session lands on). Purely local hardware facts — no image data, no
+ * paths, no identity. Guarded at the boundary like every payload; in the
+ * browser preview there is no hardware to report, so it throws the same
+ * honest shape the other native-only commands use.
+ */
+export async function getDiagnostics(): Promise<DiagnosticsDto> {
+  if (shouldUsePreviewBridge()) {
+    throw {
+      code: 'unexpected_error',
+      message: 'Hardware diagnostics run in the desktop app.',
+    }
+  }
+  const raw: unknown = await invoke('get_diagnostics')
+  if (!isDiagnostics(raw)) {
     throw {
       code: 'unexpected_error',
       message: 'The application core returned an unexpected reply.',

@@ -202,11 +202,14 @@ export interface EnhanceResultDto {
 /**
  * Serialized `EnhanceEvent` — the progress stream from the native job.
  * `preparing` carries the server-generated job id (the cancel handle);
- * `processing.done/total` are completed tiles: a real measurement,
- * never an invented percentage.
+ * `device` reports the engine path an attempt actually runs on plus the
+ * tile size the memory budget chose (re-emitted if a GPU failure retries
+ * on CPU); `processing.done/total` are completed tiles: a real
+ * measurement, never an invented percentage.
  */
 export type EnhanceEventDto =
   | { phase: 'preparing'; jobId: string }
+  | { phase: 'device'; device: string; tile: number }
   | { phase: 'processing'; done: number; total: number }
   | { phase: 'completing' }
   | { phase: 'completed' }
@@ -220,6 +223,8 @@ export function isEnhanceEvent(value: unknown): value is EnhanceEventDto {
   switch (v.phase) {
     case 'preparing':
       return typeof v.jobId === 'string'
+    case 'device':
+      return typeof v.device === 'string' && typeof v.tile === 'number'
     case 'completing':
     case 'completed':
     case 'cancelled':
@@ -339,5 +344,68 @@ export function isExportResult(value: unknown): value is ExportResultDto {
     typeof v.folder === 'string' &&
     typeof v.format === 'string' &&
     typeof v.bytes === 'number'
+  )
+}
+
+/**
+ * ── Stage 07: hardware diagnostics ────────────────────────────────────
+ */
+
+/** One DXGI adapter, per `GpuInfo` in Rust's hardware service. */
+export interface GpuInfoDto {
+  name: string
+  /** PCI vendor id (0x10DE NVIDIA, 0x1002 AMD, 0x8086 Intel …). */
+  vendorId: number
+  dedicatedVideoBytes: number
+  sharedSystemBytes: number
+  /** Software rasterizer (Microsoft Basic Render Driver). */
+  software: boolean
+  /** Passed a real DirectX 12 feature-level 12_0 device probe. */
+  directx12: boolean
+}
+
+/** The machine snapshot the engine budgets against, per `HardwareInfo`. */
+export interface HardwareInfoDto {
+  cpuName: string
+  physicalCores: number
+  logicalProcessors: number
+  totalMemoryBytes: number
+  availableMemoryBytes: number
+  gpus: GpuInfoDto[]
+}
+
+/** Serialized `DiagnosticsDto` from Rust (`get_diagnostics`). */
+export interface DiagnosticsDto {
+  hardware: HardwareInfoDto
+  /** Device a new session will use: "DirectML GPU" | "CPU". */
+  engineDevice: string
+  /** The engine's hardware-derived memory ceilings, in bytes. */
+  maxTileBytes: number
+  maxBandBytes: number
+  /** Which pool the tile budget is squeezed by (for display). */
+  memoryLimit: string
+}
+
+/** Runtime guard for the diagnostics payload. */
+export function isDiagnostics(value: unknown): value is DiagnosticsDto {
+  if (typeof value !== 'object' || value === null) return false
+  const v = value as Record<string, unknown>
+  const hw = v.hardware as Record<string, unknown> | undefined
+  return (
+    typeof hw === 'object' &&
+    hw !== null &&
+    typeof hw.cpuName === 'string' &&
+    Array.isArray(hw.gpus) &&
+    hw.gpus.every(
+      (g) =>
+        typeof g === 'object' &&
+        g !== null &&
+        typeof (g as GpuInfoDto).name === 'string' &&
+        typeof (g as GpuInfoDto).directx12 === 'boolean',
+    ) &&
+    typeof v.engineDevice === 'string' &&
+    typeof v.maxTileBytes === 'number' &&
+    typeof v.maxBandBytes === 'number' &&
+    typeof v.memoryLimit === 'string'
   )
 }

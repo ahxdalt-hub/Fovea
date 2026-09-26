@@ -225,6 +225,26 @@ export function EnhanceControls({
             <span className="pix-enhance__phase">
               {phaseLabel(job.phase, job.done, job.total, job.cancelling)}
             </span>
+            {/* Stage 07: which path the engine reports running on — a
+                fact from native (re-emitted honestly if a GPU attempt
+                falls back mid-job), kept small so the image stays the
+                story. GPU users barely notice it; CPU fallback reads
+                calm, never alarming. */}
+            {active && job.device && (
+              <Tooltip
+                content={
+                  job.device === 'CPU'
+                    ? 'Enhancing with the processor — GPU acceleration is unavailable on this machine'
+                    : 'Enhancing with GPU acceleration'
+                }
+                side="bottom"
+              >
+                <span className="pix-enhance__device">
+                  {job.device === 'CPU' ? 'Processor' : 'GPU'}
+                </span>
+              </Tooltip>
+            )}
+            <span className="pix-enhance__spacer" aria-hidden="true" />
             {active && job.jobId && (
               <Button variant="ghost" size="sm" onClick={() => void enhanceApi.cancel()}>
                 Cancel
