@@ -3,7 +3,7 @@
  * and prove the shell reacts to real startup state, navigation, dialogs,
  * and keyboard shortcuts.
  */
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 const invoke = vi.fn()
@@ -39,8 +39,11 @@ function mockSuccessfulCore() {
         osFamily: 'windows',
         arch: 'x86_64',
         appDataDir: 'C:/Users/test/AppData',
+        logsDir: 'C:/Users/test/AppData/logs',
       })
     if (cmd === 'write_frontend_log') return Promise.resolve(null)
+    // Stage 10: the hint mirror at core-ready (and on any settings edit).
+    if (cmd === 'set_engine_hints') return Promise.resolve(null)
     if (cmd === 'get_diagnostics')
       return Promise.resolve({
         hardware: {
@@ -142,13 +145,18 @@ describe('Pixora shell', () => {
     const dialog = await screen.findByRole('dialog', { name: 'Settings' })
     expect(dialog).toBeInTheDocument()
 
-    // Stage 07: the Processing section reports the engine diagnostics.
-    expect(await screen.findByText('GPU acceleration (DirectML GPU)')).toBeInTheDocument()
+    // Stage 07/10: the Diagnostics section reports the engine truth —
+    // in plain words.
+    fireEvent.click(within(dialog).getByRole('button', { name: /^Diagnostics/ }))
+    expect(await screen.findByText('Graphics card (DirectML GPU)')).toBeInTheDocument()
     expect(screen.getByText(/Test GPU X/)).toBeInTheDocument()
 
-    fireEvent.click(screen.getByRole('radio', { name: 'Dark' }))
+    // Stage 10: theme lives in the General section (the default one).
+    fireEvent.click(within(dialog).getByRole('button', { name: /^General/ }))
+    fireEvent.click(within(dialog).getByRole('radio', { name: 'Dark' }))
     expect(document.documentElement.getAttribute('data-theme')).toBe('dark')
-    expect(localStorage.getItem('pixora:theme')).toBe('dark')
+    const stored = JSON.parse(localStorage.getItem('pixora:settings') ?? '{}')
+    expect(stored.general.theme).toBe('dark')
 
     fireEvent.keyDown(dialog, { key: 'Escape' })
     await waitFor(() =>
@@ -179,7 +187,10 @@ describe('Pixora shell', () => {
     renderApp()
     await screen.findByText(/core connected/i)
     fireEvent.keyDown(window, { key: ',', ctrlKey: true })
-    await screen.findByRole('dialog', { name: 'Settings' })
+    const degradeDialog = await screen.findByRole('dialog', { name: 'Settings' })
+    // Stage 10: diagnostics are their own section — open it to see the
+    // honest failure.
+    fireEvent.click(within(degradeDialog).getByRole('button', { name: /^Diagnostics/ }))
     expect(await screen.findByText(/diagnostics are unavailable/i)).toBeInTheDocument()
   })
 

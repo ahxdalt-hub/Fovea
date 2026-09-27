@@ -29,6 +29,11 @@
   max-width: 560px;
 }
 
+/* Settings (Stage 10): two-column layout needs the extra width. */
+.pix-dialog--lg {
+  max-width: 700px;
+}
+
 .pix-dialog__header {
   display: flex;
   align-items: flex-start;

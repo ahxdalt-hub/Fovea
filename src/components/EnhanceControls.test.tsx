@@ -152,23 +152,26 @@ describe('EnhanceControls (Stage 06)', () => {
         settle = res
       })
       // Stagger events so each intermediate state actually renders
-      // (same-tick dispatches batch into one React update).
+      // (same-tick dispatches batch into one React update). The spacing
+      // is generous on purpose: under full-suite load a 20ms gap can
+      // elapse between two findByText polls and the intermediate tile
+      // state would never be observed.
       setTimeout(() => {
         lastChannel?.onmessage?.({ phase: 'preparing', jobId: 'job-1-0' })
       }, 0)
       setTimeout(() => {
         lastChannel?.onmessage?.({ phase: 'processing', done: 1, total: 3 })
-      }, 20)
+      }, 150)
       setTimeout(() => {
         lastChannel?.onmessage?.({ phase: 'processing', done: 3, total: 3 })
-      }, 40)
+      }, 300)
       setTimeout(() => {
         lastChannel?.onmessage?.({ phase: 'completing' })
-      }, 60)
+      }, 450)
       setTimeout(() => {
         lastChannel?.onmessage?.({ phase: 'completed' })
         settle(result)
-      }, 80)
+      }, 600)
       return pending
     })
     renderHarness(readyStatus)

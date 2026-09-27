@@ -54,9 +54,11 @@ export interface EnhanceViewProps {
 export function EnhanceView({ importApi, enhanceApi, images, onReopen }: EnhanceViewProps) {
   const { importing } = importApi
   const { state, dispatch } = useAppState()
-  // Recent files only matter while the collection is empty (Stage 09):
-  // the "continue where you left off" affordance on a cold start.
-  const { recents } = useRecentFiles(images.length === 0)
+  // Recent files only matter while the collection is empty (Stage 09) and
+  // only when the user wants them (Stage 10 setting): the "continue where
+  // you left off" affordance on a cold start.
+  const showRecents = state.settings.general.rememberRecentFiles
+  const { recents } = useRecentFiles(images.length === 0 && showRecents)
 
   // Engine readiness: one fetch per Enhance session (native runtime only).
   // The result gates the Enhance button honestly — a missing/corrupt model
@@ -132,7 +134,7 @@ export function EnhanceView({ importApi, enhanceApi, images, onReopen }: Enhance
                 <IconHistory size="sm" /> Recent
               </h2>
               <ul className="pix-recents__list">
-                {recents.slice(0, 6).map((r) => (
+                {recents.slice(0, state.settings.general.recentFilesLimit).map((r) => (
                   <li key={r.path}>
                     <button
                       type="button"

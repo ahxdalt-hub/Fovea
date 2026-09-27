@@ -67,11 +67,15 @@ pub async fn import_images(app: AppHandle, paths: Vec<String>) -> AppResult<Vec<
         .map_err(|err| AppError::unexpected(format!("import task failed: {err}")))?;
     // Stage 09: every *successfully* imported file becomes a recent,
     // newest-first. Failed files never enter the list — a recent should
-    // be a file the app actually opened, not a broken pointer.
-    let history = app.state::<Arc<HistoryStore>>().inner().clone();
-    for outcome in &outcomes {
-        if let ImportOutcome::Imported { image } = outcome {
-            history.note_recent(&image.id, &image.name);
+    // be a file the app actually opened, not a broken pointer. Stage 10:
+    // the whole step honours the "remember recent files" preference —
+    // off means the list simply never grows, existing rows untouched.
+    if crate::services::settings::record_recents() {
+        let history = app.state::<Arc<HistoryStore>>().inner().clone();
+        for outcome in &outcomes {
+            if let ImportOutcome::Imported { image } = outcome {
+                history.note_recent(&image.id, &image.name);
+            }
         }
     }
     Ok(outcomes)

@@ -14,3 +14,4 @@ pub mod export;
 pub mod history;
 pub mod import;
 pub mod inference;
+pub mod settings;

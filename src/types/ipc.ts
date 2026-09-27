@@ -18,6 +18,8 @@ export interface SystemInfoDto {
   osFamily: string
   arch: string
   appDataDir: string
+  /** Where the native log file lives (Stage 10 diagnostics). */
+  logsDir: string
 }
 
 /**

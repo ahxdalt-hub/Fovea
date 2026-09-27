@@ -8,7 +8,7 @@
  */
 import type { ReactNode } from 'react'
 import { useAppState } from '../state/useAppState'
-import type { ThemePreference } from '../state/appReducer'
+import type { ThemePreference } from '../state/settings'
 import { Menu, type MenuItem } from '../ui/Menu'
 import { Tooltip } from '../ui/Tooltip'
 import { StatusDot } from '../components/StatusDot'
@@ -45,12 +45,16 @@ export function TopBar({ onOpenSettings, onOpenShortcuts, onOpenAbout, onSetThem
   const themeItems: MenuItem[] = (['system', 'light', 'dark'] as const).map((t) => ({
     id: t,
     label: themeLabels[t],
-    checked: state.ui.theme === t,
+    checked: state.settings.general.theme === t,
     onSelect: () => onSetTheme(t),
   }))
 
   const ThemeIcon =
-    state.ui.theme === 'light' ? IconSun : state.ui.theme === 'dark' ? IconMoon : IconMonitor
+    state.settings.general.theme === 'light'
+      ? IconSun
+      : state.settings.general.theme === 'dark'
+        ? IconMoon
+        : IconMonitor
 
   return (
     <header className="pixora-topbar">

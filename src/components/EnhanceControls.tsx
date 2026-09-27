@@ -16,7 +16,8 @@
 import { useEffect, useMemo } from 'react'
 import type { EnhanceModeKey } from '../types/ipc'
 import { useAppState } from '../state/useAppState'
-import { persistEnhanceSettings, type EnhanceSettings } from '../state/appReducer'
+import { useSettings } from '../state/useSettings'
+import type { ProcessingSettings } from '../state/settings'
 import type { EnhanceApi } from '../state/useEnhance'
 import { Button } from '../ui/Button'
 import { SegmentedField } from '../ui/Field'
@@ -24,6 +25,7 @@ import { ProgressBar, Spinner } from '../ui/Progress'
 import { Tooltip } from '../ui/Tooltip'
 import { IconExport, IconRetry, IconSparkle } from '../ui/Icons'
 import { formatDimensions } from '../lib/format'
+import { MODE_HINT, MODE_LABEL, MODE_ORDER } from '../lib/catalog'
 import { isTauriRuntime } from '../state/useNativeFileDrop'
 import './EnhanceControls.css'
 
@@ -46,20 +48,8 @@ function phaseLabel(phase: string, done: number, total: number, cancelling: bool
   }
 }
 
-/** Order + labels are fixed here; availability comes from native. */
-const MODE_ORDER: EnhanceModeKey[] = ['standard', 'natural', 'detail']
-const MODE_LABEL: Record<EnhanceModeKey, string> = {
-  standard: 'Standard',
-  natural: 'Natural',
-  detail: 'Detail',
-}
-/** Fallback one-liners (pre-status / browser preview); the native status
- * carries the authoritative descriptions and wins when present. */
-const MODE_HINT: Record<EnhanceModeKey, string> = {
-  standard: 'Reconstructs detail — best for clean photos',
-  natural: 'Denoise-first — calmer, keeps the original grain',
-  detail: 'Standard plus a real sharpening pass — crisp edges',
-}
+/** Order + labels + hints live in the shared catalog (src/lib/catalog)
+ * so the strip, batch, export and Settings all speak the same words. */
 
 export interface EnhanceControlsProps {
   enhanceApi: EnhanceApi
@@ -77,11 +67,21 @@ export function EnhanceControls({
   onExport,
   onCompare,
 }: EnhanceControlsProps) {
-  const { state, dispatch } = useAppState()
+  const { state } = useAppState()
+  const { settings, update } = useSettings()
   const job = state.enhanceJob
   const status = state.inference
   const native = isTauriRuntime()
-  const settings = state.enhanceSettings
+  // Stage 10: the strip's mode + scale ARE the persisted processing
+  // defaults — the workspace choice and the Settings page read and write
+  // one value, so "what I usually use" is decided exactly once.
+  const processing = settings.processing
+  // Stable identity: this is the settings slice, not a fresh object per
+  // render (the self-heal effect below depends on it).
+  const choices = useMemo(
+    () => ({ scale: processing.defaultScale, mode: processing.defaultMode }),
+    [processing],
+  )
 
   const active =
     job !== null &&
@@ -104,38 +104,29 @@ export function EnhanceControls({
   // button. Guarded on non-empty option sets — with no model installed
   // there is nothing to snap to, and the action is simply disabled.
   useEffect(() => {
-    const fixes: Partial<EnhanceSettings> = {}
-    if (scales.length > 0 && !scales.includes(settings.scale)) {
-      fixes.scale = scales[scales.length - 1]
+    const fixes: Partial<ProcessingSettings> = {}
+    if (scales.length > 0 && !scales.includes(choices.scale)) {
+      fixes.defaultScale = scales[scales.length - 1]
     }
-    if (availableModes.size > 0 && !availableModes.has(settings.mode)) {
+    if (availableModes.size > 0 && !availableModes.has(choices.mode)) {
       const first = MODE_ORDER.find((m) => availableModes.has(m))
-      if (first) fixes.mode = first
+      if (first) fixes.defaultMode = first
     }
-    if (Object.keys(fixes).length > 0) {
-      const next = { ...settings, ...fixes }
-      dispatch({ type: 'enhance/setSettings', settings: fixes })
-      persistEnhanceSettings(next)
-    }
-  }, [scales, availableModes, settings, dispatch])
+    if (Object.keys(fixes).length > 0) update('processing', fixes)
+  }, [scales, availableModes, choices, update])
 
   // The fraction is a measurement: completed tiles / planned tiles.
   const percent =
     job && job.total > 0 ? Math.min(100, Math.round((job.done / job.total) * 100)) : undefined
 
   const startEnhance = () => {
-    if (selectedId) void enhanceApi.run(selectedId, { mode: settings.mode, scale: settings.scale })
+    if (selectedId) void enhanceApi.run(selectedId, { mode: choices.mode, scale: choices.scale })
   }
   const dismiss = () => enhanceApi.dismiss()
 
-  const setSetting = (patch: Partial<EnhanceSettings>) => {
-    const next = { ...settings, ...patch }
-    dispatch({ type: 'enhance/setSettings', settings: patch })
-    persistEnhanceSettings(next)
-  }
-
-  const changeScale = (value: string) => setSetting({ scale: Number(value) })
-  const changeMode = (value: string) => setSetting({ mode: value as EnhanceModeKey })
+  const changeScale = (value: string) => update('processing', { defaultScale: Number(value) })
+  const changeMode = (value: string) =>
+    update('processing', { defaultMode: value as EnhanceModeKey })
 
   const enhanced = selectedId ? (state.enhancements[selectedId] ?? null) : null
   const showExportButton = enhanced !== null && !active
@@ -156,7 +147,7 @@ export function EnhanceControls({
             label="Scale"
             name="pixora-scale"
             className="pix-enhance__segmented"
-            value={String(settings.scale)}
+            value={String(choices.scale)}
             onChange={changeScale}
             disabled={active}
             options={scales.map((s) => ({ value: String(s), label: `${s}×` }))}
@@ -167,13 +158,13 @@ export function EnhanceControls({
             label="Mode"
             name="pixora-mode"
             className="pix-enhance__segmented"
-            value={settings.mode}
+            value={choices.mode}
             onChange={changeMode}
             disabled={active}
             options={modeOptions.map((m) => ({ value: m, label: MODE_LABEL[m] }))}
             hint={
-              status?.modes.find((m) => m.key === settings.mode)?.description ??
-              MODE_HINT[settings.mode]
+              status?.modes.find((m) => m.key === choices.mode)?.description ??
+              MODE_HINT[choices.mode]
             }
           />
         )}
@@ -209,7 +200,7 @@ export function EnhanceControls({
             disabled={!native || !modelReady || active || !selectedId}
             onClick={startEnhance}
           >
-            {active ? `Enhancing ${settings.scale}×…` : `Enhance ${settings.scale}×`}
+            {active ? `Enhancing ${choices.scale}×…` : `Enhance ${choices.scale}×`}
           </Button>
         </Tooltip>
         {terminal && job && (

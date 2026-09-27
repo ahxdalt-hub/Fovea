@@ -13,6 +13,7 @@ const systemInfo: SystemInfoDto = {
   osFamily: 'windows',
   arch: 'x86_64',
   appDataDir: 'C:/Fake/AppData',
+  logsDir: 'C:/Fake/Logs',
 }
 
 const failure: AppErrorPayload = { code: 'unexpected_error', message: 'nope' }
@@ -53,15 +54,21 @@ describe('appReducer', () => {
     expect(next.systemInfo).toEqual(systemInfo)
   })
 
-  it('persists theme preference in state and toggles the settings dialog', () => {
-    const themed = appReducer(initialState, { type: 'ui/setTheme', theme: 'dark' })
-    expect(themed.ui.theme).toBe('dark')
+  it('stores the theme inside settings and toggles the settings dialog', () => {
+    const themed = appReducer(initialState, {
+      type: 'settings/set',
+      settings: {
+        ...initialState.settings,
+        general: { ...initialState.settings.general, theme: 'dark' as const },
+      },
+    })
+    expect(themed.settings.general.theme).toBe('dark')
     const opened = appReducer(themed, { type: 'ui/settings', open: true })
     expect(opened.ui.settingsOpen).toBe(true)
     const closed = appReducer(opened, { type: 'ui/settings', open: false })
     expect(closed.ui.settingsOpen).toBe(false)
-    // Navigation/theme must not disturb each other.
-    expect(closed.ui.theme).toBe('dark')
+    // Navigation/dialog state must not disturb settings.
+    expect(closed.settings.general.theme).toBe('dark')
   })
 
   it('retryCore re-enters connecting and clears the error', () => {
@@ -126,11 +133,17 @@ describe('appReducer — imported collection', () => {
     expect(cleared.images).toEqual([])
   })
 
-  it('collection survives navigation and theme changes', () => {
+  it('collection survives navigation and settings changes', () => {
     const filled = appReducer(ready, { type: 'images/add', images: [imported({ id: 'a' })] })
     const moved = appReducer(filled, { type: 'ui/navigate', view: 'batch' })
     expect(moved.images).toHaveLength(1)
-    const themed = appReducer(moved, { type: 'ui/setTheme', theme: 'dark' })
+    const themed = appReducer(moved, {
+      type: 'settings/set',
+      settings: {
+        ...initialState.settings,
+        general: { ...initialState.settings.general, theme: 'dark' as const },
+      },
+    })
     expect(themed.images).toHaveLength(1)
   })
 })
@@ -355,12 +368,24 @@ describe('appReducer — enhance job (Stage 05)', () => {
     expect(s.inference?.modes).toHaveLength(1)
   })
 
-  it('enhance/setSettings merges partial choices', () => {
-    const s = appReducer(initialState, { type: 'enhance/setSettings', settings: { scale: 2 } })
-    expect(s.enhanceSettings.scale).toBe(2)
-    expect(s.enhanceSettings.mode).toBe('standard') // default stands
-    const t = appReducer(s, { type: 'enhance/setSettings', settings: { mode: 'detail' } })
-    expect(t.enhanceSettings).toEqual({ scale: 2, mode: 'detail' })
+  it('settings/set replaces the whole record; other groups stand (Stage 10)', () => {
+    // Group merging is patchSettings' job (covered in settings.test.ts);
+    // the reducer's promise is simply: store what you are handed, and
+    // ignore an identical record.
+    const next = {
+      ...initialState.settings,
+      processing: {
+        ...initialState.settings.processing,
+        defaultScale: 2,
+        defaultMode: 'detail' as const,
+      },
+    }
+    const s = appReducer(initialState, { type: 'settings/set', settings: next })
+    expect(s.settings.processing).toEqual(next.processing)
+    expect(s.settings.general).toEqual(initialState.settings.general)
+    expect(s.settings.export).toEqual(initialState.settings.export)
+    const again = appReducer(s, { type: 'settings/set', settings: next })
+    expect(again).toBe(s) // identical record → identical state
   })
 
   it('exports/set records the last export per image', () => {

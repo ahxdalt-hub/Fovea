@@ -22,6 +22,7 @@ import type {
   ExportFormatKey,
 } from '../types/ipc'
 import { pickExportFolder } from '../ipc/bridge'
+import { FORMATS } from '../lib/catalog'
 import { useAppState } from '../state/useAppState'
 import type { BatchApi } from '../state/useBatch'
 import { Badge } from '../ui/Badge'
@@ -45,12 +46,6 @@ const MODE_LABEL: Record<string, string> = {
   natural: 'Natural',
   detail: 'Detail',
 }
-
-const FORMATS: Array<{ value: ExportFormatKey; label: string; hint: string }> = [
-  { value: 'png', label: 'PNG', hint: 'Lossless · largest file' },
-  { value: 'jpeg', label: 'JPEG', hint: 'Photo-quality · small file' },
-  { value: 'webp', label: 'WebP', hint: 'Modern · small with alpha' },
-]
 
 /** One-line human label for an item's state — calm, never technical. */
 function stateLabel(item: BatchItemDto): string {
@@ -92,20 +87,23 @@ export function BatchView({ batchApi, onGoToEnhance }: BatchViewProps) {
   const images = state.images
   const batch = state.batch
 
-  // A shared preset for the whole run. Defaults track the working
-  // enhancement settings; only installed scales/modes are offered.
+  // A shared preset for the whole run. Defaults track the persisted
+  // settings (Stage 10): the processing defaults the Enhance strip uses
+  // and the export defaults (format, quality, folder). Only installed
+  // scales/modes are offered.
   const status = state.inference
   const scales = useMemo(() => (status ? status.scales : [2, 4]), [status])
   const availableModes = useMemo(() => {
     if (!status) return new Set(['standard', 'natural', 'detail'])
     return new Set(status.modes.filter((m) => m.available).map((m) => m.key))
   }, [status])
-  const [scale, setScale] = useState(state.enhanceSettings.scale)
-  const [mode, setMode] = useState<string>(state.enhanceSettings.mode)
+  const [scale, setScale] = useState(state.settings.processing.defaultScale)
+  const [mode, setMode] = useState<string>(state.settings.processing.defaultMode)
 
-  // Output settings — default to Pixora's batch folder (folder: "").
-  const [folder, setFolder] = useState('')
-  const [format, setFormat] = useState<ExportFormatKey>('png')
+  // Output settings — default to the configured export choice (folder:
+  // "" = Pixora's own batch folder).
+  const [folder, setFolder] = useState(state.settings.export.folder)
+  const [format, setFormat] = useState<ExportFormatKey>(state.settings.export.format)
 
   const chooseFolder = useCallback(async () => {
     try {
@@ -124,9 +122,9 @@ export function BatchView({ batchApi, onGoToEnhance }: BatchViewProps) {
       scale,
       mode: mode as 'standard' | 'natural' | 'detail',
     }))
-    const output: BatchConfigPayload = { folder, format, quality: 90 }
+    const output: BatchConfigPayload = { folder, format, quality: state.settings.export.quality }
     void batchApi.start(items, output)
-  }, [images, scale, mode, folder, format, batchApi])
+  }, [images, scale, mode, folder, format, state.settings.export.quality, batchApi])
 
   // Empty collection → honest empty state, no fake table.
   if (images.length === 0 && !batch) {

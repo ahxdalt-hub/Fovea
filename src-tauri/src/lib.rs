@@ -18,6 +18,7 @@ use commands::batch::BatchState;
 use commands::inference::EngineState;
 use services::history::Store as HistoryStore;
 use services::inference::{model::ModelRegistry, service};
+use services::settings;
 
 /// Resolve where model files may live, in priority order:
 /// 1. `PIXORA_MODELS_DIR` — explicit dev/QA override,
@@ -86,6 +87,8 @@ pub fn run() {
             commands::batch::get_batch_snapshot,
             commands::history::get_history,
             commands::history::clear_history,
+            commands::settings::set_engine_hints,
+            commands::app::open_logs_folder,
         ])
         .setup(|app| {
             let cfg = config::AppConfig::from_build();
@@ -104,6 +107,23 @@ pub fn run() {
             // it — every command answers with honest errors until a
             // validated model is found.
             let app_data = app.path().app_data_dir().ok();
+            // Stage 10: the user's engine-relevant preferences (hardware
+            // path, power mode, recents switch) take effect before the
+            // engine config derives its memory budgets below — a choice
+            // made last session shapes this one from the first job.
+            if let Some(dir) = app_data.as_ref() {
+                let hints = settings::hydrate(dir);
+                log::info!(
+                    "engine hints: {}",
+                    if hints.cpu_only {
+                        "processor (forced)"
+                    } else if hints.full_power {
+                        "full power"
+                    } else {
+                        "default"
+                    }
+                );
+            }
             let registry = ModelRegistry::new(model_search_dirs(app));
             log::info!(
                 "model registry searching {} dir(s); first model {} ({})",

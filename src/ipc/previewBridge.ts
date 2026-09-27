@@ -31,6 +31,7 @@ export function previewInvoke(cmd: string): Promise<unknown> {
     osFamily: 'browser',
     arch: 'js',
     appDataDir: '(browser preview — no native storage)',
+    logsDir: '(browser preview — no native logs)',
   }
   switch (cmd) {
     case 'get_config':

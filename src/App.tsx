@@ -18,8 +18,11 @@
  * native stays behind src/ipc/bridge.ts.
  */
 import { useCallback, useEffect, useState } from 'react'
-import type { ThemePreference, ViewId } from './state/appReducer'
+import type { ViewId } from './state/appReducer'
+import type { ThemePreference } from './state/settings'
+import { persistLastView } from './state/settings'
 import { useAppState } from './state/useAppState'
+import { useSettings } from './state/useSettings'
 import { useCoreBootstrap } from './state/useCoreBootstrap'
 import { useThemeSync } from './state/useThemeSync'
 import { useKeyboardShortcuts } from './state/useKeyboardShortcuts'
@@ -29,7 +32,6 @@ import { useImport } from './state/useImport'
 import { useEnhance } from './state/useEnhance'
 import { useBatch } from './state/useBatch'
 import { useDragOver } from './state/useNativeFileDrop'
-import { persistTheme } from './state/appReducer'
 import { NotificationProvider } from './ui/Notifications'
 import { ErrorState, LoadingState } from './ui/States'
 import { NavRail } from './shell/NavRail'
@@ -45,6 +47,7 @@ import './shell/Shell.css'
 
 export function Shell() {
   const { state, dispatch } = useAppState()
+  const { update: updateSettings } = useSettings()
   useCoreBootstrap()
   useThemeSync()
   useDevPreviewParams()
@@ -78,16 +81,17 @@ export function Shell() {
   const [aboutOpen, setAboutOpen] = useState(false)
 
   const navigate = useCallback(
-    (view: ViewId) => dispatch({ type: 'ui/navigate', view }),
+    (view: ViewId) => {
+      // The remembered view feeds `startupView: 'last'` (Stage 10).
+      persistLastView(view)
+      dispatch({ type: 'ui/navigate', view })
+    },
     [dispatch],
   )
   const openSettings = useCallback(() => dispatch({ type: 'ui/settings', open: true }), [dispatch])
   const setTheme = useCallback(
-    (theme: ThemePreference) => {
-      persistTheme(theme)
-      dispatch({ type: 'ui/setTheme', theme })
-    },
-    [dispatch],
+    (theme: ThemePreference) => updateSettings('general', { theme }),
+    [updateSettings],
   )
   const toggleShortcuts = useCallback(() => setShortcutsOpen((v) => !v), [])
   const openImport = useCallback(() => void importApi.browse(), [importApi])
@@ -163,7 +167,6 @@ export function Shell() {
       <SettingsDialog
         open={state.ui.settingsOpen}
         onClose={() => dispatch({ type: 'ui/settings', open: false })}
-        onSetTheme={setTheme}
       />
       <ShortcutsDialog open={shortcutsOpen} onClose={() => setShortcutsOpen(false)} />
       <AboutDialog open={aboutOpen} onClose={() => setAboutOpen(false)} />

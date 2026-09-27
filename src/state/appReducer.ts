@@ -4,6 +4,9 @@
  * Stage 01 deliberately avoids a state library: one context + reducer is
  * enough for startup status and shell UI state. The shape here (typed
  * actions, single pure reducer) is what later feature stores will follow.
+ * Stage 10 added `settings` — persisted user preferences live in their
+ * own validated module (`./settings`); the reducer only stores whole
+ * records it is handed.
  */
 import type {
   AppConfigDto,
@@ -12,7 +15,6 @@ import type {
   BatchItemDto,
   BatchSnapshotDto,
   EnhanceEventDto,
-  EnhanceModeKey,
   ExportResultDto,
   HistorySnapshotDto,
   ImageEnhancementDto,
@@ -20,6 +22,7 @@ import type {
   InferenceStatusDto,
   SystemInfoDto,
 } from '../types/ipc'
+import { DEFAULT_SETTINGS, readSettings, resolveStartupView, type PixoraSettings } from './settings'
 
 /** Native connection lifecycle. */
 export type CoreStatus = 'connecting' | 'ready' | 'error'
@@ -32,9 +35,6 @@ export type HistoryStatus = 'idle' | 'loading' | 'ready' | 'error'
 
 /** Primary navigation destinations in the shell. */
 export type ViewId = 'enhance' | 'batch' | 'history'
-
-/** Theme preference; `system` follows the OS and stores no attribute. */
-export type ThemePreference = 'system' | 'light' | 'dark'
 
 /**
  * The six honest phases of an enhancement job, mirroring the native
@@ -64,51 +64,13 @@ export interface EnhanceJob {
   error: AppErrorPayload | null
 }
 
-/** The user's enhancement choices — mode + product scale. Defaults follow
- * what the engine genuinely supports best (4× · Standard); the controls
- * only ever offer installed, validated options. Persisted like the theme:
- * the workspace is the same place, and so is how you like to work. */
-export interface EnhanceSettings {
-  mode: EnhanceModeKey
-  scale: number
-}
-
-export const DEFAULT_ENHANCE_SETTINGS: EnhanceSettings = {
-  mode: 'standard',
-  scale: 4,
-}
-
-const SETTINGS_STORAGE_KEY = 'pixora:enhance-settings'
-
-/** Read the persisted enhancement choices; anything malformed → defaults. */
-export function readStoredEnhanceSettings(): EnhanceSettings {
-  try {
-    const raw = localStorage.getItem(SETTINGS_STORAGE_KEY)
-    if (!raw) return DEFAULT_ENHANCE_SETTINGS
-    const parsed = JSON.parse(raw) as Record<string, unknown>
-    const mode: EnhanceModeKey =
-      parsed.mode === 'natural' || parsed.mode === 'detail' || parsed.mode === 'standard'
-        ? parsed.mode
-        : DEFAULT_ENHANCE_SETTINGS.mode
-    const scale =
-      parsed.scale === 2 || parsed.scale === 4 ? parsed.scale : DEFAULT_ENHANCE_SETTINGS.scale
-    return { mode, scale }
-  } catch {
-    return DEFAULT_ENHANCE_SETTINGS
-  }
-}
-
-export function persistEnhanceSettings(settings: EnhanceSettings) {
-  try {
-    localStorage.setItem(SETTINGS_STORAGE_KEY, JSON.stringify(settings))
-  } catch {
-    // Persisting a working preference must never break the app.
-  }
-}
-
+/**
+ * The shell's own UI state (where you are, what is open). Preferences —
+ * including appearance — live in persisted settings (Stage 10); this
+ * slice is session-shaped navigation state only.
+ */
 export interface UiState {
   view: ViewId
-  theme: ThemePreference
   /** Settings dialog open state lives in the shell so the nav rail can
    * reflect it and Esc/backdrop can close it from one place. */
   settingsOpen: boolean
@@ -149,8 +111,11 @@ export interface AppState {
   inference: InferenceStatusDto | null
   /** The single live enhancement job, if any (Stage 05). */
   enhanceJob: EnhanceJob | null
-  /** Stage 06: the user's mode + scale choice, surviving navigation. */
-  enhanceSettings: EnhanceSettings
+  /** Stage 06/10: the user's persisted preferences (appearance, processing
+   * defaults, export defaults, performance). The Enhance strip reads
+   * `processing` and writes back through it, so the workspace choice and
+   * the Settings page are one value, not two. */
+  settings: PixoraSettings
   /** Stage 06: the last export's result per image id — proof the file
    * landed, shown in the completion state without a second source. */
   exports: Record<string, ExportResultDto>
@@ -180,9 +145,9 @@ export type AppAction =
   | { type: 'core/ready'; config: AppConfigDto; systemInfo: SystemInfoDto }
   | { type: 'core/error'; error: AppErrorPayload }
   | { type: 'ui/navigate'; view: ViewId }
-  | { type: 'ui/setTheme'; theme: ThemePreference }
   | { type: 'ui/retryCore' }
   | { type: 'ui/settings'; open: boolean }
+  | { type: 'settings/set'; settings: PixoraSettings }
   | { type: 'import/start' }
   | { type: 'import/end' }
   | { type: 'images/add'; images: ImportedImageDto[] }
@@ -196,7 +161,6 @@ export type AppAction =
   | { type: 'enhance/event'; event: EnhanceEventDto }
   | { type: 'enhance/cancelRequested' }
   | { type: 'enhance/clear' }
-  | { type: 'enhance/setSettings'; settings: Partial<EnhanceSettings> }
   | { type: 'exports/set'; imageId: string; result: ExportResultDto }
   | { type: 'batch/snapshot'; snapshot: BatchSnapshotDto }
   | { type: 'batch/event'; event: BatchEventDto }
@@ -216,7 +180,7 @@ export const initialState: AppState = {
   importing: false,
   inference: null,
   enhanceJob: null,
-  enhanceSettings: readStoredEnhanceSettings(),
+  settings: DEFAULT_SETTINGS,
   exports: {},
   batch: null,
   history: null,
@@ -224,40 +188,20 @@ export const initialState: AppState = {
   historyError: null,
   ui: {
     view: 'enhance',
-    theme: readStoredTheme(),
     settingsOpen: false,
   },
 }
 
 /** Fresh session state reading persisted preferences. The provider uses
  * this lazily so a remount (or a later window) picks up what the previous
- * one stored; `initialState` above is the snapshot for tests/static use. */
+ * one stored; `initialState` above is the snapshot for tests/static use.
+ * The opening view follows the startup setting (Stage 10). */
 export function createInitialState(): AppState {
+  const settings = readSettings()
   return {
     ...initialState,
-    enhanceSettings: readStoredEnhanceSettings(),
-    ui: { ...initialState.ui, theme: readStoredTheme() },
-  }
-}
-
-const THEME_STORAGE_KEY = 'pixora:theme'
-
-/** Read the persisted theme preference. Safe in non-browser environments. */
-export function readStoredTheme(): ThemePreference {
-  try {
-    const stored = localStorage.getItem(THEME_STORAGE_KEY)
-    if (stored === 'light' || stored === 'dark' || stored === 'system') return stored
-  } catch {
-    // Storage unavailable (privacy mode, tests): fall through to default.
-  }
-  return 'system'
-}
-
-export function persistTheme(theme: ThemePreference) {
-  try {
-    localStorage.setItem(THEME_STORAGE_KEY, theme)
-  } catch {
-    // Persisting a visual preference must never break the app.
+    settings,
+    ui: { ...initialState.ui, view: resolveStartupView(settings) },
   }
 }
 
@@ -277,10 +221,12 @@ export function appReducer(state: AppState, action: AppAction): AppState {
       return { ...state, coreStatus: 'error', error: action.error }
     case 'ui/navigate':
       return { ...state, ui: { ...state.ui, view: action.view } }
-    case 'ui/setTheme':
-      return { ...state, ui: { ...state.ui, theme: action.theme } }
     case 'ui/settings':
       return { ...state, ui: { ...state.ui, settingsOpen: action.open } }
+    case 'settings/set':
+      // The settings module owns validation; a full, normalized record
+      // arrives here and replaces the old one as-is.
+      return state.settings === action.settings ? state : { ...state, settings: action.settings }
     case 'ui/retryCore':
       // Re-enter connecting so the bootstrap effect re-runs.
       return { ...state, coreStatus: 'connecting', error: null }
@@ -411,8 +357,6 @@ export function appReducer(state: AppState, action: AppAction): AppState {
         : state
     case 'enhance/clear':
       return { ...state, enhanceJob: null }
-    case 'enhance/setSettings':
-      return { ...state, enhanceSettings: { ...state.enhanceSettings, ...action.settings } }
     case 'exports/set':
       return { ...state, exports: { ...state.exports, [action.imageId]: action.result } }
     case 'batch/snapshot':

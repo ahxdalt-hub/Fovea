@@ -163,13 +163,18 @@ impl OnnxBackend {
                 builder =
                     builder.with_execution_providers([ort::ep::DirectML::default().build()])?;
             } else {
-                // CPU path: cap intra-op threads at the physical core
-                // count. ORT's default claims every *logical* processor,
-                // which on a small laptop starves the UI thread and the
-                // compositor during a multi-minute job. The enhancement
-                // finishes milliseconds slower; the app stays responsive.
+                // CPU path thread budget. ORT's default claims every
+                // *logical* processor, which on a small laptop starves the
+                // UI thread and the compositor during a multi-minute job.
+                // Stage 10 turns that policy into one honest setting:
+                // balanced (default) caps at the physical cores; "full
+                // machine" lets an otherwise-idle run have them all.
                 let hw = crate::services::hardware::detect();
-                let threads = hw.physical_cores.max(1).min(hw.logical_processors.max(1));
+                let threads = if crate::services::settings::full_power() {
+                    hw.logical_processors.max(1)
+                } else {
+                    hw.physical_cores.max(1).min(hw.logical_processors.max(1))
+                };
                 builder = builder.with_intra_threads(threads)?;
             }
             let session = builder.commit_from_file(model_path)?;

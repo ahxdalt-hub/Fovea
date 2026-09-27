@@ -28,7 +28,57 @@ pub fn get_system_info(app: AppHandle) -> AppResult<SystemInfo> {
     // The directory may not exist until first write; creating it is part of
     // the app owning its storage location.
     std::fs::create_dir_all(&dir)?;
-    Ok(SystemInfo::collect(dir.display().to_string()))
+    // The logs dir is display-only here; its resolution must never fail
+    // the snapshot, so a missing answer degrades to the documented
+    // fallback (app data / `logs`).
+    let logs = app
+        .path()
+        .app_log_dir()
+        .unwrap_or_else(|_| dir.join("logs"));
+    Ok(SystemInfo::collect(
+        dir.display().to_string(),
+        logs.display().to_string(),
+    ))
+}
+
+/// Open the app's own log folder in the OS file browser and return the
+/// path (so the UI can show exactly what it revealed). Stage 10
+/// diagnostics: the path is resolved server-side from Tauri's own
+/// resolver — the client never names a location to open.
+#[tauri::command]
+pub fn open_logs_folder(app: AppHandle) -> AppResult<String> {
+    let dir = app
+        .path()
+        .app_log_dir()
+        .map_err(|err| AppError::unexpected(format!("log dir unavailable: {err}")))?;
+    std::fs::create_dir_all(&dir)?;
+
+    let spawned = {
+        #[cfg(windows)]
+        {
+            // `explorer` exits nonzero even when it opened the window —
+            // `spawn` succeeding is the honest signal here.
+            std::process::Command::new("explorer")
+                .arg(&dir)
+                .spawn()
+                .is_ok()
+        }
+        #[cfg(target_os = "macos")]
+        {
+            std::process::Command::new("open").arg(&dir).spawn().is_ok()
+        }
+        #[cfg(all(not(windows), not(target_os = "macos")))]
+        {
+            std::process::Command::new("xdg-open")
+                .arg(&dir)
+                .spawn()
+                .is_ok()
+        }
+    };
+    if !spawned {
+        return Err(AppError::unexpected("could not open the file browser"));
+    }
+    Ok(dir.display().to_string())
 }
 
 /// Stage 07 diagnostics: what the engine sees about this machine and how

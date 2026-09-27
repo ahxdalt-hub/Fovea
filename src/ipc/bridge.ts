@@ -335,3 +335,42 @@ export function clearHistory(): Promise<null> {
   if (shouldUsePreviewBridge()) return Promise.resolve(null)
   return invoke<null>('clear_history')
 }
+
+/**
+ * ── Stage 10: settings ────────────────────────────────────────────────
+ */
+
+/** The projection of user settings the native side must honour: hardware
+ * path, power mode, and the recents switch. Mirrored to `settings.json`
+ * in the app-data dir so a restart honours them before any job runs. */
+export interface EngineHintsDto {
+  cpuOnly: boolean
+  fullPower: boolean
+  recordRecents: boolean
+}
+
+/** Push the engine-relevant hints to the native side. Fire-and-forget by
+ * contract: a failed mirror must never break the UI action that changed
+ * a preference, and the in-app defaults (fallbacks) stay honest. In the
+ * browser preview there is no engine to inform. */
+export function setEngineHints(hints: EngineHintsDto): Promise<null> {
+  if (shouldUsePreviewBridge()) return Promise.resolve(null)
+  return invoke<null>('set_engine_hints', {
+    cpuOnly: hints.cpuOnly,
+    fullPower: hints.fullPower,
+    recordRecents: hints.recordRecents,
+  })
+}
+
+/** Open the native log folder in the OS file browser and return its path
+ * (for display). Only ever opens the app's own log directory — the
+ * argument list is built server-side, never from the client. */
+export function openLogsFolder(): Promise<string> {
+  if (shouldUsePreviewBridge()) {
+    return Promise.reject({
+      code: 'unexpected_error',
+      message: 'Logs live with the desktop app.',
+    })
+  }
+  return invoke<string>('open_logs_folder')
+}

@@ -11,4 +11,5 @@ pub mod hardware;
 pub mod history;
 pub mod import;
 pub mod inference;
+pub mod settings;
 pub mod system;

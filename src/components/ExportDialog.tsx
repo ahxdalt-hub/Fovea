@@ -1,5 +1,5 @@
 /**
- * ExportDialog (Stage 06) — save the enhancement result.
+ * ExportDialog (Stage 06, Stage 10 defaults) — save the enhancement result.
  *
  * Three decisions, in the order a user thinks about them:
  * 1. Format — PNG (lossless copy of the master), JPEG, or WebP.
@@ -10,12 +10,18 @@
  *    returns a path and the Rust side resolves the committed master
  *    server-side by image id.
  *
+ * Stage 10: the starting point for all three is the persisted export
+ * defaults — and a *change made here is for this export only*. The
+ * dialog's local choices are seeded per open (closed = unmounted), so a
+ * fresh visit always reflects the Settings page.
+ *
  * The dialog reports its outcome through app state (`exports/set`) and a
  * success notification, and closes — the workspace keeps the picture
  * center stage while the file is written.
  */
 import { useCallback, useState } from 'react'
 import { exportEnhancedImage, pickExportFolder } from '../ipc/bridge'
+import { FORMATS } from '../lib/catalog'
 import { useAppState } from '../state/useAppState'
 import { useNotify } from '../ui/notificationContext'
 import type { ExportFormatKey, ExportResultDto } from '../types/ipc'
@@ -45,14 +51,15 @@ export interface ExportDialogProps {
   onExported?: (result: ExportResultDto) => void
 }
 
-const FORMATS: Array<{ value: ExportFormatKey; label: string; hint: string }> = [
-  { value: 'png', label: 'PNG', hint: 'Lossless · largest file' },
-  { value: 'jpeg', label: 'JPEG', hint: 'Photo-quality · small file' },
-  { value: 'webp', label: 'WebP', hint: 'Modern · small with alpha' },
-]
+export function ExportDialog(props: ExportDialogProps) {
+  // Closed = unmounted: the body's local choices (format, quality,
+  // folder) seed from the persisted defaults exactly once per open —
+  // no sync effect, no leftovers from a canceled visit.
+  if (!props.open) return null
+  return <ExportDialogBody {...props} />
+}
 
-export function ExportDialog({
-  open,
+function ExportDialogBody({
   onClose,
   imageId,
   imageName,
@@ -61,11 +68,12 @@ export function ExportDialog({
   resultLabel,
   onExported,
 }: ExportDialogProps) {
-  const { dispatch } = useAppState()
+  const { state, dispatch } = useAppState()
   const { notify } = useNotify()
-  const [format, setFormat] = useState<ExportFormatKey>('png')
-  const [quality, setQuality] = useState(90)
-  const [folder, setFolder] = useState('')
+  const defaults = state.settings.export
+  const [format, setFormat] = useState<ExportFormatKey>(defaults.format)
+  const [quality, setQuality] = useState(defaults.quality)
+  const [folder, setFolder] = useState(defaults.folder)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -102,7 +110,7 @@ export function ExportDialog({
 
   return (
     <Dialog
-      open={open}
+      open
       onClose={onClose}
       title="Export enhanced image"
       size="sm"

@@ -123,12 +123,14 @@ impl EngineConfig {
     }
 }
 
-/// QA/dev door: `PIXORA_FORCE_CPU=1` makes every run start on the CPU
-/// path — how the unsupported-GPU scenario is tested on a GPU machine.
-/// Read once; the cached answer keeps status probing and jobs consistent.
+/// CPU path required for this run: the QA/dev door
+/// (`PIXORA_FORCE_CPU=1`, read once so status probing and jobs stay
+/// consistent) *or* the user's Settings choice (Stage 10), which is
+/// dynamic — flipping it takes effect from the next job onward.
 fn force_cpu() -> bool {
     static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
     *ON.get_or_init(|| std::env::var_os("PIXORA_FORCE_CPU").is_some())
+        || crate::services::settings::cpu_only()
 }
 
 /// One enhancement result — serialized to the UI (`EnhanceResultDto`).
@@ -395,9 +397,13 @@ pub fn inference_status(registry: &ModelRegistry) -> InferenceStatus {
 /// Which device a newly-created session will land on. `ort` decides per
 /// session; the answer is stable for the process, so probe + cache.
 /// `PIXORA_FORCE_CPU` short-circuits it (QA door — the probe and the job
-/// ladder must agree).
+/// ladder must agree), and so does the user's Stage 10 "processor" choice
+/// — that one is checked per call, so Diagnostics never shows a stale GPU.
 pub fn probe_device() -> &'static str {
     static DEVICE: OnceLock<&'static str> = OnceLock::new();
+    if crate::services::settings::cpu_only() {
+        return "CPU";
+    }
     DEVICE.get_or_init(|| {
         if force_cpu() {
             return "CPU";

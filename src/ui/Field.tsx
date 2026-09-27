@@ -153,3 +153,51 @@ export function SegmentedField({
     </div>
   )
 }
+
+/** Switch row — one persistent yes/no preference (Stage 10 settings).
+ * A real checkbox carries semantics and keyboard support; the track is
+ * pure styling, so the control behaves everywhere the rest of the app
+ * does. The whole row is clickable, which is what users actually aim at. */
+export interface ToggleFieldProps {
+  label: string
+  /** Plain-language sentence shown under the label — what turning this
+   * off actually does. */
+  description?: string
+  checked: boolean
+  onChange: (checked: boolean) => void
+  disabled?: boolean
+  className?: string
+}
+
+export function ToggleField({
+  label,
+  description,
+  checked,
+  onChange,
+  disabled = false,
+  className,
+}: ToggleFieldProps) {
+  const id = useId()
+  return (
+    <div className={cx('pix-toggle', disabled && 'pix-toggle--disabled', className)}>
+      <label className="pix-toggle__row" htmlFor={id}>
+        <span className="pix-toggle__copy">
+          <span className="pix-toggle__label">{label}</span>
+          {description && <span className="pix-field__message">{description}</span>}
+        </span>
+        <input
+          id={id}
+          type="checkbox"
+          role="switch"
+          className="u-visually-hidden"
+          checked={checked}
+          disabled={disabled}
+          onChange={(event) => onChange(event.target.checked)}
+        />
+        <span className="pix-toggle__track" aria-hidden="true">
+          <span className="pix-toggle__knob" />
+        </span>
+      </label>
+    </div>
+  )
+}

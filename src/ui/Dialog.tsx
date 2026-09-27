@@ -18,7 +18,7 @@ export interface DialogProps {
   title: string
   description?: string
   /** Optional wide variant for content-heavy dialogs. */
-  size?: 'sm' | 'md'
+  size?: 'sm' | 'md' | 'lg'
   children: ReactNode
   footer?: ReactNode
 }
