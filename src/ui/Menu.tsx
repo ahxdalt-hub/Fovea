@@ -5,9 +5,12 @@
  * <button>s so keyboard works for free. A future stage swaps in a
  * sub-menu-capable version only if a real need appears.
  */
-import { useEffect, useRef, useState, type ReactNode } from 'react'
+import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 import { cx } from './cx'
 import './Menu.css'
+
+/** Fade-out duration before the menu unmounts (matches Menu.css). */
+const EXIT_MS = 100
 
 export interface MenuItem {
   id: string
@@ -31,20 +34,52 @@ export interface MenuProps {
 
 export function Menu({ trigger, items, align = 'end', label }: MenuProps) {
   const [open, setOpen] = useState(false)
+  const [closing, setClosing] = useState(false)
   const rootRef = useRef<HTMLDivElement>(null)
   const menuRef = useRef<HTMLDivElement>(null)
+  const exitTimer = useRef<number | null>(null)
+
+  /** Fade out before unmounting; item actions run immediately. */
+  const close = useCallback(() => {
+    if (exitTimer.current != null) return
+    setClosing(true)
+    exitTimer.current = window.setTimeout(() => {
+      exitTimer.current = null
+      setClosing(false)
+      setOpen(false)
+    }, EXIT_MS)
+  }, [])
+
+  /** Trigger activation while the exit is playing cancels it — the user
+   * clearly wants the menu, and a half-faded popup must not stick closed. */
+  const toggleFromTrigger = useCallback(() => {
+    if (exitTimer.current != null) {
+      window.clearTimeout(exitTimer.current)
+      exitTimer.current = null
+      setClosing(false)
+      setOpen(true)
+      return
+    }
+    setOpen((v) => !v)
+  }, [])
+
+  useEffect(() => {
+    return () => {
+      if (exitTimer.current != null) window.clearTimeout(exitTimer.current)
+    }
+  }, [])
 
   useEffect(() => {
     if (!open) return
     // Move focus to the first item as the menu opens (desktop convention).
     menuRef.current?.querySelector<HTMLButtonElement>('.pix-menu__item:not(:disabled)')?.focus()
     function onPointerDown(event: PointerEvent) {
-      if (!rootRef.current?.contains(event.target as Node)) setOpen(false)
+      if (!rootRef.current?.contains(event.target as Node)) close()
     }
     function onKeyDown(event: KeyboardEvent) {
       if (event.key === 'Escape') {
         event.stopPropagation()
-        setOpen(false)
+        close()
         rootRef.current?.querySelector<HTMLElement>('.pix-menu-trigger')?.focus()
         return
       }
@@ -75,7 +110,7 @@ export function Menu({ trigger, items, align = 'end', label }: MenuProps) {
       document.removeEventListener('pointerdown', onPointerDown, true)
       document.removeEventListener('keydown', onKeyDown)
     }
-  }, [open])
+  }, [open, close])
 
   return (
     <div className="pix-menu-root" ref={rootRef}>
@@ -86,18 +121,22 @@ export function Menu({ trigger, items, align = 'end', label }: MenuProps) {
         aria-label={label}
         aria-haspopup="menu"
         aria-expanded={open}
-        onClick={() => setOpen((v) => !v)}
+        onClick={toggleFromTrigger}
         onKeyDown={(event) => {
           if (event.key === 'Enter' || event.key === ' ') {
             event.preventDefault()
-            setOpen((v) => !v)
+            toggleFromTrigger()
           }
         }}
       >
         {trigger}
       </span>
       {open && (
-        <div ref={menuRef} className={cx('pix-menu', `pix-menu--${align}`)} role="menu">
+        <div
+          ref={menuRef}
+          className={cx('pix-menu', `pix-menu--${align}`, closing && 'pix-menu--closing')}
+          role="menu"
+        >
           {items.map((item) => (
             <button
               key={item.id}
@@ -106,9 +145,10 @@ export function Menu({ trigger, items, align = 'end', label }: MenuProps) {
               className={cx('pix-menu__item', item.danger && 'pix-menu__item--danger')}
               disabled={item.disabled}
               onClick={() => {
-                setOpen(false)
+                if (exitTimer.current != null) return // already closing
                 rootRef.current?.querySelector<HTMLElement>('.pix-menu-trigger')?.focus()
                 item.onSelect()
+                close()
               }}
             >
               {item.icon && <span className="pix-menu__icon">{item.icon}</span>}

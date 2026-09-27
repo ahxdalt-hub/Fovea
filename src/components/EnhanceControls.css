@@ -1,4 +1,7 @@
-/* EnhanceControls — the Stage 06 action strip (collection bar area). */
+/* EnhanceControls — the Stage 06 action strip (collection bar area).
+   One calm row: scale, mode, their context, and the primary action share
+   a single center line, so nothing raggedly misaligns when one control
+   carries a hint and another doesn't. */
 
 .pix-enhance {
   display: flex;
@@ -8,7 +11,7 @@
 
 .pix-enhance__actions {
   display: flex;
-  align-items: flex-end;
+  align-items: center;
   gap: var(--space-4);
   flex-wrap: wrap;
 }
@@ -18,14 +21,27 @@
   flex: 1;
 }
 
-.pix-enhance__segmented {
-  gap: var(--space-1);
+/* What the selected mode does — context for the choice above, quiet and
+   truncated so a long description never shoves the primary action. */
+.pix-enhance__modehint {
+  font-size: var(--text-xs);
+  color: var(--text-tertiary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 44ch;
 }
 
 .pix-enhance__warn {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
   font-size: var(--text-xs);
   color: var(--warning);
-  align-self: center;
+}
+
+.pix-enhance__warn svg {
+  flex: none;
 }
 
 .pix-enhance__hint {

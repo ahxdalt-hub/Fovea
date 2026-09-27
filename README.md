@@ -3,14 +3,45 @@
 Premium Windows-first desktop app for local AI image enhancement and upscaling.
 Your images are processed on your own machine and never uploaded.
 
-**Current status:** Stage 07 — GPU + CPU optimization. The full workflow is
-live: import → choose 2×/4× and a real enhancement mode → Enhance → the
+**Current status:** Stage 11 — premium UX + motion polish. The full workflow
+is live: import → choose 2×/4× and a real enhancement mode → Enhance → the
 result opens in the compare slider → export as PNG/JPEG/WebP with quality
-and folder choices. Pixora now detects the machine it runs on, budgets
-memory honestly, and degrades gracefully: GPU acceleration when available,
-automatic CPU fallback when not — never a crash. Everything still runs on
-this machine: Real-ESRGAN models on ONNX Runtime (DirectML GPU, CPU
-fallback). The batch queue and licensing arrive in later stages.
+and folder choices — plus batch processing, a local history journal,
+settings with validated persistence, and hardware-adaptive processing that
+degrades gracefully (GPU when available, CPU when not — never a crash).
+Everything runs on this machine: Real-ESRGAN models on ONNX Runtime
+(DirectML GPU, CPU fallback). Your images are processed locally and never
+uploaded.
+
+## Premium UX + motion (Stage 11)
+
+A product-quality pass over the whole shell — no new features, no
+redesign; every fix makes an existing surface feel finished.
+
+- **Compare chrome is constant on screen.** The before/after slider's
+  handle, divider, side tags and pending card used to live inside the
+  viewer's zoom transform: at fit zoom the handle rendered ~15 px, at 4×
+  it would have ballooned to ~144 px. Every chrome dimension is now
+  `calc(Npx × 1/viewScale)`, so the handle is exactly 36 px and tags stay
+  legible at any zoom. The handle is fixed light chrome (white circle,
+  dark arrows) so it reads over arbitrary image content in either theme.
+- **The Enhance strip sits on one axis.** Scale and Mode became inline
+  labeled segmented controls (`SegmentedField labelInline`) sharing a
+  single center line with the mode hint and the primary action — the old
+  stacked layout bottom-aligned the Scale control with the Mode _hint_.
+- **Dialogs, menus and notifications exit instead of vanishing.** A short
+  fade/settle (140 ms dialogs, 100 ms menus, 150 ms toasts) plays before
+  unmount; dismissal now reads as intentional. Toasts pause their clock
+  under the pointer and grant a short grace on leave, so a toast never
+  disappears while being read. Entry motion was already shared; exit
+  motion now speaks the same language.
+- **The image stage got its own tone** (`--bg-canvas`): a shade deeper
+  than the app surface in both themes, so the workspace reads as the
+  image's place — barely distinguishable in light mode before.
+- **Smaller fixes:** dialog initial focus lands on the panel (never one
+  accidental Enter from the close button), the workspace menu/zoom
+  readout/thumb hovers got consistent depth, the engine warning carries
+  an icon, and tests now encode the animated exits.
 
 ## GPU + CPU optimization (Stage 07)
 

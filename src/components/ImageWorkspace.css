@@ -33,9 +33,10 @@
   min-width: 0;
   min-height: 0;
   overflow: hidden;
-  /* The image floats in a neutral void — darker than the app surface in
-     both themes, like every pro viewer. */
-  background: var(--bg-sunken);
+  /* The image floats in a neutral void — its own tone (--bg-canvas, a
+     shade deeper than the app surface in both themes), like every pro
+     viewer. */
+  background: var(--bg-canvas);
   cursor: default;
   touch-action: none; /* we own pan/zoom gestures */
 }
@@ -173,7 +174,7 @@
 }
 
 .pix-ws__zoom {
-  min-width: 52px;
+  min-width: 56px; /* absorbs "1,200%" without shifting the toolbar */
   padding: 4px var(--space-2);
   border: none;
   border-radius: var(--radius-sm);

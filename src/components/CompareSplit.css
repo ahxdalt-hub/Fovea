@@ -3,17 +3,26 @@
  *
  * The root is the image frame (transformed by the viewer). Layers are
  * absolutely stacked and divided by clip-path. The divider is a 2px
- * light rule that survives any image content; the handle is a calm
+ * light rule that survives any image content; the handle is a light
  * circle with twin arrows and a larger invisible grab area.
+ *
+ * Constant-size chrome: the whole frame lives inside the viewer's zoom
+ * transform, so every chrome dimension is expressed as
+ * `calc(Npx * var(--pix-inv))` with `--pix-inv = 1 / viewScale`. Chrome
+ * then renders at exactly its authored size on screen at any zoom — the
+ * handle neither shrinks at fit zoom nor balloons at 4×. Colors for the
+ * handle/divider are fixed light values (like every pro viewer's split
+ * rule): they must read over arbitrary image content, not over the app.
  *
  * Motion: tags fade as the handle crowds them; the handle scales gently
  * on hover/drag. Everything is token-driven and reduced-motion-safe.
  */
 
 .pix-compare {
+  --pix-inv: calc(1 / var(--pix-view-scale, 1));
   position: relative;
   overflow: hidden;
-  border-radius: var(--radius-sm);
+  border-radius: calc(var(--radius-sm) * var(--pix-inv));
   /* Checkerboard under alpha images so transparency reads on both sides. */
   background: repeating-conic-gradient(var(--bg-sunken) 0% 25%, var(--bg-raised) 0% 50%) 0 0 / 16px
     16px;
@@ -41,46 +50,52 @@
   place-items: center;
   min-width: 0;
   background: var(--overlay);
-  backdrop-filter: blur(2px);
+  backdrop-filter: blur(calc(2px * var(--pix-inv)));
 }
 
 .pix-compare__pending-card {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: var(--space-2);
-  max-width: 240px;
-  padding: var(--space-4) var(--space-5);
-  margin: var(--space-3);
-  border: 1px solid var(--border-subtle);
-  border-radius: var(--radius-md);
+  gap: calc(var(--space-2) * var(--pix-inv));
+  max-width: calc(260px * var(--pix-inv));
+  padding: calc(var(--space-4) * var(--pix-inv)) calc(var(--space-5) * var(--pix-inv));
+  margin: calc(var(--space-3) * var(--pix-inv));
+  border: calc(1px * var(--pix-inv)) solid var(--border-subtle);
+  border-radius: calc(var(--radius-md) * var(--pix-inv));
   background: var(--bg-surface);
   box-shadow: var(--shadow-md);
   text-align: center;
   color: var(--text-secondary);
 }
 
+.pix-compare__pending-card svg {
+  width: calc(var(--icon-lg) * var(--pix-inv));
+  height: calc(var(--icon-lg) * var(--pix-inv));
+  color: var(--accent);
+}
+
 .pix-compare__pending-title {
-  font-size: var(--text-sm);
+  font-size: calc(var(--text-sm) * var(--pix-inv));
   font-weight: 600;
   color: var(--text-primary);
 }
 
 .pix-compare__pending-note {
-  font-size: var(--text-xs);
+  font-size: calc(var(--text-xs) * var(--pix-inv));
   color: var(--text-tertiary);
 }
 
-/* Divider */
+/* Divider — constant 2px screen rule with a dark ring for bright images. */
 
 .pix-compare__divider {
   position: absolute;
   top: 0;
   bottom: 0;
-  width: 2px;
-  margin-left: -1px;
+  width: calc(2px * var(--pix-inv));
+  margin-left: calc(-1px * var(--pix-inv));
   background: rgb(255 255 255 / 0.92);
-  box-shadow: 0 0 0 1px rgb(0 0 0 / 0.28);
+  box-shadow: 0 0 0 calc(1px * var(--pix-inv)) rgb(0 0 0 / 0.28);
 }
 
 .pix-compare__handle {
@@ -90,14 +105,15 @@
   translate: -50% -50%;
   display: grid;
   place-items: center;
-  width: 36px;
-  height: 36px;
+  width: calc(36px * var(--pix-inv));
+  height: calc(36px * var(--pix-inv));
   border-radius: 50%;
-  background: var(--bg-surface);
+  /* Fixed light chrome: legible over any image in either theme. */
+  background: #ffffff;
+  color: #22262e;
   box-shadow:
-    var(--shadow-md),
-    0 0 0 1px rgb(0 0 0 / 0.12);
-  color: var(--text-primary);
+    0 calc(1px * var(--pix-inv)) calc(4px * var(--pix-inv)) rgb(0 0 0 / 0.3),
+    0 0 0 calc(1px * var(--pix-inv)) rgb(0 0 0 / 0.16);
   cursor: ew-resize;
   touch-action: none;
   transition:
@@ -114,21 +130,21 @@
 }
 
 .pix-compare__handle:focus-visible {
-  outline: 2px solid var(--focus-ring);
-  outline-offset: 2px;
+  outline: calc(2px * var(--pix-inv)) solid var(--focus-ring);
+  outline-offset: calc(2px * var(--pix-inv));
 }
 
 .pix-compare__grip {
   display: flex;
   align-items: center;
-  gap: 1px;
+  gap: calc(1px * var(--pix-inv));
 }
 
 .pix-compare__arrow {
-  width: 6px;
-  height: 6px;
-  border-top: 1.5px solid currentColor;
-  border-left: 1.5px solid currentColor;
+  width: calc(6px * var(--pix-inv));
+  height: calc(6px * var(--pix-inv));
+  border-top: calc(1.5px * var(--pix-inv)) solid currentColor;
+  border-left: calc(1.5px * var(--pix-inv)) solid currentColor;
   rotate: -45deg;
 }
 
@@ -136,20 +152,20 @@
   rotate: 135deg;
 }
 
-/* Side tags */
+/* Side tags — constant-size chips that fade when the handle crowds them. */
 
 .pix-compare__tag {
   position: absolute;
-  top: var(--space-2);
-  left: var(--space-2);
+  top: calc(var(--space-2) * var(--pix-inv));
+  left: calc(var(--space-2) * var(--pix-inv));
   display: inline-flex;
   align-items: center;
-  gap: var(--space-2);
-  padding: 2px var(--space-2);
-  border-radius: var(--radius-sm);
+  gap: calc(var(--space-2) * var(--pix-inv));
+  padding: calc(2px * var(--pix-inv)) calc(var(--space-2) * var(--pix-inv));
+  border-radius: calc(var(--radius-sm) * var(--pix-inv));
   background: rgb(10 12 16 / 0.62);
   color: #fff;
-  font-size: var(--text-xs);
+  font-size: calc(var(--text-xs) * var(--pix-inv));
   font-weight: 600;
   letter-spacing: var(--tracking-caps);
   text-transform: uppercase;
@@ -159,7 +175,7 @@
 
 .pix-compare__tag--right {
   left: auto;
-  right: var(--space-2);
+  right: calc(var(--space-2) * var(--pix-inv));
 }
 
 .pix-compare__tag--dim {
@@ -167,10 +183,10 @@
 }
 
 .pix-compare__demo {
-  padding: 0 5px;
-  border: 1px solid rgb(255 255 255 / 0.5);
+  padding: 0 calc(5px * var(--pix-inv));
+  border: calc(1px * var(--pix-inv)) solid rgb(255 255 255 / 0.5);
   border-radius: 999px;
-  font-size: 9px;
+  font-size: calc(9px * var(--pix-inv));
   font-weight: 700;
   letter-spacing: normal;
   text-transform: lowercase;

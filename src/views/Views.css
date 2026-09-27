@@ -203,11 +203,13 @@
   cursor: default;
   transition:
     border-color var(--duration-instant) var(--ease-standard),
-    background-color var(--duration-instant) var(--ease-standard);
+    background-color var(--duration-instant) var(--ease-standard),
+    box-shadow var(--duration-instant) var(--ease-standard);
 }
 
 .pixora-thumb:hover {
   border-color: var(--border-strong);
+  box-shadow: var(--shadow-sm);
 }
 
 .pixora-thumb--active {
@@ -364,6 +366,9 @@
   border: 1px solid var(--border-subtle);
   border-radius: var(--radius-md);
   background: var(--bg-surface);
+  /* Queue items arrive one at a time as work is admitted — each row
+     rises once on mount; progress ticks re-render, never remount. */
+  animation: pixora-rise var(--duration-base) var(--ease-decelerate) both;
 }
 
 .pix-batch__row--failed {

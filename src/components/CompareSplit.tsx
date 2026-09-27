@@ -41,6 +41,11 @@ export interface CompareSplitProps {
   /** Dev-QA marker: demo fixture, never real engine output. */
   demoBadge?: boolean
   onInteract?: () => void
+  /** The viewer's current zoom. The frame lives inside the zoomed layer, so
+   * chrome (handle, divider, tags, pending card) counter-scales by 1/scale
+   * to keep a constant on-screen size — a handle that shrinks at fit zoom
+   * or balloons at 4× reads as broken, not zoomy. */
+  viewScale?: number
 }
 
 /** The divider never fully covers either side. */
@@ -58,6 +63,7 @@ export function CompareSplit({
   pendingNote,
   demoBadge = false,
   onInteract,
+  viewScale = 1,
 }: CompareSplitProps) {
   const rootRef = useRef<HTMLDivElement>(null)
   const [position, setPosition] = useState(50) // percent of the frame width
@@ -102,7 +108,7 @@ export function CompareSplit({
     <div
       ref={rootRef}
       className={cx('pix-compare', pending && 'pix-compare--pending', className)}
-      style={{ width, height }}
+      style={{ width, height, ['--pix-view-scale' as string]: viewScale }}
       data-position={position.toFixed(1)}
     >
       <img

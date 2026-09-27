@@ -20,6 +20,19 @@
   animation: pixora-menu-in var(--duration-fast) var(--ease-decelerate) both;
 }
 
+/* Exit: a quick fade-settle so dismissal keeps the same easing language.
+   Item actions already ran; this is only the visual farewell. */
+@keyframes pixora-menu-out {
+  to {
+    opacity: 0;
+    transform: translateY(-2px) scale(0.99);
+  }
+}
+
+.pix-menu--closing {
+  animation: pixora-menu-out var(--duration-fast) var(--ease-standard) both;
+}
+
 .pix-menu--end {
   right: 0;
 }

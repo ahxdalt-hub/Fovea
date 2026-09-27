@@ -21,6 +21,29 @@
   outline: none;
 }
 
+/* Exit: a shorter fade/settle so dismissal reads as intentional. The
+   backdrop fades with it; unmount happens after Dialog's EXIT_MS. */
+@keyframes pixora-dialog-out {
+  to {
+    opacity: 0;
+    transform: translateY(4px) scale(0.99);
+  }
+}
+
+@keyframes pixora-fade-out {
+  to {
+    opacity: 0;
+  }
+}
+
+.pix-dialog__backdrop--closing {
+  animation: pixora-fade-out var(--duration-fast) var(--ease-standard) both;
+}
+
+.pix-dialog--closing {
+  animation: pixora-dialog-out var(--duration-fast) var(--ease-standard) both;
+}
+
 .pix-dialog--sm {
   max-width: 440px;
 }

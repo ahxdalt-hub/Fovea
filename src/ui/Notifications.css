@@ -26,6 +26,18 @@
   animation: pixora-notification-in var(--duration-base) var(--ease-decelerate) both;
 }
 
+/* Exit: a short settle in the entry's direction — same language, reversed. */
+@keyframes pixora-notification-out {
+  to {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+}
+
+.pix-notification--leaving {
+  animation: pixora-notification-out var(--duration-fast) var(--ease-standard) both;
+}
+
 .pix-notification--info {
   border-left-color: var(--accent);
 }

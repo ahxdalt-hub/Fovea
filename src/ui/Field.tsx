@@ -109,6 +109,10 @@ export interface SegmentedFieldProps {
   /** Locks the whole group (e.g. while a job is running). */
   disabled?: boolean
   hint?: string
+  /** Label beside the track on one center line — for single-row control
+   * strips (the Enhance bar) where stacked labels would raggedly misalign
+   * siblings that carry hints. */
+  labelInline?: boolean
 }
 
 export function SegmentedField({
@@ -120,35 +124,51 @@ export function SegmentedField({
   className,
   disabled = false,
   hint,
+  labelInline = false,
 }: SegmentedFieldProps) {
   const groupName = useId()
+  const track = (
+    <div className="pix-segmented__track">
+      {options.map((option) => (
+        <label
+          key={option.value}
+          className={cx(
+            'pix-segmented__option',
+            value === option.value && 'pix-segmented__option--checked',
+            disabled && 'pix-segmented__option--disabled',
+          )}
+        >
+          <input
+            type="radio"
+            name={name ?? groupName}
+            className="u-visually-hidden"
+            value={option.value}
+            checked={value === option.value}
+            disabled={disabled}
+            onChange={() => onChange(option.value)}
+          />
+          {option.icon}
+          {option.label}
+        </label>
+      ))}
+    </div>
+  )
+  if (labelInline) {
+    return (
+      <div
+        className={cx('pix-segmented', 'pix-segmented--inline', className)}
+        role="group"
+        aria-label={label}
+      >
+        <span className="pix-segmented__inline-label">{label}</span>
+        {track}
+      </div>
+    )
+  }
   return (
     <div className={cx('pix-segmented', className)} role="group" aria-label={label}>
       <span className="pix-field__label">{label}</span>
-      <div className="pix-segmented__track">
-        {options.map((option) => (
-          <label
-            key={option.value}
-            className={cx(
-              'pix-segmented__option',
-              value === option.value && 'pix-segmented__option--checked',
-              disabled && 'pix-segmented__option--disabled',
-            )}
-          >
-            <input
-              type="radio"
-              name={name ?? groupName}
-              className="u-visually-hidden"
-              value={option.value}
-              checked={value === option.value}
-              disabled={disabled}
-              onChange={() => onChange(option.value)}
-            />
-            {option.icon}
-            {option.label}
-          </label>
-        ))}
-      </div>
+      {track}
       {hint && <span className="pix-field__message">{hint}</span>}
     </div>
   )

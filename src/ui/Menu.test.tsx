@@ -1,8 +1,9 @@
 /**
  * Menu: trigger semantics, keyboard open/select/close, focus return, and
- * outside-click dismissal.
+ * outside-click dismissal. Close is animated (a short fade-settle before
+ * unmount), so removal assertions wait for the exit to finish.
  */
-import { fireEvent, render, screen } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
 import { Menu, type MenuItem } from './Menu'
 
@@ -49,28 +50,29 @@ describe('Menu', () => {
     expect(document.activeElement).toBe(beta) // last enabled item
   })
 
-  it('selects with Enter, calls the handler, closes, and returns focus to the trigger', () => {
+  it('selects with Enter, calls the handler, closes, and returns focus to the trigger', async () => {
     const onSelect = renderMenu()
     const trigger = screen.getByRole('button', { name: 'Test menu' })
     fireEvent.keyDown(trigger, { key: 'Enter' })
     const [, beta] = screen.getAllByRole('menuitem')
     fireEvent.click(beta!)
     expect(onSelect).toHaveBeenCalledTimes(1)
-    expect(screen.queryByRole('menu')).not.toBeInTheDocument()
     expect(document.activeElement).toBe(trigger)
+    await waitFor(() => expect(screen.queryByRole('menu')).not.toBeInTheDocument())
   })
 
-  it('closes on Escape and on outside pointerdown', () => {
+  it('closes on Escape and on outside pointerdown', async () => {
     renderMenu()
     const trigger = screen.getByRole('button', { name: 'Test menu' })
     fireEvent.keyDown(trigger, { key: 'Enter' })
     fireEvent.keyDown(document.body, { key: 'Escape' })
-    expect(screen.queryByRole('menu')).not.toBeInTheDocument()
+    await waitFor(() => expect(screen.queryByRole('menu')).not.toBeInTheDocument())
     expect(document.activeElement).toBe(trigger)
 
     fireEvent.keyDown(trigger, { key: 'Enter' })
+    expect(screen.getByRole('menu')).toBeInTheDocument()
     fireEvent.pointerDown(document.body, { bubbles: true })
-    expect(screen.queryByRole('menu')).not.toBeInTheDocument()
+    await waitFor(() => expect(screen.queryByRole('menu')).not.toBeInTheDocument())
   })
 
   it('does not open disabled items', () => {

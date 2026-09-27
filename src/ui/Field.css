@@ -88,6 +88,21 @@
   gap: var(--space-2);
 }
 
+/* Inline variant: label and track share one center line, so a strip of
+   mixed segmented controls keeps every track on the same axis. */
+.pix-segmented--inline {
+  flex-direction: row;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.pix-segmented__inline-label {
+  font-size: var(--text-sm);
+  font-weight: 600;
+  color: var(--text-secondary);
+  white-space: nowrap;
+}
+
 .pix-segmented__track {
   display: inline-flex;
   padding: 3px;

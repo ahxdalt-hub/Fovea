@@ -23,7 +23,7 @@ import { Button } from '../ui/Button'
 import { SegmentedField } from '../ui/Field'
 import { ProgressBar, Spinner } from '../ui/Progress'
 import { Tooltip } from '../ui/Tooltip'
-import { IconExport, IconRetry, IconSparkle } from '../ui/Icons'
+import { IconExport, IconRetry, IconSparkle, IconWarning } from '../ui/Icons'
 import { formatDimensions } from '../lib/format'
 import { MODE_HINT, MODE_LABEL, MODE_ORDER } from '../lib/catalog'
 import { isTauriRuntime } from '../state/useNativeFileDrop'
@@ -136,6 +136,7 @@ export function EnhanceControls({
       <div className="pix-enhance__actions">
         {status && !status.ready && (
           <span className="pix-enhance__warn" role="status">
+            <IconWarning size="sm" />
             {status.models.some((m) => m.state === 'corrupt')
               ? 'Model file damaged — add it to Pixora’s models folder'
               : 'AI model not installed — add it to Pixora’s models folder'}
@@ -145,8 +146,8 @@ export function EnhanceControls({
         {scales.length > 1 ? (
           <SegmentedField
             label="Scale"
+            labelInline
             name="pixora-scale"
-            className="pix-enhance__segmented"
             value={String(choices.scale)}
             onChange={changeScale}
             disabled={active}
@@ -156,17 +157,22 @@ export function EnhanceControls({
         {modeOptions.length > 1 && (
           <SegmentedField
             label="Mode"
+            labelInline
             name="pixora-mode"
-            className="pix-enhance__segmented"
             value={choices.mode}
             onChange={changeMode}
             disabled={active}
             options={modeOptions.map((m) => ({ value: m, label: MODE_LABEL[m] }))}
-            hint={
-              status?.modes.find((m) => m.key === choices.mode)?.description ??
-              MODE_HINT[choices.mode]
-            }
           />
+        )}
+        {modeOptions.length > 1 && (
+          <span
+            className="pix-enhance__modehint"
+            title={status?.modes.find((m) => m.key === choices.mode)?.description}
+          >
+            {status?.modes.find((m) => m.key === choices.mode)?.description ??
+              MODE_HINT[choices.mode]}
+          </span>
         )}
 
         <span className="pix-enhance__spacer" aria-hidden="true" />

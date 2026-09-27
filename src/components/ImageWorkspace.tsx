@@ -403,6 +403,7 @@ export function ImageWorkspace({
               afterSrc={enhanced?.dataUrl ?? null}
               width={natural.width}
               height={natural.height}
+              viewScale={view.scale}
               demoBadge={enhanced?.dev === true}
               pendingNote={
                 isTauriRuntime() ? undefined : 'The enhancement engine runs in the desktop app.'
