@@ -17,7 +17,7 @@
  * Boundaries unchanged from Stage 01: React owns presentation, everything
  * native stays behind src/ipc/bridge.ts.
  */
-import { useCallback, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import type { ThemePreference, ViewId } from './state/appReducer'
 import { useAppState } from './state/useAppState'
 import { useCoreBootstrap } from './state/useCoreBootstrap'
@@ -27,6 +27,7 @@ import { useDevPreviewParams } from './state/useDevPreviewParams'
 import { useDevDemoImages } from './state/useDevDemoImages'
 import { useImport } from './state/useImport'
 import { useEnhance } from './state/useEnhance'
+import { useBatch } from './state/useBatch'
 import { useDragOver } from './state/useNativeFileDrop'
 import { persistTheme } from './state/appReducer'
 import { NotificationProvider } from './ui/Notifications'
@@ -50,7 +51,28 @@ export function Shell() {
   useDevDemoImages()
   const importApi = useImport()
   const enhanceApi = useEnhance()
+  const batchApi = useBatch()
   const { dragOver } = useDragOver(importApi.dropPaths)
+
+  // On the first ready handshake, re-sync any batch that survived from a
+  // previous window (the worker keeps draining after a remount) so the
+  // queue panel is never shown as empty while work runs natively.
+  useEffect(() => {
+    if (state.coreStatus === 'ready') void batchApi.refresh()
+    // Intentionally not keyed on batchApi.refresh identity — one sync per
+    // ready transition is the point.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [state.coreStatus])
+
+  const reopenFromPath = useCallback(
+    (path: string) => {
+      // Import runs the native validation ladder and navigates to the
+      // workspace; a moved/deleted file reports honestly through the
+      // import notification rather than a dead click.
+      void importApi.dropPaths([path])
+    },
+    [importApi],
+  )
 
   const [shortcutsOpen, setShortcutsOpen] = useState(false)
   const [aboutOpen, setAboutOpen] = useState(false)
@@ -102,11 +124,18 @@ export function Shell() {
     }
     switch (state.ui.view) {
       case 'batch':
-        return <BatchView onGoToEnhance={() => navigate('enhance')} />
+        return <BatchView batchApi={batchApi} onGoToEnhance={() => navigate('enhance')} />
       case 'history':
-        return <HistoryView onGoToEnhance={() => navigate('enhance')} />
+        return <HistoryView onGoToEnhance={() => navigate('enhance')} onReopen={reopenFromPath} />
       default:
-        return <EnhanceView importApi={importApi} enhanceApi={enhanceApi} images={state.images} />
+        return (
+          <EnhanceView
+            importApi={importApi}
+            enhanceApi={enhanceApi}
+            images={state.images}
+            onReopen={reopenFromPath}
+          />
+        )
     }
   }
 

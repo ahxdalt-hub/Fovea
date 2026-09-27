@@ -65,6 +65,10 @@ function mockSuccessfulCore() {
         maxBandBytes: 536870912,
         memoryLimit: 'GPU video memory',
       })
+    // Stage 09: an empty journal on a fresh profile.
+    if (cmd === 'get_history') return Promise.resolve({ entries: [], recents: [] })
+    // Stage 08: no batch has run yet (the Shell re-syncs on core-ready).
+    if (cmd === 'get_batch_snapshot') return Promise.resolve(null)
     return Promise.reject(new Error(`unexpected command: ${cmd}`))
   })
 }
@@ -110,7 +114,9 @@ describe('Pixora shell', () => {
 
     fireEvent.click(navButton('History'))
     expect(screen.getByRole('heading', { level: 1, name: 'History' })).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: /open enhance/i })).toBeInTheDocument()
+    // History is read from the native journal (Stage 09), so its empty
+    // state lands after the async fetch resolves — await it honestly.
+    expect(await screen.findByRole('button', { name: /open enhance/i })).toBeInTheDocument()
 
     fireEvent.click(navButton('Enhance'))
     expect(screen.getByRole('button', { name: /choose files/i })).toBeInTheDocument()

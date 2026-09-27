@@ -8,9 +8,13 @@
 import type {
   AppConfigDto,
   AppErrorPayload,
+  BatchEventDto,
+  BatchItemDto,
+  BatchSnapshotDto,
   EnhanceEventDto,
   EnhanceModeKey,
   ExportResultDto,
+  HistorySnapshotDto,
   ImageEnhancementDto,
   ImportedImageDto,
   InferenceStatusDto,
@@ -19,6 +23,12 @@ import type {
 
 /** Native connection lifecycle. */
 export type CoreStatus = 'connecting' | 'ready' | 'error'
+
+/** The history store's read lifecycle (Stage 09). Kept in app state so
+ * the History view and the cold-start recent row share one honest view
+ * of the journal — and so loading it happens through dispatch, matching
+ * how every other native read in this app is driven. */
+export type HistoryStatus = 'idle' | 'loading' | 'ready' | 'error'
 
 /** Primary navigation destinations in the shell. */
 export type ViewId = 'enhance' | 'batch' | 'history'
@@ -144,6 +154,24 @@ export interface AppState {
   /** Stage 06: the last export's result per image id — proof the file
    * landed, shown in the completion state without a second source. */
   exports: Record<string, ExportResultDto>
+  /**
+   * Stage 08: the live (or just-finished) batch queue. `null` until a
+   * batch starts. The native snapshot is the source of truth; per-item
+   * events reconcile into it with terminal-state protection (a stale
+   * progress event can never overwrite a completed item).
+   */
+  batch: BatchSnapshotDto | null
+  /**
+   * Stage 09: the local processing journal + recent files. `null` until
+   * first fetched. Re-read from the native store on entry to History and
+   * after every batch — never invented or cached across a restart.
+   */
+  history: HistorySnapshotDto | null
+  /** Load lifecycle for `history` (kept here so views sync by dispatch,
+   * never by a setState inside an effect). */
+  historyStatus: HistoryStatus
+  /** User-safe message when the last history read failed. */
+  historyError: string | null
   ui: UiState
 }
 
@@ -170,6 +198,12 @@ export type AppAction =
   | { type: 'enhance/clear' }
   | { type: 'enhance/setSettings'; settings: Partial<EnhanceSettings> }
   | { type: 'exports/set'; imageId: string; result: ExportResultDto }
+  | { type: 'batch/snapshot'; snapshot: BatchSnapshotDto }
+  | { type: 'batch/event'; event: BatchEventDto }
+  | { type: 'batch/clear' }
+  | { type: 'history/loading' }
+  | { type: 'history/loaded'; snapshot: HistorySnapshotDto }
+  | { type: 'history/error'; message: string }
 
 export const initialState: AppState = {
   coreStatus: 'connecting',
@@ -184,6 +218,10 @@ export const initialState: AppState = {
   enhanceJob: null,
   enhanceSettings: readStoredEnhanceSettings(),
   exports: {},
+  batch: null,
+  history: null,
+  historyStatus: 'idle',
+  historyError: null,
   ui: {
     view: 'enhance',
     theme: readStoredTheme(),
@@ -377,5 +415,103 @@ export function appReducer(state: AppState, action: AppAction): AppState {
       return { ...state, enhanceSettings: { ...state.enhanceSettings, ...action.settings } }
     case 'exports/set':
       return { ...state, exports: { ...state.exports, [action.imageId]: action.result } }
+    case 'batch/snapshot':
+      // A snapshot replaces the queue wholesale — it is authoritative
+      // (comes from the native source of truth). A no-op when identical.
+      return state.batch === action.snapshot ? state : { ...state, batch: action.snapshot }
+    case 'batch/event': {
+      const snapshot = state.batch
+      if (!snapshot) return state // events before a snapshot are dropped
+      const items = applyBatchEvent(snapshot.items, action.event)
+      // No item moved (terminal guard, monotonic guard, or unknown id):
+      // return the identical state so React skips the re-render and tests
+      // can assert reference stability.
+      if (items === snapshot.items) return state
+      // Reconcile `running`: an item moving out of waiting/processing
+      // can drain the last work; the native snapshot is refreshed on the
+      // next sync, but the UI must not show a phantom in-flight batch.
+      const stillRunning = items.some((i) => i.state === 'waiting' || i.state === 'processing')
+      return {
+        ...state,
+        batch: { ...snapshot, items, running: snapshot.running && stillRunning },
+      }
+    }
+    case 'batch/clear':
+      return { ...state, batch: null }
+    case 'history/loading':
+      return { ...state, historyStatus: 'loading', historyError: null }
+    case 'history/loaded':
+      return { ...state, history: action.snapshot, historyStatus: 'ready', historyError: null }
+    case 'history/error':
+      return { ...state, historyStatus: 'error', historyError: action.message }
   }
+}
+
+/** Terminal batch item states — never overwritten by a later event. */
+const TERMINAL_BATCH: ReadonlySet<BatchItemDto['state']> = new Set([
+  'completed',
+  'failed',
+  'cancelled',
+])
+
+/**
+ * Fold one native batch event onto the item list. Guards:
+ * - terminal items ignore everything (a late/stale event can't resurrect
+ *   or rewrite finished work);
+ * - progress is monotonic (a smaller `done` from an out-of-order event
+ *   never moves an item backward);
+ * - every branch returns a *new* array only when something changed, so
+ *   an unknown/duplicate event keeps referential stability (React skips
+ *   the re-render, and tests can assert identity).
+ */
+export function applyBatchEvent(items: BatchItemDto[], event: BatchEventDto): BatchItemDto[] {
+  const index = items.findIndex((i) => i.id === event.itemId)
+  const item = index < 0 ? undefined : items[index]
+  if (!item) return items // unknown item id — stale or already gone
+  if (TERMINAL_BATCH.has(item.state)) return items
+
+  let next: BatchItemDto | null = null
+  switch (event.type) {
+    case 'started':
+      if (item.state !== 'waiting') break
+      next = { ...item, state: 'processing' }
+      break
+    case 'device':
+      next = { ...item, device: event.device }
+      break
+    case 'progress':
+      // Monotonic: only advance the completed-tile count.
+      if (event.done < item.done) break
+      next = { ...item, done: event.done, total: event.total }
+      break
+    case 'saving':
+      // Still processing (the 5-state model has no separate 'saving');
+      // mark the tile count complete so the bar honestly reads full.
+      next = { ...item, done: item.total > 0 ? item.total : item.done }
+      break
+    case 'completed':
+      next = {
+        ...item,
+        state: 'completed',
+        done: item.total,
+        error: null,
+        cancelling: false,
+      }
+      break
+    case 'failed':
+      next = {
+        ...item,
+        state: 'failed',
+        error: { code: event.code as AppErrorPayload['code'], message: event.message },
+        cancelling: false,
+      }
+      break
+    case 'cancelled':
+      next = { ...item, state: 'cancelled', cancelling: false }
+      break
+  }
+  if (!next) return items // event didn't move the item — keep identity
+  const copy = items.slice()
+  copy[index] = next
+  return copy
 }

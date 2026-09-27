@@ -21,12 +21,13 @@ import { useCallback, useEffect, useState } from 'react'
 import type { ImageEnhancementDto, ImportedImageDto } from '../types/ipc'
 import { getInferenceStatus } from '../ipc/bridge'
 import { useAppState } from '../state/useAppState'
+import { useRecentFiles } from '../state/useRecentFiles'
 import { Button, IconButton } from '../ui/Button'
 import { Tooltip } from '../ui/Tooltip'
 import { EmptyState } from '../ui/States'
 import { Badge } from '../ui/Badge'
 import { Spinner } from '../ui/Progress'
-import { IconClose, IconImage, IconImport } from '../ui/Icons'
+import { IconClose, IconHistory, IconImage, IconImport } from '../ui/Icons'
 import { collectionSummary, type ImportApi } from '../state/useImport'
 import type { EnhanceApi } from '../state/useEnhance'
 import { isTauriRuntime } from '../state/useNativeFileDrop'
@@ -46,11 +47,16 @@ export interface EnhanceViewProps {
   importApi: ImportApi
   enhanceApi: EnhanceApi
   images: ImportedImageDto[]
+  /** Reopen a recent file by its source path (import + select). */
+  onReopen: (sourcePath: string) => void
 }
 
-export function EnhanceView({ importApi, enhanceApi, images }: EnhanceViewProps) {
+export function EnhanceView({ importApi, enhanceApi, images, onReopen }: EnhanceViewProps) {
   const { importing } = importApi
   const { state, dispatch } = useAppState()
+  // Recent files only matter while the collection is empty (Stage 09):
+  // the "continue where you left off" affordance on a cold start.
+  const { recents } = useRecentFiles(images.length === 0)
 
   // Engine readiness: one fetch per Enhance session (native runtime only).
   // The result gates the Enhance button honestly — a missing/corrupt model
@@ -119,6 +125,28 @@ export function EnhanceView({ importApi, enhanceApi, images }: EnhanceViewProps)
           </div>
 
           <WorkspaceEmpty importApi={importApi} importing={importing} />
+
+          {recents.length > 0 && (
+            <section className="pix-recents" aria-label="Recent files">
+              <h2 className="pix-recents__title">
+                <IconHistory size="sm" /> Recent
+              </h2>
+              <ul className="pix-recents__list">
+                {recents.slice(0, 6).map((r) => (
+                  <li key={r.path}>
+                    <button
+                      type="button"
+                      className="pix-recents__item"
+                      title={r.path}
+                      onClick={() => onReopen(r.path)}
+                    >
+                      {r.name}
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            </section>
+          )}
 
           <div className="pixora-view__footnote">
             <Badge tone="success" dot>

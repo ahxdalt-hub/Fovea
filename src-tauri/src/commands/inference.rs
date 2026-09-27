@@ -12,13 +12,16 @@
 //! a later-stage optimization with a measured reason.
 
 use std::collections::HashMap;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
 use tauri::ipc::Channel;
 use tauri::{AppHandle, Manager, State};
 
 use crate::error::{AppError, AppResult};
+use crate::services::history::{
+    EntryKind, EntryStatus, HistoryEntry, Store as HistoryStore, now_ms,
+};
 use crate::services::inference::backend::{CancelToken, OnnxBackend};
 use crate::services::inference::model::{EnhanceMode, ModelRegistry};
 use crate::services::inference::service::{
@@ -83,6 +86,9 @@ pub async fn enhance_image(
     let jobs = Arc::clone(&state.jobs);
     let config = state.config;
     let out_dir = state.out_dir.clone();
+    // History rows keep the source path after the job's copy moves into
+    // the blocking task below.
+    let source_path = image_id.clone();
     // Clones for the *defensive* release path below: `enhance` always
     // finishes the slot itself, so these only matter if the blocking
     // task panicked before reaching it.
@@ -114,12 +120,60 @@ pub async fn enhance_image(
 
     match result {
         Ok(inner) => {
-            if let Ok(result) = &inner {
-                // Remember the committed file so export can use it without
-                // the client ever naming a path.
-                if let Ok(mut map) = state.outputs.lock() {
-                    map.insert(result.image_id.clone(), result.file_path.clone());
+            // Stage 09: record the run honestly — completed runs with
+            // their true geometry and output location; failed runs with
+            // the user-safe message. Cancellations are user-initiated
+            // non-events: the journal stays quiet.
+            let history = app.state::<Arc<HistoryStore>>().inner().clone();
+            let file_name = Path::new(&source_path)
+                .file_name()
+                .map(|n| n.to_string_lossy().into_owned())
+                .unwrap_or_else(|| source_path.clone());
+            match &inner {
+                Ok(result) => {
+                    // Remember the committed file so export can use it
+                    // without the client ever naming a path.
+                    if let Ok(mut map) = state.outputs.lock() {
+                        map.insert(result.image_id.clone(), result.file_path.clone());
+                    }
+                    history.record(HistoryEntry {
+                        id: String::new(),
+                        source_path: source_path.clone(),
+                        file_name,
+                        original_width: result.source_width,
+                        original_height: result.source_height,
+                        output_width: result.output_width,
+                        output_height: result.output_height,
+                        scale,
+                        mode: mode.key().to_string(),
+                        status: EntryStatus::Completed,
+                        error_message: None,
+                        created_at: now_ms(),
+                        kind: EntryKind::Single,
+                        output_path: Some(result.file_path.to_string_lossy().into_owned()),
+                    });
                 }
+                Err(err) if err.code() != "cancelled" => {
+                    history.record(HistoryEntry {
+                        id: String::new(),
+                        source_path,
+                        file_name,
+                        // Dimensions the job never got to measure: 0.
+                        // The History view shows them as unknown.
+                        original_width: 0,
+                        original_height: 0,
+                        output_width: 0,
+                        output_height: 0,
+                        scale,
+                        mode: mode.key().to_string(),
+                        status: EntryStatus::Failed,
+                        error_message: Some(err.user_message().to_string()),
+                        created_at: now_ms(),
+                        kind: EntryKind::Single,
+                        output_path: None,
+                    });
+                }
+                Err(_) => {}
             }
             inner
         }

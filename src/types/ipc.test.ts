@@ -1,10 +1,13 @@
 import { describe, expect, it } from 'vitest'
 import {
   isAppErrorPayload,
+  isBatchEvent,
+  isBatchSnapshot,
   isDiagnostics,
   isEnhanceEvent,
   isEnhanceResult,
   isExportResult,
+  isHistorySnapshot,
   isInferenceStatus,
   isImageView,
   isImportOutcome,
@@ -143,12 +146,19 @@ describe('Stage 05 guards', () => {
       filePath: 'C:appdataenhancedjob-1-0.png',
       width: 4000,
       height: 3000,
+      sourceWidth: 1000,
+      sourceHeight: 750,
+      outputWidth: 4000,
+      outputHeight: 3000,
       label: '4× · Real-ESRGAN general',
       engine: 'DirectML GPU',
       dataUrl: 'data:image/png;base64,AA',
     }
     expect(isEnhanceResult(ok)).toBe(true)
+    // The batch path returns a null view — still a valid committed result.
+    expect(isEnhanceResult({ ...ok, dataUrl: null })).toBe(true)
     expect(isEnhanceResult({ ...ok, engine: 3 })).toBe(false)
+    expect(isEnhanceResult({ ...ok, sourceWidth: undefined })).toBe(false)
     expect(isEnhanceResult('result')).toBe(false)
   })
 
@@ -180,5 +190,106 @@ describe('Stage 05 guards', () => {
     expect(isExportResult(ok)).toBe(true)
     expect(isExportResult({ ...ok, bytes: '1234' })).toBe(false)
     expect(isExportResult(null)).toBe(false)
+  })
+
+  it('isBatchSnapshot guards the queue payload', () => {
+    const ok = {
+      items: [
+        {
+          id: 'item-1',
+          imageId: 'C:a.png',
+          name: 'a.png',
+          state: 'waiting',
+          done: 0,
+          total: 0,
+          device: null,
+          error: null,
+          output: null,
+          mode: 'standard',
+          scale: 2,
+          cancelling: false,
+        },
+      ],
+      running: true,
+      workerLimit: 1,
+    }
+    expect(isBatchSnapshot(ok)).toBe(true)
+    expect(isBatchSnapshot({ ...ok, items: [{ ...ok.items[0], state: 'teleporting' }] })).toBe(
+      false,
+    )
+    expect(isBatchSnapshot({ ...ok, running: 'yes' })).toBe(false)
+    // A completed item carries a real output record.
+    const done = {
+      items: [
+        {
+          ...ok.items[0],
+          state: 'completed',
+          output: {
+            filePath: 'C:/out/a.png',
+            fileName: 'a.png',
+            folder: 'C:/out',
+            bytes: 10,
+            sourceWidth: 8,
+            sourceHeight: 4,
+            outputWidth: 16,
+            outputHeight: 8,
+            label: '2× · Standard',
+            engine: 'CPU',
+          },
+        },
+      ],
+      running: false,
+      workerLimit: 1,
+    }
+    expect(isBatchSnapshot(done)).toBe(true)
+    expect(isBatchSnapshot({ ...done, items: [{ ...done.items[0], output: { bogus: 1 } }] })).toBe(
+      false,
+    )
+    expect(isBatchSnapshot(null)).toBe(false)
+  })
+
+  it('isBatchEvent guards the streamed per-item events', () => {
+    expect(isBatchEvent({ type: 'started', itemId: 'i' })).toBe(true)
+    expect(isBatchEvent({ type: 'progress', itemId: 'i', done: 2, total: 5 })).toBe(true)
+    expect(isBatchEvent({ type: 'progress', itemId: 'i', done: 2 })).toBe(false)
+    expect(isBatchEvent({ type: 'device', itemId: 'i', device: 'CPU' })).toBe(true)
+    expect(isBatchEvent({ type: 'failed', itemId: 'i', code: 'x', message: 'y' })).toBe(true)
+    expect(isBatchEvent({ type: 'failed', itemId: 'i' })).toBe(false)
+    expect(isBatchEvent({ type: 'started' })).toBe(false)
+    expect(isBatchEvent({ type: 'nope', itemId: 'i' })).toBe(false)
+    expect(isBatchEvent(null)).toBe(false)
+  })
+
+  it('isHistorySnapshot guards the journal payload', () => {
+    const ok = {
+      entries: [
+        {
+          id: 'h-1',
+          sourcePath: 'C:/pics/a.png',
+          fileName: 'a.png',
+          originalWidth: 100,
+          originalHeight: 80,
+          outputWidth: 400,
+          outputHeight: 320,
+          scale: 4,
+          mode: 'standard',
+          status: 'completed',
+          errorMessage: null,
+          createdAt: 1700000000000,
+          kind: 'single',
+          outputPath: 'C:/enhanced/a.png',
+          sourceExists: true,
+          outputExists: true,
+        },
+      ],
+      recents: [{ path: 'C:/pics/a.png', name: 'a.png', lastUsedAt: 1, exists: true }],
+    }
+    expect(isHistorySnapshot(ok)).toBe(true)
+    expect(isHistorySnapshot({ ...ok, entries: [] })).toBe(true)
+    expect(isHistorySnapshot({ ...ok, entries: [{ ...ok.entries[0], status: 'pending' }] })).toBe(
+      false,
+    )
+    expect(isHistorySnapshot({ ...ok, recents: 'nope' })).toBe(false)
+    expect(isHistorySnapshot(null)).toBe(false)
   })
 })

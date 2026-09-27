@@ -12,12 +12,15 @@
 //! so the UI thread never stalls on a large file.
 
 use std::path::Path;
+use std::sync::Arc;
 use std::sync::mpsc;
 
 use tauri::AppHandle;
+use tauri::Manager;
 use tauri_plugin_dialog::DialogExt;
 
 use crate::error::{AppError, AppResult};
+use crate::services::history::Store as HistoryStore;
 use crate::services::import::{self, ImageView, ImportOutcome};
 
 /// Open a native multi-select image picker and return the chosen paths.
@@ -50,7 +53,7 @@ pub async fn pick_image_files(app: AppHandle) -> AppResult<Vec<String>> {
 /// Validate and import a batch of dropped/picked paths. Never fails as a
 /// whole — each file reports its own outcome (see `ImportOutcome`).
 #[tauri::command]
-pub async fn import_images(paths: Vec<String>) -> AppResult<Vec<ImportOutcome>> {
+pub async fn import_images(app: AppHandle, paths: Vec<String>) -> AppResult<Vec<ImportOutcome>> {
     // Unbounded input is trivially spammable; a real drop is dozens of
     // files, not thousands.
     const MAX_BATCH: usize = 200;
@@ -62,6 +65,15 @@ pub async fn import_images(paths: Vec<String>) -> AppResult<Vec<ImportOutcome>> 
     let outcomes = tauri::async_runtime::spawn_blocking(move || import::import_many(&paths))
         .await
         .map_err(|err| AppError::unexpected(format!("import task failed: {err}")))?;
+    // Stage 09: every *successfully* imported file becomes a recent,
+    // newest-first. Failed files never enter the list — a recent should
+    // be a file the app actually opened, not a broken pointer.
+    let history = app.state::<Arc<HistoryStore>>().inner().clone();
+    for outcome in &outcomes {
+        if let ImportOutcome::Imported { image } = outcome {
+            history.note_recent(&image.id, &image.name);
+        }
+    }
     Ok(outcomes)
 }
 

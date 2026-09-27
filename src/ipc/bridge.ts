@@ -9,21 +9,28 @@
 import { Channel, invoke } from '@tauri-apps/api/core'
 import type {
   AppConfigDto,
+  BatchConfigPayload,
+  BatchEventDto,
+  BatchItemPayload,
+  BatchSnapshotDto,
   DiagnosticsDto,
   EnhanceEventDto,
   EnhanceModeKey,
   EnhanceResultDto,
   ExportFormatKey,
   ExportResultDto,
+  HistorySnapshotDto,
   ImportOutcomeDto,
   ImageViewDto,
   InferenceStatusDto,
   SystemInfoDto,
 } from '../types/ipc'
 import {
+  isBatchSnapshot,
   isDiagnostics,
   isEnhanceResult,
   isExportResult,
+  isHistorySnapshot,
   isInferenceStatus,
   isImageView,
 } from '../types/ipc'
@@ -238,4 +245,93 @@ export async function getDiagnostics(): Promise<DiagnosticsDto> {
     }
   }
   return raw
+}
+
+/**
+ * ── Stage 08: batch queue ─────────────────────────────────────────────
+ */
+
+/**
+ * Start (or replace) the batch queue. Each item runs the real engine
+ * sequentially through the single-slot memory budget; `onEvent` receives
+ * per-item progress, and the returned snapshot renders the full queue
+ * before the first event lands. Rejects honestly when the engine is busy.
+ */
+export async function startBatch(
+  items: BatchItemPayload[],
+  output: BatchConfigPayload,
+  onEvent: (event: BatchEventDto) => void,
+): Promise<BatchSnapshotDto> {
+  if (shouldUsePreviewBridge()) {
+    throw {
+      code: 'unexpected_error',
+      message: 'Batch processing runs in the desktop app.',
+    }
+  }
+  const channel = new Channel<BatchEventDto>()
+  channel.onmessage = (event) => onEvent(event)
+  const raw: unknown = await invoke('start_batch', { items, output, onEvent: channel })
+  if (!isBatchSnapshot(raw)) {
+    throw {
+      code: 'unexpected_error',
+      message: 'The application core returned an unexpected reply.',
+    }
+  }
+  return raw
+}
+
+/** Cancel one queued item (mid-run or from the queue). Resolves false
+ * when the session or item is gone. */
+export function cancelBatchItem(itemId: string): Promise<boolean> {
+  if (shouldUsePreviewBridge()) return Promise.resolve(false)
+  return invoke<boolean>('cancel_batch_item', { itemId })
+}
+
+/** Cancel every item in the running batch (committed results are kept). */
+export function cancelBatchAll(): Promise<null> {
+  if (shouldUsePreviewBridge()) return Promise.resolve(null)
+  return invoke<null>('cancel_batch_all')
+}
+
+/** Re-queue failed/cancelled items; returns the updated snapshot (null
+ * when no session exists). */
+export async function retryBatchFailed(): Promise<BatchSnapshotDto | null> {
+  if (shouldUsePreviewBridge()) return null
+  const raw: unknown = await invoke<BatchSnapshotDto | null>('retry_batch_failed')
+  if (raw === null) return null
+  return isBatchSnapshot(raw) ? raw : null
+}
+
+/** The current queue snapshot for late subscribers (null when none). */
+export async function getBatchSnapshot(): Promise<BatchSnapshotDto | null> {
+  if (shouldUsePreviewBridge()) return null
+  const raw: unknown = await invoke<BatchSnapshotDto | null>('get_batch_snapshot')
+  if (raw === null) return null
+  return isBatchSnapshot(raw) ? raw : null
+}
+
+/**
+ * ── Stage 09: history + recent files ──────────────────────────────────
+ */
+
+/** Read the local journal + recent-files snapshot (paths + measurements,
+ * never image bytes). Browser preview has no store → honest empty. */
+export async function getHistory(): Promise<HistorySnapshotDto> {
+  if (shouldUsePreviewBridge()) {
+    return { entries: [], recents: [] }
+  }
+  const raw: unknown = await invoke<HistorySnapshotDto>('get_history')
+  if (!isHistorySnapshot(raw)) {
+    throw {
+      code: 'unexpected_error',
+      message: 'The application core returned an unexpected reply.',
+    }
+  }
+  return raw
+}
+
+/** Wipe the journal + recent list. Files on disk are never touched. */
+export function clearHistory(): Promise<null> {
+  if (shouldUsePreviewBridge()) return Promise.resolve(null)
+  return invoke<null>('clear_history')
 }

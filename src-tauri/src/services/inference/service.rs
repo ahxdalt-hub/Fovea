@@ -141,13 +141,31 @@ pub struct EnhanceResult {
     pub file_path: PathBuf,
     pub width: u32,
     pub height: u32,
+    /// True dimensions of the *source* the job ran on — facts of the
+    /// decode plan. Stage 09 history records original/output sizes as
+    /// measured numbers, never view-scaled guesses.
+    pub source_width: u32,
+    pub source_height: u32,
+    /// True dimensions of the committed master PNG — identical on both
+    /// paths, so the batch view and the history journal share one truth.
+    pub output_width: u32,
+    pub output_height: u32,
     /// Human label, e.g. "4× · Real-ESRGAN general".
     pub label: String,
     /// Engine device actually used, e.g. "DirectML GPU" | "CPU".
     pub engine: String,
     /// Display-size view of the result (the compare slider's `afterSrc`).
-    pub data_url: String,
+    /// `None` only on the batch path ([`enhance_without_view`]), where no
+    /// one ever views the result in the compare slider — building a ~10 MB
+    /// base64 string per queued image would be pure waste (Stage 08).
+    pub data_url: Option<String>,
 }
+
+/// The user-safe error half embedded in outcome payloads. Re-exported
+/// here because the batch queue reports per-item failures through the
+/// inference vocabulary (`UserError::from(&AppError)` lives on the
+/// import side; both paths serialize identically).
+pub use crate::services::import::UserError;
 
 /// Progress events streamed to the UI over a Tauri channel while a job
 /// runs. Terminal states (failed/cancelled) are *also* observable here
@@ -184,8 +202,11 @@ pub enum EnhanceEvent {
 /// Tracks in-flight jobs so the UI can cancel them. Registration is
 /// single-slot by design: Pixora Stage 05 runs one enhancement at a time
 /// (a second concurrent GPU job would thrash memory and slow both); a
-/// busy second request is refused honestly. Stage 08's batch queue
-/// replaces this with a real queue.
+/// busy second request is refused honestly. Stage 08's batch queue keeps
+/// the same invariant from the other side: it queues many items, but its
+/// single worker drains them through this one slot, one at a time — so
+/// an Enhance click and a batch never run on top of each other, and the
+/// Stage 07 memory budget (sized for exactly one session) always holds.
 #[derive(Default)]
 pub struct JobRegistry {
     inner: Mutex<HashMap<String, Arc<CancelToken>>>,
@@ -250,8 +271,9 @@ impl JobRegistry {
         }
     }
 
-    /// Live job count — asserted by the service tests.
-    #[cfg(test)]
+    /// Live job count — asserted by the service tests, and queried by the
+    /// batch command layer to refuse a start while the single engine slot
+    /// is held (a batch item and a manual Enhance never share it).
     pub fn active_count(&self) -> usize {
         self.inner.lock().map(|g| g.len()).unwrap_or(0)
     }
@@ -415,6 +437,73 @@ pub fn enhance<B: Backend>(
     jobs: &JobRegistry,
     job_id: &str,
     token: &Arc<CancelToken>,
+    emit: impl FnMut(EnhanceEvent),
+    open_backend: impl FnMut(&Path, GpuPreference) -> Result<B, EngineError>,
+) -> AppResult<EnhanceResult> {
+    enhance_with_view(
+        true,
+        source_id,
+        mode,
+        target,
+        registry,
+        config,
+        out_dir,
+        jobs,
+        job_id,
+        token,
+        emit,
+        open_backend,
+    )
+}
+
+/// The batch-path twin of [`enhance`]: identical staging, errors,
+/// atomicity, registry and memory ladder — minus the display data URL.
+/// A queued image's result lives on disk (and is exported from there);
+/// no one compares it in the viewer, so the engine never builds the
+/// base64 view. That is Stage 08's memory rule in one function: a batch
+/// of many large images stays bounded, per job, with nothing to collect.
+#[allow(clippy::too_many_arguments, reason = "engine-call parameter set")]
+pub fn enhance_without_view<B: Backend>(
+    source_id: &str,
+    mode: EnhanceMode,
+    target: usize,
+    registry: &ModelRegistry,
+    config: &EngineConfig,
+    out_dir: &Path,
+    jobs: &JobRegistry,
+    job_id: &str,
+    token: &Arc<CancelToken>,
+    emit: impl FnMut(EnhanceEvent),
+    open_backend: impl FnMut(&Path, GpuPreference) -> Result<B, EngineError>,
+) -> AppResult<EnhanceResult> {
+    enhance_with_view(
+        false,
+        source_id,
+        mode,
+        target,
+        registry,
+        config,
+        out_dir,
+        jobs,
+        job_id,
+        token,
+        emit,
+        open_backend,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+fn enhance_with_view<B: Backend>(
+    include_view: bool,
+    source_id: &str,
+    mode: EnhanceMode,
+    target: usize,
+    registry: &ModelRegistry,
+    config: &EngineConfig,
+    out_dir: &Path,
+    jobs: &JobRegistry,
+    job_id: &str,
+    token: &Arc<CancelToken>,
     mut emit: impl FnMut(EnhanceEvent),
     open_backend: impl FnMut(&Path, GpuPreference) -> Result<B, EngineError>,
 ) -> AppResult<EnhanceResult> {
@@ -422,6 +511,7 @@ pub fn enhance<B: Backend>(
         job_id: job_id.to_string(),
     });
     match enhance_inner(
+        include_view,
         source_id,
         mode,
         target,
@@ -455,6 +545,7 @@ pub fn enhance<B: Backend>(
 
 #[allow(clippy::too_many_arguments)]
 fn enhance_inner<B: Backend>(
+    include_view: bool,
     source_id: &str,
     mode: EnhanceMode,
     target: usize,
@@ -649,18 +740,30 @@ fn enhance_inner<B: Backend>(
                     let _ = std::fs::remove_file(&part_path);
                     return Err(AppError::unexpected(format!("commit output: {e}")));
                 }
-                let view = match tee_view {
-                    Some(v) => v,
-                    None => import::load_image_view(&final_path, import::VIEW_MAX_EDGE)?,
+                // The master's true dimensions are a fact of the plan, so
+                // the viewless (batch) path reports them without building
+                // any pixels. `view.width`/`height` are the same numbers.
+                let (width, height, data_url) = if include_view {
+                    let view = match tee_view {
+                        Some(v) => v,
+                        None => import::load_image_view(&final_path, import::VIEW_MAX_EDGE)?,
+                    };
+                    (view.width, view.height, Some(view.data_url))
+                } else {
+                    (plan.out_w() as u32, plan.out_h() as u32, None)
                 };
                 return Ok(EnhanceResult {
                     image_id: source_id.to_string(),
                     file_path: final_path,
-                    width: view.width,
-                    height: view.height,
+                    width,
+                    height,
+                    source_width: plan.src_w as u32,
+                    source_height: plan.src_h as u32,
+                    output_width: plan.out_w() as u32,
+                    output_height: plan.out_h() as u32,
                     label: format!("{target}× · {}", mode.label()),
                     engine: backend.device_name().to_string(),
-                    data_url: view.data_url,
+                    data_url,
                 });
             }
             Err(AppError::InsufficientResources { detail }) => {
@@ -1191,7 +1294,12 @@ mod tests {
         assert_eq!(result.height, 45 * 2);
         assert_eq!(result.engine, "fake");
         assert!(result.label.contains("2×"));
-        assert!(result.data_url.starts_with("data:image/png;base64,"));
+        assert!(
+            result
+                .data_url
+                .as_deref()
+                .is_some_and(|u| u.starts_with("data:image/png;base64,"))
+        );
         // The committed file exists; no scratch remains.
         assert!(result.file_path.exists());
         assert_eq!(result.file_path.extension().unwrap(), "png");
@@ -1226,6 +1334,42 @@ mod tests {
         // Verify the *file* decodes at the expected dimensions.
         let decoded = image::open(&result.file_path).expect("open output");
         assert_eq!((decoded.width(), decoded.height()), (180, 90));
+    }
+
+    /// Stage 08: the batch path runs the identical job with one thing
+    /// removed — no display view is built. The master still commits at
+    /// plan geometry; the base64 view (which the batch UI never shows)
+    /// stays `None` instead of costing a decode + ~10 MB per image.
+    #[test]
+    fn viewless_job_writes_the_master_without_building_a_view() {
+        let (root, models_dir, out_dir) = harness("viewless");
+        let source = source_png(&root, "photo.png", 90, 45, false);
+        let registry = registry_with(&models_dir, &fake_spec());
+        let jobs = JobRegistry::new();
+        let token = Arc::new(CancelToken::new());
+        let job_id = jobs.next_job_id();
+        jobs.begin(&job_id, Arc::clone(&token)).expect("begin");
+        let mut events = Vec::new();
+        let result = enhance_without_view(
+            &source.to_string_lossy(),
+            EnhanceMode::Standard,
+            2,
+            &registry,
+            &EngineConfig::default(),
+            &out_dir,
+            &jobs,
+            &job_id,
+            &token,
+            |e| events.push(e),
+            |_, _| Ok(Fake2x),
+        )
+        .expect("viewless enhance succeeds");
+        assert!(result.data_url.is_none(), "no view on the batch path");
+        assert_eq!((result.width, result.height), (180, 90), "plan geometry");
+        assert_eq!(events.last().map(phase), Some("completed"));
+        let decoded = image::open(&result.file_path).expect("committed master decodes");
+        assert_eq!((decoded.width(), decoded.height()), (180, 90));
+        assert_eq!(jobs.active_count(), 0, "job slot released");
     }
 
     #[test]

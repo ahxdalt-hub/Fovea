@@ -381,3 +381,202 @@ describe('appReducer — enhance job (Stage 05)', () => {
     expect(again.exports['a']?.format).toBe('jpeg')
   })
 })
+
+// ── Stage 08/09: batch queue + history journal ─────────────────────
+
+function batchItem(overrides: Partial<import('../types/ipc').BatchItemDto> & { id: string }) {
+  return {
+    imageId: `C:/${overrides.id}.png`,
+    name: `${overrides.id}.png`,
+    state: 'waiting' as const,
+    done: 0,
+    total: 0,
+    device: null,
+    error: null,
+    output: null,
+    mode: 'standard',
+    scale: 2,
+    cancelling: false,
+    ...overrides,
+  } satisfies import('../types/ipc').BatchItemDto
+}
+
+function snapshot(items: import('../types/ipc').BatchItemDto[], running = true) {
+  return { items, running, workerLimit: 1 } satisfies import('../types/ipc').BatchSnapshotDto
+}
+
+const batchReady = appReducer(initialState, {
+  type: 'batch/snapshot',
+  snapshot: snapshot([batchItem({ id: 'a' }), batchItem({ id: 'b' })]),
+})
+
+describe('appReducer — batch queue (Stage 08/09)', () => {
+  it('starts empty and records a snapshot wholesale', () => {
+    expect(initialState.batch).toBeNull()
+    expect(batchReady.batch?.items.map((i) => i.id)).toEqual(['a', 'b'])
+  })
+
+  it('a later snapshot replaces the queue (authoritative)', () => {
+    const next = appReducer(batchReady, {
+      type: 'batch/snapshot',
+      snapshot: snapshot([batchItem({ id: 'c', state: 'completed' })], false),
+    })
+    expect(next.batch?.items.map((i) => i.id)).toEqual(['c'])
+    expect(next.batch?.running).toBe(false)
+  })
+
+  it('the same snapshot object is a referential no-op', () => {
+    const snap = snapshot([batchItem({ id: 'a' })])
+    const first = appReducer(initialState, { type: 'batch/snapshot', snapshot: snap })
+    const again = appReducer(first, { type: 'batch/snapshot', snapshot: snap })
+    expect(again).toBe(first)
+  })
+
+  it('happy path: started → processing → saving → completed', () => {
+    let s = batchReady
+    s = appReducer(s, { type: 'batch/event', event: { type: 'started', itemId: 'a' } })
+    expect(s.batch?.items[0]?.state).toBe('processing')
+    s = appReducer(s, {
+      type: 'batch/event',
+      event: { type: 'device', itemId: 'a', device: 'CPU' },
+    })
+    expect(s.batch?.items[0]?.device).toBe('CPU')
+    s = appReducer(s, {
+      type: 'batch/event',
+      event: { type: 'progress', itemId: 'a', done: 3, total: 9 },
+    })
+    expect(s.batch?.items[0]?.done).toBe(3)
+    s = appReducer(s, { type: 'batch/event', event: { type: 'saving', itemId: 'a' } })
+    expect(s.batch?.items[0]?.state).toBe('processing') // no separate saving state
+    s = appReducer(s, { type: 'batch/event', event: { type: 'completed', itemId: 'a' } })
+    expect(s.batch?.items[0]?.state).toBe('completed')
+    expect(s.batch?.items[0]?.done).toBe(9) // completes to full
+  })
+
+  it('progress is monotonic — an out-of-order smaller count is ignored', () => {
+    let s = appReducer(batchReady, {
+      type: 'batch/event',
+      event: { type: 'progress', itemId: 'a', done: 5, total: 9 },
+    })
+    const back = appReducer(s, {
+      type: 'batch/event',
+      event: { type: 'progress', itemId: 'a', done: 2, total: 9 },
+    })
+    expect(back.batch?.items[0]?.done).toBe(5)
+    expect(back).toBe(s) // unchanged → same reference
+  })
+
+  it('a terminal item is never rewritten by a stale event', () => {
+    let s = appReducer(batchReady, { type: 'batch/event', event: { type: 'started', itemId: 'a' } })
+    s = appReducer(s, { type: 'batch/event', event: { type: 'completed', itemId: 'a' } })
+    const stale = appReducer(s, {
+      type: 'batch/event',
+      event: { type: 'progress', itemId: 'a', done: 1, total: 9 },
+    })
+    expect(stale.batch?.items[0]?.state).toBe('completed')
+    expect(stale).toBe(s) // identity preserved
+  })
+
+  it('failed records a user-safe error; cancelled stays distinct', () => {
+    let f = appReducer(batchReady, {
+      type: 'batch/event',
+      event: { type: 'failed', itemId: 'a', code: 'model_missing', message: 'install it' },
+    })
+    expect(f.batch?.items[0]?.state).toBe('failed')
+    expect(f.batch?.items[0]?.error).toEqual({ code: 'model_missing', message: 'install it' })
+    let c = appReducer(batchReady, {
+      type: 'batch/event',
+      event: { type: 'cancelled', itemId: 'b' },
+    })
+    expect(c.batch?.items[0]?.state).toBe('waiting') // b untouched
+    c = appReducer(c, { type: 'batch/event', event: { type: 'cancelled', itemId: 'b' } })
+    expect(c.batch?.items[1]?.state).toBe('cancelled')
+    expect(c.batch?.items[1]?.error).toBeNull()
+  })
+
+  it('running derives false once nothing is waiting or processing', () => {
+    let s = batchReady
+    for (const id of ['a', 'b']) {
+      s = appReducer(s, { type: 'batch/event', event: { type: 'started', itemId: id } })
+      s = appReducer(s, { type: 'batch/event', event: { type: 'completed', itemId: id } })
+    }
+    expect(s.batch?.running).toBe(false)
+  })
+
+  it('events for an unknown item id or before a snapshot are dropped', () => {
+    const noSnapshot = appReducer(initialState, {
+      type: 'batch/event',
+      event: { type: 'started', itemId: 'ghost' },
+    })
+    expect(noSnapshot.batch).toBeNull()
+    const unknown = appReducer(batchReady, {
+      type: 'batch/event',
+      event: { type: 'started', itemId: 'nope' },
+    })
+    expect(unknown).toBe(batchReady)
+  })
+
+  it('clear drops the queue', () => {
+    const cleared = appReducer(batchReady, { type: 'batch/clear' })
+    expect(cleared.batch).toBeNull()
+  })
+})
+
+describe('appReducer — history journal (Stage 09)', () => {
+  const entry = {
+    id: 'h-1',
+    sourcePath: 'C:/pics/a.png',
+    fileName: 'a.png',
+    originalWidth: 100,
+    originalHeight: 80,
+    outputWidth: 400,
+    outputHeight: 320,
+    scale: 4,
+    mode: 'standard',
+    status: 'completed' as const,
+    errorMessage: null,
+    createdAt: 1700,
+    kind: 'single' as const,
+    outputPath: 'C:/out/a.png',
+    sourceExists: true,
+    outputExists: true,
+  }
+  const snapshot = {
+    entries: [entry],
+    recents: [{ path: 'C:/pics/a.png', name: 'a.png', lastUsedAt: 1, exists: true }],
+  }
+
+  it('starts idle with no history until the first read', () => {
+    expect(initialState.history).toBeNull()
+    expect(initialState.historyStatus).toBe('idle')
+  })
+
+  it('records a snapshot and flips status to ready (clearing any error)', () => {
+    const loading = appReducer(initialState, { type: 'history/loading' })
+    expect(loading.historyStatus).toBe('loading')
+    const s = appReducer(loading, { type: 'history/loaded', snapshot })
+    expect(s.historyStatus).toBe('ready')
+    expect(s.history?.entries).toHaveLength(1)
+    expect(s.history?.entries[0]).toEqual(entry)
+    expect(s.historyError).toBeNull()
+  })
+
+  it('surfaces a read failure as a user-safe message, keeping prior data', () => {
+    const ready = appReducer(initialState, { type: 'history/loaded', snapshot })
+    const failed = appReducer(ready, { type: 'history/error', message: 'The journal broke.' })
+    expect(failed.historyStatus).toBe('error')
+    expect(failed.historyError).toBe('The journal broke.')
+    // Prior entries stay readable rather than vanishing on a transient error.
+    expect(failed.history?.entries).toHaveLength(1)
+  })
+
+  it('a clear (empty read after native wipe) empties both lists', () => {
+    const ready = appReducer(initialState, { type: 'history/loaded', snapshot })
+    const cleared = appReducer(ready, {
+      type: 'history/loaded',
+      snapshot: { entries: [], recents: [] },
+    })
+    expect(cleared.history).toEqual({ entries: [], recents: [] })
+    expect(cleared.historyStatus).toBe('ready')
+  })
+})

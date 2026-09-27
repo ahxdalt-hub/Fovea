@@ -34,9 +34,13 @@ import { useEnhance } from '../state/useEnhance'
 
 const result: EnhanceResultDto = {
   imageId: 'a',
-  filePath: 'C:/appdata/enhanced/job-1.png',
+  filePath: 'C:/appdata/enhanced/a.png',
   width: 400,
   height: 300,
+  sourceWidth: 100,
+  sourceHeight: 75,
+  outputWidth: 400,
+  outputHeight: 300,
   label: '4× · Standard',
   engine: 'DirectML GPU',
   dataUrl: 'data:image/png;base64,RESULT',

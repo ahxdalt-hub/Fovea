@@ -270,7 +270,10 @@ fn decode_validated_with_limits(
     Ok((decoded, format, meta.len()))
 }
 
-/// Import one file with production limits.
+/// Import one file with production limits. Public so the Stage 08 batch
+/// queue can accept native drop/picker paths through *exactly* the same
+/// validation ladder the shared collection uses — one bad file still
+/// reports its own outcome and never blocks the rest.
 pub fn import_one(path: &Path) -> AppResult<ImportedImage> {
     import_one_with_limits(path, MAX_PIXELS, MAX_FILE_BYTES)
 }

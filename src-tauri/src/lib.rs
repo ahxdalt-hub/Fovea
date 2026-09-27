@@ -14,7 +14,9 @@ use std::sync::Arc;
 use tauri::Manager;
 use tauri_plugin_log::{Target, TargetKind};
 
+use commands::batch::BatchState;
 use commands::inference::EngineState;
+use services::history::Store as HistoryStore;
 use services::inference::{model::ModelRegistry, service};
 
 /// Resolve where model files may live, in priority order:
@@ -76,7 +78,14 @@ pub fn run() {
             commands::inference::cancel_enhancement,
             commands::inference::get_inference_status,
             commands::export::pick_export_folder,
-            commands::export::export_enhanced_image
+            commands::export::export_enhanced_image,
+            commands::batch::start_batch,
+            commands::batch::cancel_batch_item,
+            commands::batch::cancel_batch_all,
+            commands::batch::retry_batch_failed,
+            commands::batch::get_batch_snapshot,
+            commands::history::get_history,
+            commands::history::clear_history,
         ])
         .setup(|app| {
             let cfg = config::AppConfig::from_build();
@@ -122,15 +131,31 @@ pub fn run() {
                 out_dir,
                 outputs: Arc::new(std::sync::Mutex::new(std::collections::HashMap::new())),
             });
+
+            // Stage 09: the local journal + recent-files store, loaded
+            // once (corrupt file → fresh start, logged). Managed as the
+            // Arc itself so command state and the batch worker share one.
+            let store_dir = app_data
+                .clone()
+                .unwrap_or_else(|| std::env::temp_dir().join("pixora-store-fallback"));
+            app.manage(HistoryStore::open(&store_dir));
+            // Stage 08/09: the batch queue session slot. One at a time;
+            // replaced (never appended) when a new batch starts.
+            app.manage(BatchState {
+                session: std::sync::Mutex::new(None),
+            });
             Ok(())
         })
         .on_window_event(|window, event| {
             // Closing the last window: refuse new jobs and cancel the
             // running one so its scratch file is deleted, not orphaned.
+            // The batch worker is flagged shut down too — its per-item
+            // journal records survive; unfinished items are marked.
             if let tauri::WindowEvent::Destroyed = event {
                 if let Some(state) = window.try_state::<EngineState>() {
                     state.jobs.shutdown();
                 }
+                commands::batch::shutdown_batch(window.app_handle());
             }
         })
         .run(tauri::generate_context!())

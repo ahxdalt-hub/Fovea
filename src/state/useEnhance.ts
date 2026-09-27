@@ -49,17 +49,22 @@ export function useEnhance(): EnhanceApi {
           dispatch({ type: 'enhance/event', event }),
         )
         // The result is authoritative — the completed event may already
-        // have arrived, but the file-backed data URL only lands here.
-        dispatch({
-          type: 'enhancements/set',
-          enhancement: {
-            imageId: result.imageId,
-            dataUrl: result.dataUrl,
-            width: result.width,
-            height: result.height,
-            label: result.label,
-          },
-        })
+        // have arrived, but the file-backed data URL only lands here. The
+        // single-image path always carries a display view; a null one
+        // (batch path) would have nothing to show, so we only wire the
+        // compare result when a real view came back.
+        if (result.dataUrl !== null) {
+          dispatch({
+            type: 'enhancements/set',
+            enhancement: {
+              imageId: result.imageId,
+              dataUrl: result.dataUrl,
+              width: result.width,
+              height: result.height,
+              label: result.label,
+            },
+          })
+        }
         notify(
           'success',
           `Enhanced to ${result.width.toLocaleString()} × ${result.height.toLocaleString()} on ${result.engine} · saved locally`,

@@ -191,12 +191,19 @@ export interface EnhanceResultDto {
   filePath: string
   width: number
   height: number
+  /** True source dimensions (facts from the engine's decode plan). */
+  sourceWidth: number
+  sourceHeight: number
+  /** True master dimensions of the committed output. */
+  outputWidth: number
+  outputHeight: number
   /** e.g. "4× · Standard". */
   label: string
   /** Engine device: "DirectML GPU" | "CPU". */
   engine: string
-  /** Display-size data URL for the compare view. */
-  dataUrl: string
+  /** Display-size data URL for the compare view. `null` on the batch
+   * path (`enhance_without_view`) where no compare view is ever built. */
+  dataUrl: string | null
 }
 
 /**
@@ -247,9 +254,13 @@ export function isEnhanceResult(value: unknown): value is EnhanceResultDto {
     typeof v.filePath === 'string' &&
     typeof v.width === 'number' &&
     typeof v.height === 'number' &&
+    typeof v.sourceWidth === 'number' &&
+    typeof v.sourceHeight === 'number' &&
+    typeof v.outputWidth === 'number' &&
+    typeof v.outputHeight === 'number' &&
     typeof v.label === 'string' &&
     typeof v.engine === 'string' &&
-    typeof v.dataUrl === 'string'
+    (typeof v.dataUrl === 'string' || v.dataUrl === null)
   )
 }
 
@@ -344,6 +355,229 @@ export function isExportResult(value: unknown): value is ExportResultDto {
     typeof v.folder === 'string' &&
     typeof v.format === 'string' &&
     typeof v.bytes === 'number'
+  )
+}
+
+/**
+ * ── Stage 08: batch queue ─────────────────────────────────────────────
+ */
+
+/** The five honest states one queued item moves through (mirrors Rust
+ * `BatchItemState`). `processing` only ever follows a native `started`;
+ * `completed` only after the master commits *and* the export lands. */
+export type BatchItemStateDto = 'waiting' | 'processing' | 'completed' | 'failed' | 'cancelled'
+
+/** The committed artifact of a completed batch item (`BatchOutput` in Rust).
+ * Everything needed to show the result and open it — never image bytes. */
+export interface BatchOutputDto {
+  filePath: string
+  fileName: string
+  folder: string
+  bytes: number
+  sourceWidth: number
+  sourceHeight: number
+  outputWidth: number
+  outputHeight: number
+  label: string
+  engine: string
+}
+
+/** One queued item (`BatchItem` in Rust). */
+export interface BatchItemDto {
+  id: string
+  /** The imported image's canonical path id ('' for a non-imported path). */
+  imageId: string
+  name: string
+  state: BatchItemStateDto
+  /** Completed tiles / planned tiles — a real measurement, (0,0) before
+   * the first progress event. */
+  done: number
+  total: number
+  /** "DirectML GPU" | "CPU" once the engine reports its path. */
+  device: string | null
+  error: AppErrorPayload | null
+  output: BatchOutputDto | null
+  mode: string
+  scale: number
+  /** True once a cancel is requested but the terminal state hasn't landed. */
+  cancelling: boolean
+}
+
+/** Snapshot of the whole queue (`BatchSnapshot` in Rust). */
+export interface BatchSnapshotDto {
+  items: BatchItemDto[]
+  /** True while a worker exists and more work can run. */
+  running: boolean
+  workerLimit: number
+}
+
+/** Per-item streamed progress (`BatchEvent` in Rust), tagged by `type`. */
+export type BatchEventDto =
+  | { type: 'started'; itemId: string }
+  | { type: 'progress'; itemId: string; done: number; total: number }
+  | { type: 'device'; itemId: string; device: string }
+  | { type: 'saving'; itemId: string }
+  | { type: 'completed'; itemId: string }
+  | { type: 'failed'; itemId: string; code: string; message: string }
+  | { type: 'cancelled'; itemId: string }
+
+function isBatchOutput(value: unknown): value is BatchOutputDto {
+  if (typeof value !== 'object' || value === null) return false
+  const v = value as Record<string, unknown>
+  return (
+    typeof v.filePath === 'string' &&
+    typeof v.fileName === 'string' &&
+    typeof v.folder === 'string' &&
+    typeof v.bytes === 'number' &&
+    typeof v.sourceWidth === 'number' &&
+    typeof v.outputWidth === 'number'
+  )
+}
+
+/** Runtime guard for the queue snapshot. */
+export function isBatchSnapshot(value: unknown): value is BatchSnapshotDto {
+  if (typeof value !== 'object' || value === null) return false
+  const v = value as Record<string, unknown>
+  if (typeof v.running !== 'boolean' || typeof v.workerLimit !== 'number') return false
+  if (!Array.isArray(v.items)) return false
+  return v.items.every((item) => {
+    if (typeof item !== 'object' || item === null) return false
+    const i = item as Record<string, unknown>
+    const stateOk =
+      i.state === 'waiting' ||
+      i.state === 'processing' ||
+      i.state === 'completed' ||
+      i.state === 'failed' ||
+      i.state === 'cancelled'
+    const outputOk = i.output === null || i.output === undefined || isBatchOutput(i.output)
+    const errorOk = i.error === null || i.error === undefined || isAppErrorPayload(i.error)
+    return (
+      typeof i.id === 'string' &&
+      typeof i.name === 'string' &&
+      stateOk &&
+      typeof i.done === 'number' &&
+      typeof i.total === 'number' &&
+      outputOk &&
+      errorOk
+    )
+  })
+}
+
+/** Runtime guard for a streamed batch event. */
+export function isBatchEvent(value: unknown): value is BatchEventDto {
+  if (typeof value !== 'object' || value === null) return false
+  const v = value as Record<string, unknown>
+  if (typeof v.itemId !== 'string') return false
+  switch (v.type) {
+    case 'started':
+    case 'saving':
+    case 'completed':
+    case 'cancelled':
+      return true
+    case 'progress':
+      return typeof v.done === 'number' && typeof v.total === 'number'
+    case 'device':
+      return typeof v.device === 'string'
+    case 'failed':
+      return typeof v.code === 'string' && typeof v.message === 'string'
+    default:
+      return false
+  }
+}
+
+/** A single queued item as the *client* describes it (request arg, mirrors
+ * Rust `BatchItemArg`). `path` is the collection's canonical id. */
+export interface BatchItemPayload {
+  path: string
+  name: string
+  scale: number
+  mode: EnhanceModeKey
+}
+
+/** Where/how a batch writes results (request arg, mirrors `BatchConfigArg`).
+ * `folder: ""` selects Pixora's default batch export folder. */
+export interface BatchConfigPayload {
+  folder: string
+  format: ExportFormatKey
+  quality: number
+}
+
+/**
+ * ── Stage 09: history + recent files ──────────────────────────────────
+ */
+
+/** One journal row (`HistoryEntryDto` in Rust), plus the read-time
+ * existence flags that tell the UI whether it can still be reopened.
+ * `0` dimensions mean "never measured" (a failed run recorded nothing). */
+export interface HistoryEntryDto {
+  id: string
+  sourcePath: string
+  fileName: string
+  originalWidth: number
+  originalHeight: number
+  outputWidth: number
+  outputHeight: number
+  scale: number
+  mode: string
+  status: 'completed' | 'failed'
+  errorMessage: string | null
+  /** Unix milliseconds. */
+  createdAt: number
+  kind: 'single' | 'batch'
+  outputPath: string | null
+  sourceExists: boolean
+  outputExists: boolean
+}
+
+/** A recent-file row (`RecentFileDto` in Rust), newest first. The native
+ * layer prunes dead pointers at read, so `exists` is always true here —
+ * it is kept for honesty and future-proofing. */
+export interface RecentFileDto {
+  path: string
+  name: string
+  lastUsedAt: number
+  exists: boolean
+}
+
+/** The journal snapshot the History view reads (`HistorySnapshot` in Rust). */
+export interface HistorySnapshotDto {
+  entries: HistoryEntryDto[]
+  recents: RecentFileDto[]
+}
+
+function isHistoryEntry(value: unknown): value is HistoryEntryDto {
+  if (typeof value !== 'object' || value === null) return false
+  const v = value as Record<string, unknown>
+  return (
+    typeof v.id === 'string' &&
+    typeof v.sourcePath === 'string' &&
+    typeof v.fileName === 'string' &&
+    typeof v.originalWidth === 'number' &&
+    typeof v.outputWidth === 'number' &&
+    typeof v.scale === 'number' &&
+    typeof v.mode === 'string' &&
+    (v.status === 'completed' || v.status === 'failed') &&
+    typeof v.createdAt === 'number' &&
+    (v.kind === 'single' || v.kind === 'batch') &&
+    typeof v.sourceExists === 'boolean' &&
+    typeof v.outputExists === 'boolean'
+  )
+}
+
+/** Runtime guard for the history snapshot payload. */
+export function isHistorySnapshot(value: unknown): value is HistorySnapshotDto {
+  if (typeof value !== 'object' || value === null) return false
+  const v = value as Record<string, unknown>
+  if (!Array.isArray(v.entries) || !v.entries.every(isHistoryEntry)) return false
+  return (
+    Array.isArray(v.recents) &&
+    v.recents.every(
+      (r) =>
+        typeof r === 'object' &&
+        r !== null &&
+        typeof (r as Record<string, unknown>).path === 'string' &&
+        typeof (r as Record<string, unknown>).lastUsedAt === 'number',
+    )
   )
 }
 

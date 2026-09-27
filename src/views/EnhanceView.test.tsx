@@ -60,10 +60,13 @@ describe('EnhanceView collection', () => {
     importApi: ImportApi
     enhanceApi: EnhanceApi
     images: ImportedImageDto[]
+    onReopen?: (path: string) => void
   }) {
     return render(
       <AppStateProvider>
-        <EnhanceView {...props} />
+        <NotificationProvider>
+          <EnhanceView onReopen={() => {}} {...props} />
+        </NotificationProvider>
       </AppStateProvider>,
     )
   }
@@ -146,7 +149,12 @@ describe('useImport funnel', () => {
         <button type="button" onClick={() => void api.dropPaths(paths)}>
           simulate drop
         </button>
-        <EnhanceView importApi={api} enhanceApi={enhanceApi} images={state.images} />
+        <EnhanceView
+          importApi={api}
+          enhanceApi={enhanceApi}
+          images={state.images}
+          onReopen={() => {}}
+        />
       </>
     )
   }
