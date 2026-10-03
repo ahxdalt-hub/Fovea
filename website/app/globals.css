@@ -1,0 +1,189 @@
+@import 'tailwindcss';
+
+/*
+ * Pixora website design tokens.
+ *
+ * Derived directly from the desktop app's tokens.css — the same calm slate
+ * palette, the same single restrained blue accent (#2f6fed), the same motion
+ * curves and near-invisible elevation. The product and its marketing should
+ * look like one thing. No neon, no purple AI gradient, no glass.
+ */
+
+@theme {
+  --font-display: var(--font-fraunces);
+  --font-sans: var(--font-inter);
+
+  /* Neutrals — slate */
+  --color-canvas: #0e141c; /* deep editorial sections */
+  --color-canvas-2: #1d2733;
+  --color-app: #f6f7f9;
+  --color-surface: #ffffff;
+  --color-sunken: #eef0f3;
+  --color-line: #e6e9ed;
+  --color-line-strong: #cdd2d9;
+
+  /* Ink */
+  --color-ink: #17191d;
+  --color-ink-2: #5c636e;
+  --color-ink-3: #828891;
+
+  /* The one accent, plus a muted steel from the app icon */
+  --color-accent: #2f6fed;
+  --color-accent-strong: #2560d4;
+  --color-accent-soft: #e8effd;
+  --color-steel: #5b7a99;
+  --color-steel-light: #9fb3c8;
+
+  /* Radii */
+  --radius-card: 16px;
+  --radius-pill: 999px;
+
+  /* Elevation — barely there */
+  --shadow-soft: 0 1px 2px rgb(16 24 40 / 0.04), 0 8px 24px rgb(16 24 40 / 0.06);
+  --shadow-lift: 0 2px 6px rgb(16 24 40 / 0.06), 0 24px 60px rgb(16 24 40 / 0.12);
+
+  /* Motion */
+  --ease-out: cubic-bezier(0.05, 0.7, 0.1, 1);
+  --ease-standard: cubic-bezier(0.2, 0, 0, 1);
+}
+
+:root {
+  color-scheme: light;
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    transition-duration: 0.001ms !important;
+  }
+}
+
+body {
+  background-color: var(--color-app);
+  color: var(--color-ink);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+/* Display headings get tighter optical tracking. */
+.font-display {
+  font-family: var(--font-display);
+  letter-spacing: -0.02em;
+  font-optical-sizing: auto;
+}
+
+/* Content rhythm container */
+.container-page {
+  width: 100%;
+  max-width: 1160px;
+  margin-inline: auto;
+  padding-inline: 24px;
+}
+
+/* ── Scroll-reveal: a shared, quiet entrance ────────────────────────────
+   Hidden pre-state applies only once JS has marked <html> with .js, so
+   content is fully visible to no-JS clients and during server render. The
+   Reveal component flips [data-shown] as each element scrolls into view. */
+.js .reveal {
+  opacity: 0;
+  transform: translateY(18px);
+  transition:
+    opacity 0.7s var(--ease-out),
+    transform 0.7s var(--ease-out);
+  transition-delay: var(--reveal-delay, 0ms);
+}
+.js .reveal[data-shown='true'] {
+  opacity: 1;
+  transform: none;
+}
+@media (prefers-reduced-motion: reduce) {
+  .js .reveal {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+/* ── Before / after comparison ─────────────────────────────────────────
+   Two images stacked in a fixed-ratio frame; the top layer is clipped to a
+   draggable split position set from JS as --split (a percentage). */
+.ba-frame {
+  position: relative;
+  width: 100%;
+  border-radius: var(--radius-card);
+  overflow: hidden;
+  box-shadow: var(--shadow-lift);
+  background: var(--color-sunken);
+  /* Pointer-driven; touch-friendly. */
+  touch-action: none;
+  user-select: none;
+  cursor: ew-resize;
+}
+.ba-layer {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  pointer-events: none;
+}
+.ba-after {
+  position: absolute;
+  inset: 0;
+  clip-path: inset(0 calc(100% - var(--split, 50%)) 0 0);
+}
+.ba-divider {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: var(--split, 50%);
+  width: 2px;
+  background: #fff;
+  box-shadow: 0 0 0 1px rgb(0 0 0 / 0.18);
+  transform: translateX(-1px);
+  pointer-events: none;
+}
+.ba-handle {
+  position: absolute;
+  top: 50%;
+  left: var(--split, 50%);
+  transform: translate(-50%, -50%);
+  display: grid;
+  place-items: center;
+  width: 40px;
+  height: 40px;
+  border-radius: 999px;
+  background: #fff;
+  color: var(--color-ink);
+  box-shadow: 0 2px 10px rgb(0 0 0 / 0.28);
+  pointer-events: none;
+}
+.ba-tag {
+  position: absolute;
+  top: 14px;
+  font-size: 12px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  font-weight: 600;
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: rgb(14 20 28 / 0.62);
+  color: #fff;
+  backdrop-filter: blur(2px);
+  pointer-events: none;
+}
+
+/* A thin focus ring consistent with the product. */
+:where(a, button, input, [tabindex]):focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
+  border-radius: 4px;
+}

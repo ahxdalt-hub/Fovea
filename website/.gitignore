@@ -1,0 +1,11 @@
+# Dependencies / build
+node_modules
+.next
+out
+build
+dist
+
+# Env + debug
+.env*
+*.tsbuildinfo
+next-env.d.ts
