@@ -45,6 +45,22 @@ export function previewInvoke(cmd: string): Promise<unknown> {
       return Promise.resolve([])
     case 'import_images':
       return Promise.resolve([])
+    // Stage 13: there is no local license store in a browser. The
+    // honest answer is "not activated" — the license section stays
+    // reviewable, and activation itself refuses (see bridge.ts).
+    case 'get_license_status':
+      return Promise.resolve({
+        state: 'not_activated',
+        edition: null,
+        holder: null,
+        licenseId: null,
+        issuedAt: null,
+        expiresAt: null,
+        activatedAt: null,
+        machineBound: false,
+        capabilities: ['enhance', 'export', 'batch', 'journal'],
+        machineHint: 'preview',
+      })
     default:
       return Promise.resolve(null)
   }

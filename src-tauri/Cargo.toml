@@ -45,6 +45,12 @@ png = "0.18"
 # `img` feature off: we encode from raw pixel buffers, not DynamicImage.
 webp = { version = "0.3", default-features = false }
 
+# Stage 13 licensing: Ed25519 signature verification for offline license
+# keys. One of the smallest audited Ed25519 implementations; verification
+# only ever needs the *public* key embedded in the app (the private half
+# lives with the vendor tooling and never in this repo for release keys).
+ed25519-compact = "2"
+
 # Stage 07 hardware detection: DXGI adapter enumeration + a D3D12 feature
 # probe (the honest "can DirectML run here" question), memory status, CPU
 # topology, and the process working set for the benchmark harness. 0.61 is
@@ -56,6 +62,7 @@ windows = { version = "0.61", features = [
     "Win32_Graphics_Direct3D",
     "Win32_Graphics_Direct3D12",
     "Win32_Graphics_Dxgi",
+    "Win32_Security_Credentials",
     "Win32_System_ProcessStatus",
     "Win32_System_Registry",
     "Win32_System_SystemInformation",

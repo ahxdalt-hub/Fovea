@@ -3,21 +3,82 @@
 Premium Windows-first desktop app for local AI image enhancement and upscaling.
 Your images are processed on your own machine and never uploaded.
 
-**Current status:** Stage 12 — production hardening (reliability + security
+**Current status:** Stage 13 — commercial licensing. The full workflow is
+live: import → choose 2×/4× and a real enhancement mode → Enhance → the
+result opens in the compare slider → export as PNG/JPEG/WebP with quality
+and folder choices — plus batch processing, a local history journal,
+settings with validated persistence, hardware-adaptive processing that
+degrades gracefully (GPU when available, CPU when not — never a crash), and
+now an offline commercial licensing layer. Stage 13 adds activation, status
+and a local license record — and deliberately does **not** couple them to
+image processing: the AI engine never calls the license code, makes no
+network request, and runs with or without a key. Everything runs on this
+machine: Real-ESRGAN models on ONNX Runtime (DirectML GPU, CPU fallback).
+Your images are processed locally and never uploaded.
 
-- privacy). The full workflow is live: import → choose 2×/4× and a real
-  enhancement mode → Enhance → the result opens in the compare slider →
-  export as PNG/JPEG/WebP with quality and folder choices — plus batch
-  processing, a local history journal, settings with validated persistence,
-  and hardware-adaptive processing that degrades gracefully (GPU when
-  available, CPU when not — never a crash). Stage 12 added no product
-  features; it tightened the trust boundary (least-privilege capabilities, a
-  decompression-bomb gate on the display path, a disk-full condition the
-  engine no longer mis-retries), hardened recovery (a root error boundary,
-  guarded progress streams, cache eviction, no orphaned jobs), and confirmed
-  the privacy promise by audit. Everything runs on this machine: Real-ESRGAN
-  models on ONNX Runtime (DirectML GPU, CPU fallback). Your images are
-  processed locally and never uploaded.
+## Commercial licensing (Stage 13)
+
+An activation architecture that respects the app's core promise — a fully
+offline, signed-license model. No payment provider is assumed; the
+provider/online-check concern lives behind a trait seam, not the hot path.
+
+```
+Purchase → License issued (vendor Ed25519 signature) → Activation
+  → Local license state → Feature access
+```
+
+- **Signed keys, not a server.** A license is
+  `PIXORA1.<base64url(payload)>.<base64url(ed25519-sig)>`. The payload
+  carries product, edition (Pro/Studio), holder, id, issued/expiry, and an
+  optional machine binding. The desktop app embeds only the **public**
+  keys and re-verifies the signature over the exact embedded payload bytes
+  on every read — stored data is never trusted for its claims.
+- **Keys stay out of the repo.** Production verification keys are injected
+  at build time via `PIXORA_LICENSE_PUBKEYS` (comma-separated hex, written
+  to `OUT_DIR` by `build.rs`); a development keypair is compiled in **only**
+  under `cfg(debug_assertions)`. No secret ever ships inside the app.
+  `examples/issue_license.rs` is the vendor-side issuance tool (`--generate`
+  a keypair, then sign a key), so real keys are minted off-machine.
+- **Secure storage where appropriate.** The signed key text is stored in
+  Windows Credential Manager (a generic credential, `pixora/license`) and
+  falls back to an atomic `license.key` file when the store isn't
+  answering. Non-secret bookkeeping (`license-state.json`) records when the
+  key was activated and the highest clock ever seen. The credential path is
+  proven by a real round-trip test (`#[ignore]`, run explicitly).
+- **Graceful offline + honest revocation.** `LicenseProvider` today is an
+  `OfflineProvider` that reports revocation as _unknown_ — "absence of an
+  answer must never look like a revocation." Activation, status, and expiry
+  all work with no network. A future online check plugs into the same
+  trait without touching the engine.
+- **Anti-tamper that fails closed, not cranky.** A clock-rollback watermark
+  (with a one-hour grace) stops an expired key being revived by winding the
+  clock back; a machine-bound key only activates on the same machine
+  (machine id = hashed Windows `MachineGuid`, never sent anywhere); a
+  damaged local record reports `tampered` and invites a re-paste rather
+  than unlocking access.
+- **Licensing never gates the local engine.** The feature-access seam
+  (`Feature` / `minimum_edition`) exists but returns "all allowed" in this
+  build — no paid feature is fabricated. Nothing in import/inference/export
+  reads license state, so enhancement cannot be broken by a licensing
+  problem.
+- **UX.** Settings → License: where the key comes from, a plain textarea to
+  paste it, an Activate button that waits for input, and clear success /
+  "already active" / human-readable failure copy (no codes, no stack).
+  Every state (active, expired, wrong-machine, tampered, revoked,
+  clock-suspect, unactivated) says what happened and what to do, and
+  repeats the promise that enhancement will not wait on a license check.
+- **Error vocabulary.** New user-safe codes: `license_invalid`,
+  `license_expired`, `license_revoked`, `license_wrong_machine`,
+  `license_clock_suspect`, `license_unsupported_version`,
+  `license_store_unavailable` — calm messages at the boundary, detail in
+  the log.
+- **Verification.** 21 Rust license/store tests cover the scenario matrix
+  (valid, invalid/garbage, expired, wrong-machine, tampered/truncated,
+  clock-rollback, already-activated idempotency, corrupt bookkeeping,
+  store-unavailable, restart round-trip); the ignored credential test
+  proves the real Windows path; 190 frontend tests (11 on the license UI +
+  boundary guards in `ipc.ts`) pass. clippy `-D warnings`, `cargo fmt`,
+  `tsc`, oxlint, and Prettier are all clean.
 
 ## Reliability + security (Stage 12)
 

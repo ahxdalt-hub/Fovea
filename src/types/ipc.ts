@@ -40,6 +40,14 @@ export interface AppErrorPayload {
     | 'model_corrupt'
     | 'unsupported_scale'
     | 'cancelled'
+    | 'insufficient_disk'
+    | 'license_invalid'
+    | 'license_expired'
+    | 'license_revoked'
+    | 'license_wrong_machine'
+    | 'license_clock_suspect'
+    | 'license_unsupported_version'
+    | 'license_store_unavailable'
     | 'unexpected_error'
   message: string
 }
@@ -656,4 +664,76 @@ export function isDiagnostics(value: unknown): value is DiagnosticsDto {
     typeof v.maxBandBytes === 'number' &&
     typeof v.memoryLimit === 'string'
   )
+}
+
+/**
+ * ── Stage 13: licensing ───────────────────────────────────────────────
+ */
+
+/** The license lifecycle the settings UI renders. */
+export type LicenseState =
+  | 'not_activated'
+  | 'active'
+  | 'expired'
+  | 'wrong_machine'
+  | 'tampered'
+  | 'revoked'
+  | 'clock_suspect'
+
+/** Serialized `LicenseStatusDto` from Rust. */
+export interface LicenseStatusDto {
+  state: LicenseState
+  /** 'pro' | 'studio' — null while unactivated. */
+  edition: string | null
+  holder: string | null
+  licenseId: string | null
+  issuedAt: number | null
+  /** null = perpetual. */
+  expiresAt: number | null
+  activatedAt: number | null
+  machineBound: boolean
+  capabilities: string[]
+  /** Short fingerprint group for support conversations. */
+  machineHint: string
+}
+
+/** Serialized `ActivationDto` from Rust. */
+export interface ActivationResultDto {
+  status: LicenseStatusDto
+  alreadyActive: boolean
+}
+
+/** Runtime guard for the license status payload. */
+export function isLicenseStatus(value: unknown): value is LicenseStatusDto {
+  if (typeof value !== 'object' || value === null) return false
+  const v = value as Record<string, unknown>
+  const states: LicenseState[] = [
+    'not_activated',
+    'active',
+    'expired',
+    'wrong_machine',
+    'tampered',
+    'revoked',
+    'clock_suspect',
+  ]
+  return (
+    typeof v.state === 'string' &&
+    (states as string[]).includes(v.state) &&
+    (v.edition === null || typeof v.edition === 'string') &&
+    (v.holder === null || typeof v.holder === 'string') &&
+    (v.licenseId === null || typeof v.licenseId === 'string') &&
+    (v.issuedAt === null || typeof v.issuedAt === 'number') &&
+    (v.expiresAt === null || typeof v.expiresAt === 'number') &&
+    (v.activatedAt === null || typeof v.activatedAt === 'number') &&
+    typeof v.machineBound === 'boolean' &&
+    Array.isArray(v.capabilities) &&
+    typeof v.machineHint === 'string'
+  )
+}
+
+/** Runtime guard for the activation result payload. */
+export function isActivationResult(value: unknown): value is ActivationResultDto {
+  if (typeof value !== 'object' || value === null) return false
+  const v = value as Record<string, unknown>
+  return typeof v.alreadyActive === 'boolean' && isLicenseStatus(v.status)
 }

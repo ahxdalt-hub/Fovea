@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
+  isActivationResult,
   isAppErrorPayload,
   isBatchEvent,
   isBatchSnapshot,
@@ -11,6 +12,7 @@ import {
   isInferenceStatus,
   isImageView,
   isImportOutcome,
+  isLicenseStatus,
   toAppError,
 } from './ipc'
 
@@ -291,5 +293,35 @@ describe('Stage 05 guards', () => {
     )
     expect(isHistorySnapshot({ ...ok, recents: 'nope' })).toBe(false)
     expect(isHistorySnapshot(null)).toBe(false)
+  })
+})
+
+describe('Stage 13 license guards', () => {
+  const status = {
+    state: 'active',
+    edition: 'pro',
+    holder: 'ada@example.com',
+    licenseId: 'PL-1',
+    issuedAt: 1,
+    expiresAt: null,
+    activatedAt: 2,
+    machineBound: false,
+    capabilities: ['enhance'],
+    machineHint: 'abcd1234',
+  }
+
+  it('isLicenseStatus accepts the real shape and rejects drift', () => {
+    expect(isLicenseStatus(status)).toBe(true)
+    expect(isLicenseStatus({ ...status, state: 'magical' })).toBe(false)
+    expect(isLicenseStatus({ ...status, machineBound: 'false' })).toBe(false)
+    expect(isLicenseStatus({ ...status, holder: 42 })).toBe(false)
+    expect(isLicenseStatus({ ...status, capabilities: 'enhance' })).toBe(false)
+    expect(isLicenseStatus(null)).toBe(false)
+  })
+
+  it('isActivationResult needs both halves', () => {
+    expect(isActivationResult({ status, alreadyActive: true })).toBe(true)
+    expect(isActivationResult({ status, alreadyActive: 'yes' })).toBe(false)
+    expect(isActivationResult({ alreadyActive: true })).toBe(false)
   })
 })

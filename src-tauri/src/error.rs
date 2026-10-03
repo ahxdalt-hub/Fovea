@@ -55,6 +55,27 @@ pub enum AppError {
     UnsupportedScale { detail: String },
     /// The user cancelled the operation. Carries no fault.
     Cancelled { detail: String },
+    /// Stage 13 licensing: the pasted key is not a license this build can
+    /// honour — malformed, not a Pixora key, or the signature fails. One
+    /// variant on purpose: telling a user *which* of those is never
+    /// actionable for them, and never useful to a forger.
+    LicenseInvalid { detail: String },
+    /// The key was fine, but its validity window has closed.
+    LicenseExpired { detail: String },
+    /// An optional license service reported the key revoked. The offline
+    /// default provider never produces this — absence of an answer is
+    /// never treated as a revocation.
+    LicenseRevoked { detail: String },
+    /// The key is signed for a different machine.
+    LicenseWrongMachine { detail: String },
+    /// This machine's clock sits below the last time Pixora recorded —
+    /// the shape of a rollback attempt against an expiring license.
+    LicenseClockSuspect { detail: String },
+    /// The key is newer than this build understands; update Pixora.
+    LicenseUnsupportedVersion { detail: String },
+    /// Neither the credential store nor the app-data file accepted the
+    /// key on activation (or deactivation couldn't reach them).
+    LicenseStoreUnavailable { detail: String },
     /// Anything that did not fit the expected failure categories.
     Unexpected { detail: String },
 }
@@ -76,6 +97,13 @@ impl AppError {
             AppError::ModelCorrupt { .. } => "model_corrupt",
             AppError::UnsupportedScale { .. } => "unsupported_scale",
             AppError::Cancelled { .. } => "cancelled",
+            AppError::LicenseInvalid { .. } => "license_invalid",
+            AppError::LicenseExpired { .. } => "license_expired",
+            AppError::LicenseRevoked { .. } => "license_revoked",
+            AppError::LicenseWrongMachine { .. } => "license_wrong_machine",
+            AppError::LicenseClockSuspect { .. } => "license_clock_suspect",
+            AppError::LicenseUnsupportedVersion { .. } => "license_unsupported_version",
+            AppError::LicenseStoreUnavailable { .. } => "license_store_unavailable",
             AppError::Unexpected { .. } => "unexpected_error",
         }
     }
@@ -120,6 +148,27 @@ impl AppError {
                 "This upscale size isn't supported by the installed model. Pick a supported size."
             }
             AppError::Cancelled { .. } => "Processing was cancelled.",
+            AppError::LicenseInvalid { .. } => {
+                "That doesn't read as a Pixora license key. Copy it again from your purchase email and try once more."
+            }
+            AppError::LicenseExpired { .. } => {
+                "That license key has expired. Renew it to keep your activation current — until then, enhancement on this machine is unaffected."
+            }
+            AppError::LicenseRevoked { .. } => {
+                "That license key was revoked by its issuer. Contact the store where you bought it."
+            }
+            AppError::LicenseWrongMachine { .. } => {
+                "That license key is bound to a different computer. Ask the store where you bought it to re-issue for this machine."
+            }
+            AppError::LicenseClockSuspect { .. } => {
+                "This computer's clock is behind the last time Pixora ran. Correct the date and time in Windows settings, then restart Pixora."
+            }
+            AppError::LicenseUnsupportedVersion { .. } => {
+                "That license key is newer than this version of Pixora. Update Pixora and activate again."
+            }
+            AppError::LicenseStoreUnavailable { .. } => {
+                "Pixora couldn't save the license on this computer. Check free disk space and app-data permissions, then try again."
+            }
             AppError::Unexpected { .. } => "Something went wrong. The application log may help.",
         }
     }
@@ -162,6 +211,13 @@ fn other_detail(err: &AppError) -> &str {
         | AppError::ModelCorrupt { detail }
         | AppError::UnsupportedScale { detail }
         | AppError::Cancelled { detail }
+        | AppError::LicenseInvalid { detail }
+        | AppError::LicenseExpired { detail }
+        | AppError::LicenseRevoked { detail }
+        | AppError::LicenseWrongMachine { detail }
+        | AppError::LicenseClockSuspect { detail }
+        | AppError::LicenseUnsupportedVersion { detail }
+        | AppError::LicenseStoreUnavailable { detail }
         | AppError::Unexpected { detail } => detail,
     }
 }

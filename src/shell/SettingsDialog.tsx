@@ -3,8 +3,8 @@
  * think about the app, not the way the code stores them.
  *
  * Structure: a left category rail (General · Processing · Export ·
- * Performance · Diagnostics) with one focused section on the right at a
- * time — every screen stays short enough to read, and switching sections
+ * Performance · License · Diagnostics) with one focused section on the
+ * right at a time — every screen stays short enough to read, and switching sections
  * is a visible, animated navigation, not a wall of controls.
  *
  * Language rules for this dialog:
@@ -31,6 +31,7 @@ import { Button } from '../ui/Button'
 import { Dialog } from '../ui/Dialog'
 import { SegmentedField, SelectField, ToggleField } from '../ui/Field'
 import { IconFolder, IconMonitor, IconMoon, IconSun } from '../ui/Icons'
+import { LicenseSection } from './LicenseSection'
 import './Dialogs.css'
 
 export interface SettingsDialogProps {
@@ -38,13 +39,14 @@ export interface SettingsDialogProps {
   onClose: () => void
 }
 
-type Category = 'general' | 'processing' | 'export' | 'performance' | 'diagnostics'
+type Category = 'general' | 'processing' | 'export' | 'performance' | 'license' | 'diagnostics'
 
 const CATEGORIES: Array<{ id: Category; label: string; blurb: string }> = [
   { id: 'general', label: 'General', blurb: 'Appearance and startup' },
   { id: 'processing', label: 'Processing', blurb: 'How images get enhanced' },
   { id: 'export', label: 'Export', blurb: 'Format, quality and where files go' },
   { id: 'performance', label: 'Performance', blurb: 'How hard Pixora uses your machine' },
+  { id: 'license', label: 'License', blurb: 'Activation and commercial record' },
   { id: 'diagnostics', label: 'Diagnostics', blurb: 'Version, hardware and logs' },
 ]
 
@@ -360,6 +362,8 @@ function SettingsBody({ onClose }: { onClose: () => void }) {
                 </p>
               </>
             )}
+
+            {category === 'license' && <LicenseSection />}
 
             {category === 'diagnostics' && (
               <>

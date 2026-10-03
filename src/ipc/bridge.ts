@@ -8,6 +8,7 @@
  */
 import { Channel, invoke } from '@tauri-apps/api/core'
 import type {
+  ActivationResultDto,
   AppConfigDto,
   BatchConfigPayload,
   BatchEventDto,
@@ -23,9 +24,11 @@ import type {
   ImportOutcomeDto,
   ImageViewDto,
   InferenceStatusDto,
+  LicenseStatusDto,
   SystemInfoDto,
 } from '../types/ipc'
 import {
+  isActivationResult,
   isBatchEvent,
   isBatchSnapshot,
   isDiagnostics,
@@ -35,6 +38,7 @@ import {
   isHistorySnapshot,
   isInferenceStatus,
   isImageView,
+  isLicenseStatus,
 } from '../types/ipc'
 import { previewInvoke, shouldUsePreviewBridge } from './previewBridge'
 
@@ -385,4 +389,73 @@ export function openLogsFolder(): Promise<string> {
     })
   }
   return invoke<string>('open_logs_folder')
+}
+
+/**
+ * ── Stage 13: licensing ───────────────────────────────────────────────
+ *
+ * The whole licensing surface, deliberately tiny: status, activate,
+ * deactivate. Nothing here can affect image processing — the engine
+ * commands do not ask, and never will.
+ */
+
+/** The local license state, re-verified natively from the stored
+ * signature. Guarded like every payload; the browser preview honestly
+ * reports an unactivated license (there is no local store to consult). */
+export async function getLicenseStatus(): Promise<LicenseStatusDto> {
+  if (shouldUsePreviewBridge()) {
+    const raw = await previewInvoke('get_license_status')
+    if (isLicenseStatus(raw)) return raw
+    throw {
+      code: 'unexpected_error',
+      message: 'The application core returned an unexpected reply.',
+    }
+  }
+  const raw: unknown = await invoke('get_license_status')
+  if (!isLicenseStatus(raw)) {
+    throw {
+      code: 'unexpected_error',
+      message: 'The application core returned an unexpected reply.',
+    }
+  }
+  return raw
+}
+
+/** Activate a pasted license key. Fully offline-capable: success needs
+ * a valid vendor signature, not an internet connection. Rejects with a
+ * human-readable AppErrorPayload on any bad key. */
+export async function activateLicense(key: string): Promise<ActivationResultDto> {
+  if (shouldUsePreviewBridge()) {
+    throw {
+      code: 'unexpected_error',
+      message: 'Licensing runs in the desktop app.',
+    }
+  }
+  const raw: unknown = await invoke('activate_license', { key })
+  if (!isActivationResult(raw)) {
+    throw {
+      code: 'unexpected_error',
+      message: 'The application core returned an unexpected reply.',
+    }
+  }
+  return raw
+}
+
+/** Forget the stored license on this machine. The key itself remains
+ * valid with the vendor; re-entering it re-activates. */
+export async function deactivateLicense(): Promise<LicenseStatusDto> {
+  if (shouldUsePreviewBridge()) {
+    throw {
+      code: 'unexpected_error',
+      message: 'Licensing runs in the desktop app.',
+    }
+  }
+  const raw: unknown = await invoke('deactivate_license')
+  if (!isLicenseStatus(raw)) {
+    throw {
+      code: 'unexpected_error',
+      message: 'The application core returned an unexpected reply.',
+    }
+  }
+  return raw
 }

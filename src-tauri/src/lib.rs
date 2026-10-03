@@ -89,6 +89,9 @@ pub fn run() {
             commands::history::clear_history,
             commands::settings::set_engine_hints,
             commands::app::open_logs_folder,
+            commands::license::get_license_status,
+            commands::license::activate_license,
+            commands::license::deactivate_license,
         ])
         .setup(|app| {
             let cfg = config::AppConfig::from_build();
@@ -122,6 +125,19 @@ pub fn run() {
                     } else {
                         "default"
                     }
+                );
+            }
+            // Stage 13: the licensing picture, logged once at startup —
+            // state and edition only, never the holder or key. It exists
+            // beside the engine, not inside it: the lines below would
+            // read exactly the same with this block deleted.
+            if let Some(dir) = app_data.as_ref() {
+                let lic = services::license::status(dir);
+                log::info!(
+                    "license: {} (edition {}, machine {})",
+                    lic.state,
+                    lic.edition.unwrap_or("free"),
+                    lic.machine_hint
                 );
             }
             let registry = ModelRegistry::new(model_search_dirs(app));
