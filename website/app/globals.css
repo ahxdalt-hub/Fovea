@@ -138,7 +138,9 @@ body {
 .ba-after {
   position: absolute;
   inset: 0;
-  clip-path: inset(0 calc(100% - var(--split, 50%)) 0 0);
+  /* Reveal the enhanced image on the RIGHT of the divider (matching the
+     "After" tag); the original underneath shows on the LEFT. */
+  clip-path: inset(0 0 0 var(--split, 50%));
 }
 .ba-divider {
   position: absolute;
