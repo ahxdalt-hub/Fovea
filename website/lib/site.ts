@@ -18,6 +18,7 @@ export const navLinks = [
   { href: '#showcase', label: 'Results' },
   { href: '#privacy', label: 'Privacy' },
   { href: '#features', label: 'Features' },
+  { href: '/docs', label: 'Docs' },
   { href: '#pricing', label: 'Pricing' },
   { href: '#faq', label: 'FAQ' },
 ] as const;
@@ -168,5 +169,42 @@ export const faqs = [
   {
     q: 'How does licensing work?',
     a: 'A license is a signed key you paste into Settings → License. It’s verified offline on your machine and stored securely. Enhancement itself works with or without a license, so a licensing hiccup can never block your work.',
+  },
+] as const;
+
+/**
+ * Plain-spoken facts buyers check before paying. Each is true of the shipped
+ * app today — no aspirational claims.
+ */
+export const trustDetails = [
+  {
+    label: 'Runs locally',
+    value: 'On your CPU or GPU',
+    detail: 'The model is bundled with the app; enhancement, batch and export need no connection.',
+  },
+  {
+    label: 'Your images',
+    value: 'Never uploaded',
+    detail: 'There is no upload path and no account. Nothing about your photos leaves the machine.',
+  },
+  {
+    label: 'Formats',
+    value: 'JPEG · PNG · WebP',
+    detail: 'Import and export in all three; PNG is lossless, JPEG and WebP have a quality control.',
+  },
+  {
+    label: 'System',
+    value: 'Windows 10 & 11 · 64-bit',
+    detail: 'No CUDA, no developer tools. A DirectX 12 GPU accelerates it; a CPU runs it regardless.',
+  },
+  {
+    label: 'License model',
+    value: 'Offline · one-time',
+    detail: 'A signed key, verified on your machine, covering seats and commercial use — never a feature gate.',
+  },
+  {
+    label: 'Support',
+    value: 'Reply to your receipt',
+    detail: 'Your order confirmation is your receipt and support entry point — quote its license id for help with a key or billing.',
   },
 ] as const;

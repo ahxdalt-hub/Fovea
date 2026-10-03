@@ -3,18 +3,59 @@
 Premium Windows-first desktop app for local AI image enhancement and upscaling.
 Your images are processed on your own machine and never uploaded.
 
-**Current status:** Stage 13 — commercial licensing. The full workflow is
-live: import → choose 2×/4× and a real enhancement mode → Enhance → the
-result opens in the compare slider → export as PNG/JPEG/WebP with quality
-and folder choices — plus batch processing, a local history journal,
-settings with validated persistence, hardware-adaptive processing that
-degrades gracefully (GPU when available, CPU when not — never a crash), and
-now an offline commercial licensing layer. Stage 13 adds activation, status
-and a local license record — and deliberately does **not** couple them to
-image processing: the AI engine never calls the license code, makes no
-network request, and runs with or without a key. Everything runs on this
-machine: Real-ESRGAN models on ONNX Runtime (DirectML GPU, CPU fallback).
-Your images are processed locally and never uploaded.
+**Current status:** Stage 16 — website ↔ product integration. The commercial
+journey is connected without moving image processing to the cloud: a
+website visitor understands the product, starts checkout, reaches a download
++ activation page, and arrives at a working licensed desktop app that runs
+the full workflow locally — import → choose 2×/4× and a real enhancement
+mode → Enhance → compare slider → export PNG/JPEG/WebP — plus batch,
+history, settings, and hardware-adaptive processing that degrades gracefully
+(GPU when available, CPU when not — never a crash). Payment stays behind a
+provider seam (no hard-coded APIs, no secret in the site), the license maps
+straight into the offline activation flow, and every trust claim is backed by
+the real application. Everything still runs on this machine: Real-ESRGAN
+models on ONNX Runtime (DirectML GPU, CPU fallback). Your images are
+processed locally and never uploaded.
+
+## Website ↔ product integration (Stage 16)
+
+The purchase path is wired to the desktop app **without a cloud detour for
+image data**. Journey: website → understand → checkout → delivery/download →
+install → activate → enhance → export, all verified end-to-end.
+
+- **Payment behind a seam, not an API.** `website/lib/commerce.ts` defines a
+  `PaymentProvider` interface and `resolveProvider()` reads
+  `PIXORA_PAYMENT_PROVIDER` at request time. The default `ManualProvider`
+  needs no secret and no network — it redirects to
+  `/download?tier=…&source=checkout`. A real provider plugs in as its own
+  file under `lib/providers/`; nothing else changes. No provider assumptions
+  are hard-coded.
+- **Checkout route.** `website/app/api/checkout/route.ts` (GET + POST)
+  validates the tier against `{pro, studio, evaluate}` (anything else →
+  400), calls the provider, and issues a 303 redirect. Route is dynamic
+  (`ƒ`) so env is read per request.
+- **Delivery + activation.** `website/app/download/page.tsx` shows what was
+  purchased, the exact in-app activation steps (gear or `Ctrl+,` → Settings →
+  License → paste the `PIXORA1.` key → Activate — offline), real system
+  requirements, and help. When `PIXORA_DOWNLOAD_URL` is unset it shows an
+  honest pre-launch note rather than a broken button.
+- **Concise docs.** `website/app/docs/page.tsx` covers install, activation,
+  import, enhancement, batch, export, troubleshooting — deliberately short,
+  not an enormous manual.
+- **No secrets anywhere.** The site never holds a signing key; the desktop
+  app embeds only public keys. Purchase tier maps to license edition
+  (`pro`→Pro, `studio`→Studio) and into the existing offline Ed25519
+  activation from Stage 13.
+- **Licensing still never gates the engine.** The integration is a
+  commercial record, not a capability switch — no paid feature is fabricated
+  for the site.
+- **End-to-end proof.** `src-tauri/examples/website_journey.rs` runs the
+  whole flow against the real code with **no network**: issue a signed key →
+  paste it (whitespace-tolerant) → verify the signature offline → confirm
+  every feature stays allowed → enhance a synthetic image locally (DirectML
+  GPU or CPU) → export PNG + JPEG. It stops at signature verification rather
+  than calling `activate()`, so the test never touches the live Windows
+  Credential Manager store.
 
 ## Commercial licensing (Stage 13)
 

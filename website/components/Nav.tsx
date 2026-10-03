@@ -40,7 +40,7 @@ export function Nav() {
         </div>
 
         <div className="hidden md:block">
-          <Cta href="#pricing">Download</Cta>
+          <Cta href="/download">Download</Cta>
         </div>
 
         <button
@@ -75,7 +75,7 @@ export function Nav() {
               </a>
             ))}
             <div className="px-3 pt-3">
-              <Cta href="#pricing">Download</Cta>
+              <Cta href="/download">Download</Cta>
             </div>
           </div>
         </div>

@@ -2,7 +2,7 @@ import { BeforeAfter } from '@/components/BeforeAfter';
 import { Cta } from '@/components/Cta';
 import { Reveal } from '@/components/Reveal';
 import { Logo } from '@/components/Logo';
-import { faqs, features, howItWorks, site, tiers } from '@/lib/site';
+import { faqs, features, howItWorks, site, tiers, trustDetails } from '@/lib/site';
 
 /** Small centered eyebrow label above a heading. */
 function Eyebrow({ children, tone = 'accent' }: { children: string; tone?: 'accent' | 'steel' }) {
@@ -63,7 +63,7 @@ export default function Home() {
               can trust.
             </p>
             <div className="mt-9 flex flex-wrap items-center gap-4">
-              <Cta href="#pricing" variant="light">
+              <Cta href="/download?tier=evaluate" variant="light">
                 Download Pixora
               </Cta>
               <a
@@ -407,7 +407,32 @@ export default function Home() {
         </div>
       </section>
 
-      {/* 10 ─ PRICING ───────────────────────────────────────────────────── */}
+      {/* 10 ─ TRUST DETAILS ────────────────────────────────────────────── */}
+      <section className="bg-surface py-20">
+        <div className="container-page">
+          <Reveal className="max-w-2xl">
+            <Eyebrow>Plain facts</Eyebrow>
+            <h2 className="font-display text-3xl font-semibold leading-tight sm:text-4xl">
+              The details you check before you buy.
+            </h2>
+          </Reveal>
+          <dl className="mt-12 grid gap-x-10 gap-y-8 sm:grid-cols-2 lg:grid-cols-3">
+            {trustDetails.map((t, i) => (
+              <Reveal key={t.label} delay={(i % 3) * 80}>
+                <div className="border-t border-line pt-5">
+                  <dt className="text-sm font-semibold uppercase tracking-wide text-ink-3">
+                    {t.label}
+                  </dt>
+                  <dd className="mt-1 font-display text-xl font-semibold text-ink">{t.value}</dd>
+                  <p className="mt-2 text-[0.92rem] leading-relaxed text-ink-2">{t.detail}</p>
+                </div>
+              </Reveal>
+            ))}
+          </dl>
+        </div>
+      </section>
+
+      {/* 11 ─ PRICING ──────────────────────────────────────────────────── */}
       <section id="pricing" className="bg-surface py-24">
         <div className="container-page">
           <Reveal className="mx-auto max-w-2xl text-center">
@@ -460,13 +485,17 @@ export default function Home() {
                     ))}
                   </ul>
                   <div className="mt-8">
-                    {tier.featured ? (
-                      <Cta href="#pricing" variant="light">
+                    {tier.id === 'evaluate' ? (
+                      <Cta href="/download?tier=evaluate" variant="ghost">
+                        Download free
+                      </Cta>
+                    ) : tier.featured ? (
+                      <Cta href={`/api/checkout?tier=${tier.id}`} variant="light">
                         Buy {tier.name}
                       </Cta>
                     ) : (
-                      <Cta href="#pricing" variant="ghost">
-                        {tier.id === 'evaluate' ? 'Download free' : `Buy ${tier.name}`}
+                      <Cta href={`/api/checkout?tier=${tier.id}`} variant="ghost">
+                        Buy {tier.name}
                       </Cta>
                     )}
                   </div>
@@ -525,7 +554,7 @@ export default function Home() {
               add a license when you’re ready.
             </p>
             <div className="mt-9 flex flex-wrap justify-center gap-4">
-              <Cta href="#pricing" variant="light">
+              <Cta href="/download?tier=evaluate" variant="light">
                 Download Pixora
               </Cta>
               <a
