@@ -102,6 +102,52 @@ button {
   cursor: default;
 }
 
+/* Stage 12 crash containment: the root error boundary's fallback. It
+   renders when the React tree itself threw, so it relies on nothing but
+   this stylesheet and the design tokens. */
+.pix-boundary {
+  height: 100%;
+  display: grid;
+  place-items: center;
+  padding: 32px;
+  background: var(--bg-app);
+}
+
+.pix-boundary__card {
+  max-width: 460px;
+  padding: 28px 32px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 12px;
+  background: var(--bg-surface);
+  text-align: center;
+}
+
+.pix-boundary__title {
+  margin: 0 0 8px;
+  font-size: var(--text-lg);
+  color: var(--text-primary);
+}
+
+.pix-boundary__text {
+  margin: 0 0 20px;
+  color: var(--text-secondary);
+  line-height: 1.5;
+}
+
+.pix-boundary__reload {
+  padding: 8px 18px;
+  border: none;
+  border-radius: 8px;
+  background: var(--accent);
+  color: var(--accent-contrast);
+  font-weight: 600;
+  cursor: default;
+}
+
+.pix-boundary__reload:hover {
+  background: var(--accent-hover);
+}
+
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,

@@ -53,26 +53,42 @@ export function useBatch(): BatchApi {
   const running =
     starting || (state.batch?.running ?? false) || (state.batch?.items.some(isActive) ?? false)
 
+  const refresh = useCallback(async () => {
+    try {
+      const snapshot = await getBatchSnapshot()
+      if (snapshot) dispatch({ type: 'batch/snapshot', snapshot })
+    } catch {
+      // A missing snapshot just means no batch has run — leave state as is.
+    }
+  }, [dispatch])
+
   const start = useCallback(
     async (items: BatchItemPayload[], output: BatchConfigPayload) => {
       if (busy.current || items.length === 0) return
       busy.current = true
       setStarting(true)
-      // Move the busy job's live panel aside so the batch is the focus.
-      dispatch({ type: 'enhance/clear' })
       try {
         const snapshot = await startBatch(items, output, (event) =>
           dispatch({ type: 'batch/event', event }),
         )
+        // Only now — after the queue genuinely took over — is the single
+        // job's live panel parked. Clearing before the call meant a busy-
+        // engine rejection left a running job whose events the reducer
+        // silently dropped: an orphaned, invisible enhancement.
+        dispatch({ type: 'enhance/clear' })
         dispatch({ type: 'batch/snapshot', snapshot })
       } catch (error) {
         notify('error', toAppError(error).message)
+        // The queue may hold live truth the panel doesn't show (a job
+        // finished, an item changed state) — re-sync before repainting
+        // stale beliefs.
+        void refresh()
       } finally {
         busy.current = false
         setStarting(false)
       }
     },
-    [dispatch, notify],
+    [dispatch, notify, refresh],
   )
 
   const cancelItem = useCallback(
@@ -107,15 +123,6 @@ export function useBatch(): BatchApi {
   }, [dispatch, notify])
 
   const dismiss = useCallback(() => dispatch({ type: 'batch/clear' }), [dispatch])
-
-  const refresh = useCallback(async () => {
-    try {
-      const snapshot = await getBatchSnapshot()
-      if (snapshot) dispatch({ type: 'batch/snapshot', snapshot })
-    } catch {
-      // A missing snapshot just means no batch has run — leave state as is.
-    }
-  }, [dispatch])
 
   return { running, start, cancelItem, cancelAll, retryFailed, dismiss, refresh }
 }

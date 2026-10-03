@@ -426,13 +426,25 @@ export type BatchEventDto =
 function isBatchOutput(value: unknown): value is BatchOutputDto {
   if (typeof value !== 'object' || value === null) return false
   const v = value as Record<string, unknown>
+  // Every numeric field the batch view renders must be present and finite
+  // — the Stage 12 rule is that a guard-passing payload cannot crash a
+  // render (formatDimensions calls both dimensions unconditionally).
   return (
     typeof v.filePath === 'string' &&
     typeof v.fileName === 'string' &&
     typeof v.folder === 'string' &&
     typeof v.bytes === 'number' &&
+    Number.isFinite(v.bytes) &&
     typeof v.sourceWidth === 'number' &&
-    typeof v.outputWidth === 'number'
+    Number.isFinite(v.sourceWidth) &&
+    typeof v.sourceHeight === 'number' &&
+    Number.isFinite(v.sourceHeight) &&
+    typeof v.outputWidth === 'number' &&
+    Number.isFinite(v.outputWidth) &&
+    typeof v.outputHeight === 'number' &&
+    Number.isFinite(v.outputHeight) &&
+    typeof v.label === 'string' &&
+    typeof v.engine === 'string'
   )
 }
 

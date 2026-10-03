@@ -688,6 +688,12 @@ fn enhance_inner<B: Backend>(
                     EngineError::Failed(detail) => {
                         return Err(AppError::EngineUnavailable { detail });
                     }
+                    // A session open never writes pixels; OutOfStorage is
+                    // unreachable here, but the honest mapping keeps the
+                    // match exhaustive without inventing a retry.
+                    EngineError::OutOfStorage(detail) => {
+                        return Err(AppError::InsufficientDisk { detail });
+                    }
                 }
             }
         };
@@ -841,16 +847,36 @@ fn run_pipeline<B: Backend>(
     engine::run(backend, rgb, plan, post, &mut sink, token, |done, total| {
         emit(EnhanceEvent::Processing { done, total })
     })
-    .map_err(|err| match err {
+    .map_err(map_engine_error)?;
+    // All tiles done — finishing the encode is the last real phase.
+    emit(EnhanceEvent::Completing);
+    sink.finish()
+}
+
+/// The pipeline's single engine-failure → `AppError` mapping. Disk-space
+/// exhaustion gets its own user-visible condition and — structurally, via
+/// the ladder's `InsufficientResources`-only retry arms — never triggers a
+/// memory-ladder retry: a full disk cannot be fixed by shrinking tiles.
+fn map_engine_error(err: EngineError) -> AppError {
+    match err {
         EngineError::Cancelled => AppError::Cancelled {
             detail: "tiles".into(),
         },
         EngineError::OutOfMemory(detail) => AppError::InsufficientResources { detail },
+        EngineError::OutOfStorage(detail) => AppError::InsufficientDisk { detail },
         EngineError::Failed(detail) => AppError::ProcessingFailed { detail },
-    })?;
-    // All tiles done — finishing the encode is the last real phase.
-    emit(EnhanceEvent::Completing);
-    sink.finish()
+    }
+}
+
+/// Classify a PNG row-write failure. A full disk is reported as its own
+/// condition (`OutOfStorage`), never as a generic engine fault — the
+/// Stage 12 rule that a resource failure names its resource. Everything
+/// else stays `Failed` with the io text for the log.
+fn png_row_error(e: &std::io::Error) -> EngineError {
+    match e.kind() {
+        std::io::ErrorKind::StorageFull => EngineError::OutOfStorage(e.to_string()),
+        _ => EngineError::Failed(format!("png row: {e}")),
+    }
 }
 
 /// Streaming display view for oversized masters (Stage 07 memory rule:
@@ -1061,7 +1087,7 @@ impl RowWriter for PngSink {
                 stream.write_all(&self.row_buf)
             }
         };
-        result.map_err(|e| EngineError::Failed(format!("png row: {e}")))?;
+        result.map_err(|e| png_row_error(&e))?;
         if let Some(tee) = self.tee.as_mut() {
             tee.push_row(rgb, (!self.alpha_row.is_empty()).then_some(&self.alpha_row));
         }
@@ -2074,6 +2100,26 @@ mod tests {
         cleanup_scratch(&dir);
         assert!(!dir.join("a.png.part").exists());
         assert!(dir.join("keep.png").exists());
+    }
+
+    #[test]
+    fn png_row_io_failures_name_the_resource() {
+        let full = std::io::Error::from(std::io::ErrorKind::StorageFull);
+        assert!(matches!(png_row_error(&full), EngineError::OutOfStorage(_)));
+        let other = std::io::Error::other("device hiccup");
+        assert!(matches!(png_row_error(&other), EngineError::Failed(_)));
+    }
+
+    /// Stage 12: a full disk must end the job as `insufficient_disk` —
+    /// never `processing_failed` (a lie about the cause) and never a
+    /// memory-ladder retry (shrinking tiles cannot free disk space).
+    #[test]
+    fn out_of_storage_maps_to_the_disk_condition() {
+        let mapped = map_engine_error(EngineError::OutOfStorage("no space".into()));
+        assert_eq!(mapped.code(), "insufficient_disk");
+        // The memory ladder only retries InsufficientResources; disk stays
+        // terminal — asserted structurally by this type distinction.
+        assert_ne!(mapped.code(), "insufficient_resources");
     }
 
     fn phase(e: &EnhanceEvent) -> &'static str {

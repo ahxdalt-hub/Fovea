@@ -1,7 +1,7 @@
 {
   "$schema": "https://schema.tauri.app/capability/1",
   "identifier": "default",
-  "description": "Minimum permissions for the main application window. Only the core event/window plumbing and the local logger are granted; no filesystem, shell, or network access is exposed to the webview.",
+  "description": "Minimum permissions for the main application window. Stage 12 least-privilege audit: the webview uses exactly one core facility — the event system (Tauri Channel progress streams + drag-drop listeners) — plus the custom application commands, which need no ACL entry. No filesystem, dialog, shell, window-management, path, menu, or log-plugin access is exposed to the webview.",
   "windows": ["main"],
-  "permissions": ["core:default", "log:default"]
+  "permissions": ["core:event:default"]
 }

@@ -17,6 +17,7 @@ import { isImportOutcome, toAppError } from '../types/ipc'
 import { useAppState } from './useAppState'
 import { useNotify } from '../ui/notificationContext'
 import { formatBytes } from '../lib/format'
+import { invalidateSources } from './imageSources'
 
 /** Guard the untrusted IPC boundary at runtime, once per import. */
 function readOutcomes(raw: unknown) {
@@ -53,13 +54,26 @@ export function useImport(): ImportApi {
       try {
         const raw = await importImages(paths)
         const { images, failures } = readOutcomes(raw)
-        const newCount = images.filter(
-          (img) => !state.images.some((existing) => existing.id === img.id),
-        ).length
+        // A re-imported file may have changed on disk since the last
+        // import — its cached display view would silently show stale
+        // pixels. Every import invalidates its ids' cached sources.
+        invalidateSources(images.map((img) => img.id))
+        // Count distinct ids: a duplicate path in one drop dedupes to one
+        // collection entry, so the toast must not count it twice.
+        const known = new Set(state.images.map((existing) => existing.id))
+        const newCount = new Set(images.filter((img) => !known.has(img.id)).map((img) => img.id))
+          .size
         if (images.length > 0) dispatch({ type: 'images/add', images })
 
-        for (const f of failures) {
+        // A large bad drop would flood the (capped) toast queue — the
+        // first few failures name their files, the rest summarize.
+        const head = failures.slice(0, 3)
+        for (const f of head) {
           notify('warning', `${f.name} — ${f.message}`)
+        }
+        if (failures.length > head.length) {
+          const rest = failures.length - head.length
+          notify('warning', `${rest} more file${rest === 1 ? '' : 's'} could not be imported`)
         }
         if (newCount > 0) {
           const label = newCount === 1 ? '1 image' : `${newCount} images`

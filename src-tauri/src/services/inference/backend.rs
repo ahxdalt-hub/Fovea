@@ -35,6 +35,10 @@ pub enum EngineError {
     Failed(String),
     /// The runtime could not allocate for this tile/size.
     OutOfMemory(String),
+    /// The output stream could not be written (Stage 12: disk full —
+    /// distinct from OutOfMemory so the memory ladder never retries a
+    /// job whose fate is on-disk, not in-RAM).
+    OutOfStorage(String),
 }
 
 impl EngineError {

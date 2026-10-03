@@ -32,8 +32,12 @@ pub enum AppError {
     UnsupportedFormat { detail: String },
     /// A processing job failed.
     ProcessingFailed { detail: String },
-    /// Not enough memory/VRAM/disk to complete an operation.
+    /// Not enough memory/VRAM to complete an operation.
     InsufficientResources { detail: String },
+    /// Not enough free disk space to write the result (Stage 12: distinct
+    /// from InsufficientResources so the engine's memory ladder never
+    /// retries a job that can only end one way).
+    InsufficientDisk { detail: String },
     /// The OS denied a file or hardware operation.
     PermissionDenied { detail: String },
     /// The file existed when shown to the user but is gone now.
@@ -63,6 +67,7 @@ impl AppError {
             AppError::UnsupportedFormat { .. } => "unsupported_format",
             AppError::ProcessingFailed { .. } => "processing_failed",
             AppError::InsufficientResources { .. } => "insufficient_resources",
+            AppError::InsufficientDisk { .. } => "insufficient_disk",
             AppError::PermissionDenied { .. } => "permission_denied",
             AppError::FileMissing { .. } => "file_missing",
             AppError::FileTooLarge { .. } => "file_too_large",
@@ -89,6 +94,9 @@ impl AppError {
             }
             AppError::InsufficientResources { .. } => {
                 "Not enough system resources are available to complete this operation."
+            }
+            AppError::InsufficientDisk { .. } => {
+                "Not enough free disk space to save that. Free up space and try again."
             }
             AppError::PermissionDenied { .. } => {
                 "Windows won't let Pixora open that file. Check its location and permissions."
@@ -145,6 +153,7 @@ fn other_detail(err: &AppError) -> &str {
         | AppError::UnsupportedFormat { detail }
         | AppError::ProcessingFailed { detail }
         | AppError::InsufficientResources { detail }
+        | AppError::InsufficientDisk { detail }
         | AppError::PermissionDenied { detail }
         | AppError::FileMissing { detail }
         | AppError::FileTooLarge { detail }
@@ -172,7 +181,10 @@ impl From<std::io::Error> for AppError {
             ErrorKind::PermissionDenied => AppError::PermissionDenied {
                 detail: err.to_string(),
             },
-            ErrorKind::OutOfMemory | ErrorKind::StorageFull => AppError::InsufficientResources {
+            ErrorKind::OutOfMemory => AppError::InsufficientResources {
+                detail: err.to_string(),
+            },
+            ErrorKind::StorageFull => AppError::InsufficientDisk {
                 detail: err.to_string(),
             },
             _ => AppError::Unexpected {
@@ -230,6 +242,10 @@ mod tests {
                 "insufficient_resources",
             ),
             (
+                AppError::InsufficientDisk { detail: "x".into() },
+                "insufficient_disk",
+            ),
+            (
                 AppError::ProcessingFailed { detail: "x".into() },
                 "processing_failed",
             ),
@@ -238,5 +254,17 @@ mod tests {
         for (err, code) in cases {
             assert_eq!(err.code(), code);
         }
+    }
+
+    /// Stage 12: io failures carry their resource — a full disk is disk,
+    /// not "memory" or a generic fault.
+    #[test]
+    fn io_errors_map_to_their_resource() {
+        let disk = std::io::Error::from(std::io::ErrorKind::StorageFull);
+        assert_eq!(AppError::from(disk).code(), "insufficient_disk");
+        let mem = std::io::Error::from(std::io::ErrorKind::OutOfMemory);
+        assert_eq!(AppError::from(mem).code(), "insufficient_resources");
+        let denied = std::io::Error::from(std::io::ErrorKind::PermissionDenied);
+        assert_eq!(AppError::from(denied).code(), "permission_denied");
     }
 }

@@ -382,6 +382,15 @@ pub const VIEW_MAX_EDGE: u32 = 2600;
 /// so this command adds no new read capability. Still, it re-checks the
 /// file against the same ladder so a deleted/mutated file fails honestly.
 pub fn load_image_view(path: &Path, max_edge: u32) -> AppResult<ImageView> {
+    load_image_view_with_limits(path, max_edge, MAX_PIXELS, MAX_FILE_BYTES)
+}
+
+fn load_image_view_with_limits(
+    path: &Path,
+    max_edge: u32,
+    max_pixels: u64,
+    max_file_bytes: u64,
+) -> AppResult<ImageView> {
     let name = display_name(path);
     let bytes = match std::fs::read(path) {
         Ok(b) => b,
@@ -390,7 +399,7 @@ pub fn load_image_view(path: &Path, max_edge: u32) -> AppResult<ImageView> {
         }
         Err(err) => return Err(AppError::from(err)),
     };
-    if bytes.len() as u64 > MAX_FILE_BYTES {
+    if bytes.len() as u64 > max_file_bytes {
         return Err(AppError::FileTooLarge {
             detail: format!("{name}: {} bytes on disk", bytes.len()),
         });
@@ -404,6 +413,32 @@ pub fn load_image_view(path: &Path, max_edge: u32) -> AppResult<ImageView> {
     if ImageFormatLabel::from_image_format(guessed).is_none() {
         return Err(AppError::UnsupportedFormat {
             detail: format!("{name}: sniffed {guessed:?}"),
+        });
+    }
+    // Stage 12: the decompression-bomb gate the import ladder applies
+    // applies here too. The command accepts any path the webview passes,
+    // and a tiny flat-color PNG can declare enormous dimensions — header
+    // check first, so the pixel budget is enforced before the decoder
+    // allocates, never after.
+    let header = ImageReader::new(Cursor::new(&bytes))
+        .with_guessed_format()
+        .map_err(|_| AppError::InvalidImage {
+            detail: format!("{name}: unreadable header"),
+        })?;
+    let (width, height) = header
+        .into_dimensions()
+        .map_err(|_| AppError::InvalidImage {
+            detail: format!("{name}: bad dimensions"),
+        })?;
+    if width == 0 || height == 0 {
+        return Err(AppError::InvalidImage {
+            detail: format!("{name}: zero-sized"),
+        });
+    }
+    let pixels = u64::from(width) * u64::from(height);
+    if pixels > max_pixels {
+        return Err(AppError::FileTooLarge {
+            detail: format!("{name}: {pixels} pixels"),
         });
     }
     let decoded = image::load_from_memory_with_format(&bytes, guessed).map_err(|_| {
@@ -704,5 +739,68 @@ mod tests {
         let view = load_image_view(&path, 2500).expect("view");
         assert!(view.original);
         assert_eq!(view.delivered_edge, 2500);
+    }
+
+    #[test]
+    fn view_rejects_oversized_pixels_with_test_limits() {
+        // 5000×3000 = 15 MP against a 10 MP budget: the header gate fires
+        // before the decoder allocates, exactly like the import ladder.
+        let path = temp_file("viewbig.png", &png_bytes(5000, 3000));
+        let err = load_image_view_with_limits(&path, VIEW_MAX_EDGE, 10_000_000, MAX_FILE_BYTES)
+            .expect_err("must fail");
+        assert_eq!(err.code(), "file_too_large");
+    }
+
+    /// CRC-32 (IEEE/zlib, the PNG chunk checksum).
+    fn crc32(data: &[u8]) -> u32 {
+        let mut crc: u32 = 0xFFFF_FFFF;
+        for &b in data {
+            crc ^= u32::from(b);
+            for _ in 0..8 {
+                let mask = (crc & 1).wrapping_neg();
+                crc = (crc >> 1) ^ (0xEDB8_8320 & mask);
+            }
+        }
+        !crc
+    }
+
+    /// A ~70-byte PNG that *declares* 40000×40000 (1.6 gigapixels): the
+    /// classic decompression bomb. Only the header is real — decoding it
+    /// blind would allocate GBs. (Chunk CRCs cover type + data; a dummy
+    /// IDAT is required for the header reader to finish parsing.)
+    fn bomb_png() -> Vec<u8> {
+        let mut png = Vec::new();
+        png.extend_from_slice(&[0x89, b'P', b'N', b'G', b'\r', b'\n', 0x1a, b'\n']);
+        push_chunk(&mut png, b"IHDR", &bomb_ihdr_data());
+        push_chunk(&mut png, b"IDAT", &[0u8; 4]); // placeholder stream data
+        push_chunk(&mut png, b"IEND", &[]);
+        png
+    }
+
+    /// IHDR payload: 40000×40000, 8-bit RGB, no interlace.
+    fn bomb_ihdr_data() -> Vec<u8> {
+        let mut data = Vec::new();
+        data.extend_from_slice(&40_000u32.to_be_bytes());
+        data.extend_from_slice(&40_000u32.to_be_bytes());
+        data.extend_from_slice(&[8, 2, 0, 0, 0]);
+        data
+    }
+
+    /// Append one PNG chunk: length, type, data, CRC(type+data).
+    fn push_chunk(png: &mut Vec<u8>, kind: &[u8; 4], data: &[u8]) {
+        png.extend_from_slice(&(data.len() as u32).to_be_bytes());
+        let mut crc_input = kind.to_vec();
+        crc_input.extend_from_slice(data);
+        png.extend_from_slice(&crc_input);
+        png.extend_from_slice(&crc32(&crc_input).to_be_bytes());
+    }
+
+    #[test]
+    fn view_rejects_a_decompression_bomb_header() {
+        let bomb = bomb_png();
+        assert!(bomb.len() < 100, "fixture is tiny by construction");
+        let path = temp_file("bomb.png", &bomb);
+        let err = load_image_view(&path, VIEW_MAX_EDGE).expect_err("bomb must be refused");
+        assert_eq!(err.code(), "file_too_large");
     }
 }

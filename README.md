@@ -3,15 +3,86 @@
 Premium Windows-first desktop app for local AI image enhancement and upscaling.
 Your images are processed on your own machine and never uploaded.
 
-**Current status:** Stage 11 — premium UX + motion polish. The full workflow
-is live: import → choose 2×/4× and a real enhancement mode → Enhance → the
-result opens in the compare slider → export as PNG/JPEG/WebP with quality
-and folder choices — plus batch processing, a local history journal,
-settings with validated persistence, and hardware-adaptive processing that
-degrades gracefully (GPU when available, CPU when not — never a crash).
-Everything runs on this machine: Real-ESRGAN models on ONNX Runtime
-(DirectML GPU, CPU fallback). Your images are processed locally and never
-uploaded.
+**Current status:** Stage 12 — production hardening (reliability + security
+
+- privacy). The full workflow is live: import → choose 2×/4× and a real
+  enhancement mode → Enhance → the result opens in the compare slider →
+  export as PNG/JPEG/WebP with quality and folder choices — plus batch
+  processing, a local history journal, settings with validated persistence,
+  and hardware-adaptive processing that degrades gracefully (GPU when
+  available, CPU when not — never a crash). Stage 12 added no product
+  features; it tightened the trust boundary (least-privilege capabilities, a
+  decompression-bomb gate on the display path, a disk-full condition the
+  engine no longer mis-retries), hardened recovery (a root error boundary,
+  guarded progress streams, cache eviction, no orphaned jobs), and confirmed
+  the privacy promise by audit. Everything runs on this machine: Real-ESRGAN
+  models on ONNX Runtime (DirectML GPU, CPU fallback). Your images are
+  processed locally and never uploaded.
+
+## Reliability + security (Stage 12)
+
+A production pass over resilience and the trust boundary — no new features,
+no arbitrary shell execution, no widened permissions. Findings and fixes:
+
+- **Least-privilege capabilities.** The main window was reduced from
+  `core:default` + `log:default` to exactly `core:event:default`. The
+  webview needs only the event system (Tauri `Channel` progress streams +
+  drag-and-drop listeners); custom app commands live outside the ACL and
+  need no grant, verified by running `tauri dev` with the trimmed
+  capability and confirming `frontend connected to native core`. No
+  filesystem, dialog, shell, window-management, path, menu, or log-plugin
+  permission is reachable from the webview — every path and picker is
+  still resolved Rust-side.
+- **Display-path bomb gate.** `load_image_view` accepted any path the
+  webview named and decoded it _before_ checking pixel count, unlike the
+  import ladder. A tiny PNG declaring enormous dimensions would allocate
+  before refusing. It now runs the same header pixel gate as import
+  (`file_too_large` on the declared dimensions, never a blind decode),
+  tested with a real crafted-bomb fixture.
+- **Disk-full is its own condition.** A full volume during output encode
+  previously collapsed into the memory-ladder's `insufficient_resources`
+  and wasted two more shrinking retries on a disk problem that cannot be
+  fixed by smaller tiles. It now surfaces as `insufficient_disk`, reported
+  terminal so the ladder stops immediately. Export and journal writes map
+  `StorageFull` through the same error vocabulary.
+- **No orphaned live jobs.** Starting a batch cleared the single-image
+  panel _before_ the engine accepted the queue; a busy-engine rejection
+  then left a running enhancement with every event silently dropped. The
+  panel is now parked only after the queue genuinely takes over, and a
+  rejected start re-syncs the snapshot instead of repainting stale beliefs.
+- **Crash containment.** A root React error boundary turns any render
+  exception (previously a blank window) into a recoverable surface; the
+  crash text and component stack are relayed to the native log (length-
+  capped, control-stripped, never image bytes or paths).
+- **Guarded progress streams.** The enhance and batch `Channel` events are
+  validated at the boundary (the guards existed but were only tested, never
+  wired). A malformed event is dropped and logged rather than reaching the
+  reducer, where a string tile-count would have compared lexicographically.
+- **Honest loading states.** A failed display-view fetch no longer spins
+  "Reading full image…" forever — it reports the failure and keeps the
+  preview. A failed 1:1 escalation stays retryable. The batch output guard
+  now checks every rendered dimension, and the formatting helpers degrade
+  to a dash instead of "NaN" on a bad number.
+- **Memory discipline.** The frontend source cache (which can hold
+  full-resolution data URLs) is evicted when images leave the collection,
+  and re-importing a file invalidates its cached view so changed pixels on
+  disk are never hidden behind yesterday's cache.
+- **Interrupted batch recovery.** A mid-batch app close (engine slot shut
+  down + queue flagged) leaves no phantom in-flight work: the running item
+  reports cancelled and nothing claims to still be waiting — tested
+  directly against the queue worker.
+- **Dependency audit.** Removed the unused `thiserror` crate; the frontend
+  tree is already minimal (React + the Tauri API only) and `npm dedupe`
+  found no duplicates. ONNX Runtime telemetry is confirmed disabled at
+  init; no runtime code path opens a socket (grep-verified: no HTTP client,
+  no fetch/WebSocket in the shipped source). The `ort`/`webp` network
+  contact is build-time binary download only.
+- **Verification:** 120 Rust tests + 2 real end-to-end ONNX/GPU pipeline
+  tests pass; 177 frontend tests pass; clippy `-D warnings`, `cargo fmt`,
+  `tsc`, oxlint, Prettier, and the production `vite build` are all clean.
+  The only stage-12 case not reproduced end-to-end is genuine disk-full
+  during inference, which needs a filled volume — its classification and
+  terminal-ladder behavior are covered by unit tests instead.
 
 ## Premium UX + motion (Stage 11)
 

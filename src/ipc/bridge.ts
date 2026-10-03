@@ -26,8 +26,10 @@ import type {
   SystemInfoDto,
 } from '../types/ipc'
 import {
+  isBatchEvent,
   isBatchSnapshot,
   isDiagnostics,
+  isEnhanceEvent,
   isEnhanceResult,
   isExportResult,
   isHistorySnapshot,
@@ -130,7 +132,13 @@ export async function enhanceImage(
     }
   }
   const channel = new Channel<EnhanceEventDto>()
-  channel.onmessage = (event) => onEvent(event)
+  // Stage 12: the stream is untrusted input too — a malformed event is
+  // dropped (and logged) at the boundary instead of reaching the reducer,
+  // where a string `done` would compare lexicographically forever.
+  channel.onmessage = (event) => {
+    if (isEnhanceEvent(event)) onEvent(event)
+    else writeFrontendLog('warn', 'malformed enhance event dropped')
+  }
   const raw: unknown = await invoke('enhance_image', { imageId, mode, scale, onEvent: channel })
   if (!isEnhanceResult(raw)) {
     throw {
@@ -269,7 +277,11 @@ export async function startBatch(
     }
   }
   const channel = new Channel<BatchEventDto>()
-  channel.onmessage = (event) => onEvent(event)
+  // Same boundary rule as the single-image stream: guard or drop.
+  channel.onmessage = (event) => {
+    if (isBatchEvent(event)) onEvent(event)
+    else writeFrontendLog('warn', 'malformed batch event dropped')
+  }
   const raw: unknown = await invoke('start_batch', { items, output, onEvent: channel })
   if (!isBatchSnapshot(raw)) {
     throw {

@@ -32,6 +32,7 @@ import { useImport } from './state/useImport'
 import { useEnhance } from './state/useEnhance'
 import { useBatch } from './state/useBatch'
 import { useDragOver } from './state/useNativeFileDrop'
+import { pruneSources } from './state/imageSources'
 import { NotificationProvider } from './ui/Notifications'
 import { ErrorState, LoadingState } from './ui/States'
 import { NavRail } from './shell/NavRail'
@@ -66,6 +67,13 @@ export function Shell() {
     // ready transition is the point.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [state.coreStatus])
+
+  // Stage 12 memory discipline: whenever the collection changes, evict
+  // cached display/full representations of images the user removed. The
+  // cache is keyed by canonical path and otherwise grows for the session.
+  useEffect(() => {
+    pruneSources(state.images.map((img) => img.id))
+  }, [state.images])
 
   const reopenFromPath = useCallback(
     (path: string) => {

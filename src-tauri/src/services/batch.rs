@@ -1295,4 +1295,107 @@ mod tests {
         let h = Harness::new("unknown", &["a.png"]);
         assert!(!h.handle.cancel_item("item-does-not-exist"));
     }
+
+    /// Stage 12 — the app-close sequence (`lib.rs` on_window_event: the
+    /// engine slot shuts down, then the queue is flagged) must leave no
+    /// phantom in-flight work: the running item stops, waiting items are
+    /// marked cancelled, and the snapshot ends all-terminal with the
+    /// worker retired.
+    #[test]
+    fn window_shutdown_mid_batch_leaves_no_phantom_work() {
+        let dir = scratch("shutdown");
+        let names = ["slow-s.png", "b.png", "c.png"];
+        for n in names {
+            source_png(&dir, n, 8, 4);
+        }
+        let history = history::Store::open(&dir);
+        let jobs = Arc::new(JobRegistry::new());
+        let engine = Arc::new(BatchEngine {
+            registry: Arc::new(ModelRegistry::new(vec![dir.clone()])),
+            jobs: Arc::clone(&jobs),
+            config: EngineConfig::default(),
+            out_dir: dir.join("enhanced"),
+            history,
+        });
+        let (tx, rx) = mpsc::sync_channel::<BatchEvent>(512);
+        std::thread::spawn(move || for _ in rx {}); // drain like the relay would
+        let output = BatchOutputConfig {
+            folder: dir.join("export").to_string_lossy().into_owned(),
+            format: ExportFormat::Png,
+            quality: 90,
+        };
+        let (session, _) = start_batch(
+            sources(&dir, &names),
+            output,
+            engine,
+            tx,
+            scripted_engine_fn(),
+        )
+        .expect("start batch");
+        let handle = session.handle().clone();
+
+        // Wait until the first (slow) item is genuinely in flight.
+        // Observing `Processing` is sufficient: the worker flips that state
+        // and registers the token before calling the engine, so the item is
+        // interruptible the instant we see it — and the scripted slow item
+        // runs 100 tiles, so it cannot finish before we cancel. (A stricter
+        // "some tiles done" precondition is exactly what flakes under the
+        // whole-suite CPU contention this test shares.)
+        let deadline = Instant::now() + Duration::from_secs(10);
+        loop {
+            let snap = handle.snapshot();
+            if snap
+                .items
+                .first()
+                .is_some_and(|i| i.state == BatchItemState::Processing)
+            {
+                break;
+            }
+            assert!(Instant::now() < deadline, "timeout waiting for processing");
+            std::thread::sleep(Duration::from_millis(10));
+        }
+
+        // The close sequence: engine slot shutdown (cancels the live
+        // token) + queue shutdown (flags the worker between items).
+        jobs.shutdown();
+        session.shutdown_now();
+        handle.cancel_all();
+        drop(session); // what a destroyed window leaves behind
+
+        let mut snap = handle.snapshot();
+        let deadline = Instant::now() + Duration::from_secs(10);
+        while snap.running {
+            assert!(Instant::now() < deadline, "timeout waiting for retire");
+            std::thread::sleep(Duration::from_millis(10));
+            snap = handle.snapshot();
+        }
+        assert!(!snap.running, "worker retired");
+        for item in &snap.items {
+            assert!(
+                matches!(
+                    item.state,
+                    BatchItemState::Completed | BatchItemState::Failed | BatchItemState::Cancelled
+                ),
+                "{} must be terminal after shutdown, is {:?}",
+                item.name,
+                item.state
+            );
+            assert!(!item.cancelling, "{} must not stay mid-cancel", item.name);
+        }
+        // The mid-run item was cancelled (not silently lost), and nothing
+        // was left claiming to still be waiting.
+        assert!(
+            snap.items
+                .iter()
+                .any(|i| i.name == "slow-s.png" && i.state == BatchItemState::Cancelled),
+            "the interrupted item reports cancelled"
+        );
+        assert!(
+            !snap.items.iter().any(|i| matches!(
+                i.state,
+                BatchItemState::Waiting | BatchItemState::Processing
+            )),
+            "no phantom work survives shutdown"
+        );
+    }
 }

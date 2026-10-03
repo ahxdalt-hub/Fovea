@@ -12,7 +12,7 @@
  * One job at a time — the native registry enforces the same, so the UI
  * shows a busy engine rather than a queue that doesn't exist.
  */
-import { useCallback, useRef } from 'react'
+import { useCallback, useEffect, useRef } from 'react'
 import { cancelEnhancement, enhanceImage } from '../ipc/bridge'
 import { toAppError, type EnhanceModeKey } from '../types/ipc'
 import { useAppState } from './useAppState'
@@ -38,6 +38,15 @@ export function useEnhance(): EnhanceApi {
   const { state, dispatch } = useAppState()
   const { notify } = useNotify()
   const running = useRef(false)
+  // Whether a job panel currently exists — checked from the rejection
+  // path, where the closure's `state` may be stale. If the user dismissed
+  // the panel, a dispatched `failed` event would land nowhere; the toast
+  // is the only surface left. (Synced in an effect, the codebase's
+  // latest-value ref idiom.)
+  const hasJobPanel = useRef(false)
+  useEffect(() => {
+    hasJobPanel.current = state.enhanceJob !== null
+  })
 
   const run = useCallback(
     async (imageId: string, params: EnhanceRunParams) => {
@@ -74,11 +83,17 @@ export function useEnhance(): EnhanceApi {
         // The native stream already emitted the matching terminal event
         // for engine-side failures; dispatching again is harmless and
         // keeps the panel correct for pre-command rejections (busy,
-        // unreachable core, browser preview).
-        dispatch({
-          type: 'enhance/event',
-          event: { phase: 'failed', code: appError.code, message: appError.message },
-        })
+        // unreachable core, browser preview). If the panel is gone —
+        // dismissed, or parked by an accepted batch — the dispatch would
+        // be silently dropped, so the toast carries the outcome instead.
+        if (hasJobPanel.current) {
+          dispatch({
+            type: 'enhance/event',
+            event: { phase: 'failed', code: appError.code, message: appError.message },
+          })
+        } else {
+          notify('error', appError.message)
+        }
       } finally {
         running.current = false
       }

@@ -102,3 +102,26 @@ export function loadImageSource(
 export function clearSourceCache(): void {
   cache.clear()
 }
+
+/**
+ * Stage 12 memory discipline: evict every cached representation whose id
+ * is no longer in the collection. Called by the shell whenever the
+ * collection changes — a removed image's display (and, once zoomed, its
+ * full-resolution) pixels leave the session instead of living forever.
+ */
+export function pruneSources(keepIds: readonly string[]): void {
+  const keep = new Set(keepIds)
+  for (const id of [...cache.keys()]) {
+    if (!keep.has(id)) cache.delete(id)
+  }
+}
+
+/**
+ * Invalidate cached representations of re-imported ids. A file can change
+ * on disk between two imports of the same canonical path; a stale display
+ * view would silently show yesterday's pixels, so a re-import costs a
+ * refetch.
+ */
+export function invalidateSources(ids: readonly string[]): void {
+  for (const id of ids) cache.delete(id)
+}

@@ -155,6 +155,10 @@ export function ImageWorkspace({
   const [asyncFull, setAsyncFull] = useState<ImageViewDto | null>(null)
   const [fullLoading, setFullLoading] = useState(false)
   const fullRequested = useRef(false)
+  // Stage 12: a failed view fetch resolves null (the source cache never
+  // throws), so without this flag the "Reading full image…" chip would
+  // spin forever. A fetch failure is a state, not an eternal loading lie.
+  const [viewFailed, setViewFailed] = useState(false)
 
   const cachedView = peekSource(image.id, 'view')
   const cachedFull = peekSource(image.id, 'full')
@@ -166,6 +170,9 @@ export function ImageWorkspace({
   if (lastImageId.current !== image.id) {
     lastImageId.current = image.id
     fullRequested.current = false
+    // Render-phase state adjustment for a changed prop — the React-endorsed
+    // way to reset state without an effect (and without lint friction).
+    setViewFailed(false)
   }
 
   useEffect(() => {
@@ -173,7 +180,11 @@ export function ImageWorkspace({
     if (!isTauriRuntime()) return // browser preview keeps the small fallback
     let cancelled = false
     void loadImageSource(image.id, 'view', natural).then((v) => {
-      if (!cancelled && v) setAsyncView(v)
+      if (cancelled) return
+      // A null result (native refused) shows the honest failure chip; the
+      // preview underneath keeps the workspace usable either way.
+      if (v) setAsyncView(v)
+      else setViewFailed(true)
     })
     return () => {
       cancelled = true
@@ -191,6 +202,9 @@ export function ImageWorkspace({
         void loadImageSource(image.id, 'full', natural)
           .then((f) => {
             if (f) setAsyncFull(f)
+            // A failed escalation stays retryable: the user can zoom out
+            // and back in without losing 1:1 detail for the session.
+            else fullRequested.current = false
           })
           .finally(() => setFullLoading(false))
       }
@@ -365,7 +379,10 @@ export function ImageWorkspace({
     transform: `translate3d(${view.x}px, ${view.y}px, 0) scale(${view.scale})`,
   } as const
   const zoomLabel = formatZoom(view.scale)
-  const preparing = !viewDto && isTauriRuntime()
+  // `preparing` means the display view is still on its way; `viewFailed`
+  // means it never arrived — the chip then names the failure instead of
+  // spinning forever (Stage 12: no eternal loading lie).
+  const preparing = !viewDto && isTauriRuntime() && !viewFailed
 
   return (
     <section
@@ -425,6 +442,11 @@ export function ImageWorkspace({
           {(preparing || fullLoading) && (
             <span className="pix-ws__busy" role="status">
               <Spinner /> {preparing ? 'Reading full image locally…' : 'Loading 1:1 detail…'}
+            </span>
+          )}
+          {viewFailed && !viewDto && (
+            <span className="pix-ws__busy" role="status">
+              Couldn't load the full image — showing the preview
             </span>
           )}
           {enhanced && !enhanced.dev && <span className="pix-ws__enhanced">{enhanced.label}</span>}

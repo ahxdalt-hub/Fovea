@@ -149,7 +149,14 @@ export function HistoryView({ onGoToEnhance, onReopen }: HistoryViewProps) {
             <Button variant="ghost" size="sm" onClick={() => setConfirmClear(false)}>
               Keep history
             </Button>
-            <Button variant="danger" size="sm" onClick={() => void clear()}>
+            <Button
+              variant="danger"
+              size="sm"
+              onClick={() => {
+                setConfirmClear(false) // done means done — the dialog closes
+                void clear()
+              }}
+            >
               Clear history
             </Button>
           </>
