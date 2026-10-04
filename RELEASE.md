@@ -20,17 +20,17 @@ One engine, three branded builds. `npm run build:tiers`
 (`scripts/build-tiers.mjs`) packages each plan under its own product name,
 binary name, window title and icon, and archives the result in `installers/`:
 
-| Artifact | Location |
-| --- | --- |
-| Free build (NSIS, primary) | `installers/Fovea-1.1.0-x64.exe` |
-| Free build (MSI) | `installers/Fovea-1.1.0-x64.msi` |
-| Pro build (NSIS) | `installers/Fovea-Pro-1.1.0-x64.exe` |
-| Pro build (MSI) | `installers/Fovea-Pro-1.1.0-x64.msi` |
-| Studio build (NSIS) | `installers/Fovea-Studio-1.1.0-x64.exe` |
-| Studio build (MSI) | `installers/Fovea-Studio-1.1.0-x64.msi` |
-| Website production build | `website/.next` (Next.js static + 2 dynamic routes) |
+| Artifact                   | Location                                                |
+| -------------------------- | ------------------------------------------------------- |
+| Free build (NSIS, primary) | `installers/Fovea-1.1.0-x64.exe`                        |
+| Free build (MSI)           | `installers/Fovea-1.1.0-x64.msi`                        |
+| Pro build (NSIS)           | `installers/Fovea-Pro-1.1.0-x64.exe`                    |
+| Pro build (MSI)            | `installers/Fovea-Pro-1.1.0-x64.msi`                    |
+| Studio build (NSIS)        | `installers/Fovea-Studio-1.1.0-x64.exe`                 |
+| Studio build (MSI)         | `installers/Fovea-Studio-1.1.0-x64.msi`                 |
+| Website production build   | `website/.next` (Next.js static + 2 dynamic routes)     |
 | Cloudflare Workers package | `website/.open-next` (`npm run build:cf` → `deploy:cf`) |
-| License configuration | vendor keypair — see below |
+| License configuration      | vendor keypair — see below                              |
 
 The paid builds are rebrandings, not different programs: all three keep
 `identifier: com.fovea.desktop`, so an activated key, the settings file and
@@ -49,7 +49,7 @@ verifier from the guarded seed (`issue_license --public`, with the seed passed
 through `FOVEA_LICENSE_PRIVATE_KEY`) prints exactly the `829892fc…` value
 below. No customer key has been issued with the pair yet.
 
-That match was then proven end-to-end against a *release-built* verifier, not
+That match was then proven end-to-end against a _release-built_ verifier, not
 just derived: two machine-bound smoke keys (synthetic fingerprint, so neither
 redeemable) were issued — one from the vendor seed, one from the committed dev
 seed — and `issue_license --release --verify` on the vendor key prints its
@@ -108,7 +108,7 @@ cargo run --manifest-path src-tauri/Cargo.toml --example issue_license -- \
   --verify "FOVEA1.…" [--machine <fingerprint-hex>]
 ```
 
-`--verify` runs the *same* `key::verify_key` path the shipped app runs, over
+`--verify` runs the _same_ `key::verify_key` path the shipped app runs, over
 the public keys that build was packaged with, so "the pool keys are good" and
 "a customer's key will work here" are the same question with the same answer.
 `--dev` (the committed test pair) is refused by a release-built tool: a
@@ -136,7 +136,12 @@ release binary cannot verify those keys, so it will not sign them either.
   `#[cfg(not(debug_assertions))]` release-config assertion in
   `services/license/keys.rs` (runs only under `cargo test --lib --release`)
 - `cargo clippy -D warnings` + `cargo fmt --check` — clean
-- `oxlint` + `prettier --check` — clean (app, website, and root both)
+- `oxlint` + `prettier --check` — clean (app, website, and root both). Two
+  prettier configs by design: the root `.prettierrc.json` (`semi: false`)
+  covers the Tauri app, and `website/.prettierrc.json` (`semi: true`) covers
+  the Next.js site, which is authored with semicolons throughout. Without the
+  website-scoped config every site file would fail the repo's own
+  `prettier --check .`.
 - `tsc -b` and website `tsc --noEmit` — clean
 - Clean-machine install test: dev data moved aside, NSIS 1.0.0 installed
   silently, exe metadata reports Fovea 1.0.0, models + BSD license present
@@ -161,7 +166,7 @@ metadata points at the live origin `https://fovea.caelmont.in` (canonical
 
 Correction (2026-10-04, Stage 20): the 4× factor, the Natural and Detail
 restorations, the Portrait look, the hardware controls and an uncounted
-month are now *paid* options, enforced by the two command boundaries above.
+month are now _paid_ options, enforced by the two command boundaries above.
 Any site copy that predates this — "every enhancement mode, 2× and 4×",
 "no metered quota", "does a license unlock features the free version can't
 do? No" — describes an app that no longer exists and has to be rewritten to
@@ -176,9 +181,31 @@ the Free / Pro / Studio matrix before this build is published.
    triple for each plan (unsuffixed = free, `_PRO`, `_STUDIO`) on the
    deployed site. Until a plan's URL is set, its button honestly shows "not
    published yet" — by design, not a defect.
-2. Connect a payment provider (Razorpay/Stripe adapter in
-   `website/lib/providers/`) when the account is ready; the manual provider
-   is the honest pre-provider flow.
+2. Connect a payment provider. The seam (`website/lib/commerce.ts`) now has
+   two real adapters beside the manual default, selected by
+   `FOVEA_PAYMENT_PROVIDER`:
+   - `stripe` — creates a Checkout Session; needs `FOVEA_STRIPE_SECRET_KEY`
+     and `FOVEA_STRIPE_WEBHOOK_SECRET`, posting to
+     `/api/webhooks/stripe`.
+   - `lemonsqueezy` — redirects to a dashboard Fast Link and carries a random
+     per-order reference id through as `checkout[custom][ref]`, so fulfillment
+     and the `/download?ref=…` lookup key on _our_ id, not Lemon Squeezy's
+     small integer order id (an enumerable id would let anyone read another
+     buyer's key). Needs `FOVEA_LS_FASTLINK_PRO` / `_STUDIO` and
+     `FOVEA_LS_WEBHOOK_SECRET` (the `X-Signature` HMAC), optionally
+     `FOVEA_LS_VARIANT_PRO` / `_STUDIO` as a tier fallback; webhook at
+     `/api/webhooks/lemonsqueezy`. Lemon Squeezy reports `total` in major
+     currency units while the orders table stores cents, so the adapter
+     normalises it.
+     Both webhooks claim a key from the pre-issued pool via the
+     `claim_license_key` RPC and never mint one; a dry pool leaves the order
+     `paid` for manual delivery. `providerIsConfigured()` fails loudly rather
+     than silently degrading to the manual path, which would sell a license
+     nobody delivers. The manual provider remains the honest pre-provider flow.
+     Before any key enters `license_pool`, `scripts/import-license-keys.mjs`
+     re-verifies its Ed25519 signature against `FOVEA_LICENSE_PUBKEYS` — a key
+     signed with the wrong pair (or with edited claims) cannot be imported, so
+     the pool cannot contain a license the shipped app would reject.
 3. `npm run deploy:cf` after the OpenNext build to push this release live.
 
 ## Known limitations (v1 scope, accepted)
@@ -191,7 +218,7 @@ the Free / Pro / Studio matrix before this build is published.
   is advertised because none is provisioned yet.
 - WebP export is capped by the format at 16383 px per edge (named error,
   use PNG); very large images tile and take time proportional to pixels.
-- The license gates *options*, never work: an unactivated copy runs the free
+- The license gates _options_, never work: an unactivated copy runs the free
   plan (2× ceiling, Standard restoration, every look except Portrait, all
   import and export formats, batch, journal) with a 10-enhancement calendar
   month. Nothing is watermarked, queued, slowed, or time-limited, and a file

@@ -6,16 +6,17 @@ Your images are processed on your own machine and never uploaded.
 **Current status:** Stage 16 — website ↔ product integration. The commercial
 journey is connected without moving image processing to the cloud: a
 website visitor understands the product, starts checkout, reaches a download
-+ activation page, and arrives at a working licensed desktop app that runs
-the full workflow locally — import → choose 2×/4× and a real enhancement
-mode → Enhance → compare slider → export PNG/JPEG/WebP — plus batch,
-history, settings, and hardware-adaptive processing that degrades gracefully
-(GPU when available, CPU when not — never a crash). Payment stays behind a
-provider seam (no hard-coded APIs, no secret in the site), the license maps
-straight into the offline activation flow, and every trust claim is backed by
-the real application. Everything still runs on this machine: Real-ESRGAN
-models on ONNX Runtime (DirectML GPU, CPU fallback). Your images are
-processed locally and never uploaded.
+
+- activation page, and arrives at a working licensed desktop app that runs
+  the full workflow locally — import → choose 2×/4× and a real enhancement
+  mode → Enhance → compare slider → export PNG/JPEG/WebP — plus batch,
+  history, settings, and hardware-adaptive processing that degrades gracefully
+  (GPU when available, CPU when not — never a crash). Payment stays behind a
+  provider seam (no hard-coded APIs, no secret in the site), the license maps
+  straight into the offline activation flow, and every trust claim is backed by
+  the real application. Everything still runs on this machine: Real-ESRGAN
+  models on ONNX Runtime (DirectML GPU, CPU fallback). Your images are
+  processed locally and never uploaded.
 
 ## Website ↔ product integration (Stage 16)
 
@@ -558,5 +559,6 @@ Design-system rules for future stages:
 │   └── tauri.conf.json   # window, CSP, bundling
 └── assets/               # source assets (app icon master SVG)
 ```
-"# Fovea" 
-"# Fovea" 
+
+"# Fovea"
+"# Fovea"

@@ -50,7 +50,7 @@ export function Logo({ size = 32 }: { size?: number }) {
       <circle cx="512" cy="512" r="228" fill="none" stroke="#7f98b5" strokeWidth="62" />
       <circle cx="512" cy="512" r="104" fill="url(#fovea_core)" />
     </svg>
-  )
+  );
 }
 
 /** Wordmark lockup for the nav and footer. */
@@ -60,5 +60,5 @@ export function Wordmark({ size = 32 }: { size?: number }) {
       <Logo size={size} />
       <span className="font-display text-[1.35rem] font-semibold tracking-tight">Fovea</span>
     </span>
-  )
+  );
 }

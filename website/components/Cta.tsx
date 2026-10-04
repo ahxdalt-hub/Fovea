@@ -1,4 +1,4 @@
-import type { ReactNode } from 'react'
+import type { ReactNode } from 'react';
 
 /**
  * The three call-to-action styles used across the site. `primary` is the
@@ -11,21 +11,21 @@ export function Cta({
   children,
   variant = 'primary',
 }: {
-  href: string
-  children: ReactNode
-  variant?: 'primary' | 'ghost' | 'light'
+  href: string;
+  children: ReactNode;
+  variant?: 'primary' | 'ghost' | 'light';
 }) {
   const base =
-    'inline-flex items-center justify-center gap-2 rounded-pill px-6 py-3 text-[0.95rem] font-semibold transition-[transform,background-color,color,box-shadow] duration-200 ease-out'
+    'inline-flex items-center justify-center gap-2 rounded-pill px-6 py-3 text-[0.95rem] font-semibold transition-[transform,background-color,color,box-shadow] duration-200 ease-out';
   const styles = {
     primary: 'bg-accent text-white shadow-soft hover:bg-accent-strong hover:-translate-y-0.5',
     ghost:
       'border border-line-strong bg-surface text-ink hover:border-ink-3 hover:-translate-y-0.5',
     light: 'bg-white text-canvas hover:-translate-y-0.5',
-  }[variant]
+  }[variant];
   return (
     <a href={href} className={`${base} ${styles}`}>
       {children}
     </a>
-  )
+  );
 }

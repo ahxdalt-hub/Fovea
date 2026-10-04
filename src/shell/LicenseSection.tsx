@@ -20,13 +20,7 @@
 import { useState } from 'react'
 import { activateLicense, deactivateLicense } from '../ipc/bridge'
 import { toAppError, type LicenseStatusDto } from '../types/ipc'
-import {
-  FREE_MAX_SCALE,
-  periodLabel,
-  planName,
-  planQuota,
-  planView,
-} from '../lib/entitlements'
+import { FREE_MAX_SCALE, periodLabel, planName, planQuota, planView } from '../lib/entitlements'
 import { useAppState } from '../state/useAppState'
 import { Badge, type BadgeTone } from '../ui/Badge'
 import { Button } from '../ui/Button'
@@ -66,7 +60,7 @@ const STATE_SENTENCE: Record<LicenseStatusDto['state'], string> = {
     'Contact the store you bought the key from.',
   clock_suspect:
     'Fix the date and time in Windows settings (Fovea keeps the highest clock it has seen, so rewinding the ' +
-    "clock does not extend a license). Once the clock is right this resolves itself; meanwhile the copy runs " +
+    'clock does not extend a license). Once the clock is right this resolves itself; meanwhile the copy runs ' +
     'on the free plan.',
 }
 
@@ -152,11 +146,7 @@ export function LicenseSection() {
         {/* Back to `loading` is the whole retry: the shell's bootstrap reads
             the record again when it sees a plan it has not resolved. */}
         <div className="pix-license__actions">
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={() => dispatch({ type: 'license/loading' })}
-          >
+          <Button variant="ghost" size="sm" onClick={() => dispatch({ type: 'license/loading' })}>
             Check again
           </Button>
         </div>
@@ -260,8 +250,8 @@ export function LicenseSection() {
 
       <p className="pix-settings__footnote">
         A key changes which options Fovea offers you, and nothing else. It is verified on this
-        machine, never online. An enhancement in progress is never interrupted by a license question,
-        and every file already written stays yours whatever this record later says.
+        machine, never online. An enhancement in progress is never interrupted by a license
+        question, and every file already written stays yours whatever this record later says.
       </p>
     </>
   )
@@ -288,9 +278,9 @@ function PlanSummary({ status }: { status: LicenseStatusDto }) {
       <p className="pix-settings__note">{line}</p>
       {quota && (
         <p className="pix-settings__note">
-          {quota.remaining} of {quota.limit} free enhancements left in{' '}
-          {periodLabel(quota.period)}. One is used per finished image, so a run that fails or is
-          cancelled uses none; the count resets on the 1st.
+          {quota.remaining} of {quota.limit} free enhancements left in {periodLabel(quota.period)}.
+          One is used per finished image, so a run that fails or is cancelled uses none; the count
+          resets on the 1st.
         </p>
       )}
     </div>

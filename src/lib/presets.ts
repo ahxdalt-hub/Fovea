@@ -15,13 +15,7 @@
 import type { EnhanceModeKey, ExportFormatKey, FilterKey } from '../types/ipc'
 
 export type PresetKey =
-  | 'photo'
-  | 'portrait'
-  | 'old-photo'
-  | 'product'
-  | 'print'
-  | 'web'
-  | 'illustration'
+  'photo' | 'portrait' | 'old-photo' | 'product' | 'print' | 'web' | 'illustration'
 
 /** The processing choices a preset writes into the strip. */
 export interface PresetProcessing {

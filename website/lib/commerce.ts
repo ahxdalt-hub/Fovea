@@ -21,6 +21,7 @@
  */
 
 import { ManualProvider } from './providers/manual';
+import { LemonSqueezyProvider } from './providers/lemonsqueezy';
 import { ProviderConfigError, StripeProvider } from './providers/stripe';
 
 /** Which commercial product a checkout is for. Maps 1:1 to `tiers` in site.ts. */
@@ -71,6 +72,8 @@ export function resolveProvider(): PaymentProvider {
     // under ./providers/* and a case here.
     case 'stripe':
       return new StripeProvider();
+    case 'lemonsqueezy':
+      return new LemonSqueezyProvider();
     case 'manual':
     default:
       return new ManualProvider();
@@ -84,7 +87,19 @@ export function resolveProvider(): PaymentProvider {
  */
 export function providerIsConfigured(): boolean {
   const id = (process.env.FOVEA_PAYMENT_PROVIDER ?? 'manual').trim().toLowerCase();
-  return id === 'manual' || (id === 'stripe' && !!process.env.FOVEA_STRIPE_SECRET_KEY?.trim());
+  if (id === 'manual') return true;
+  if (id === 'stripe') return !!process.env.FOVEA_STRIPE_SECRET_KEY?.trim();
+  if (id === 'lemonsqueezy') {
+    // A sale needs a Fast Link per paid tier to start, and needs the webhook
+    // secret to be fulfilled — missing any of the three sells a license nobody
+    // can deliver, so all three are required.
+    return !!(
+      process.env.FOVEA_LS_FASTLINK_PRO?.trim() &&
+      process.env.FOVEA_LS_FASTLINK_STUDIO?.trim() &&
+      process.env.FOVEA_LS_WEBHOOK_SECRET?.trim()
+    );
+  }
+  return false;
 }
 
 export { ProviderConfigError };

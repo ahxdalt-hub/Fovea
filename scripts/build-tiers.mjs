@@ -19,9 +19,7 @@ const root = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const bundleRoot = join(root, 'src-tauri', 'target', 'release', 'bundle')
 const outDir = join(root, 'installers')
 
-const version = JSON.parse(
-  readFileSync(join(root, 'src-tauri', 'tauri.conf.json'), 'utf8'),
-).version
+const version = JSON.parse(readFileSync(join(root, 'src-tauri', 'tauri.conf.json'), 'utf8')).version
 
 const TIERS = [
   { id: 'free', name: 'Fovea', config: null },

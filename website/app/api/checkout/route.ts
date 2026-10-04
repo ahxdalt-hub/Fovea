@@ -58,4 +58,3 @@ export async function POST(req: NextRequest) {
   if (bad) return bad;
   return begin(tier as TierId, req.nextUrl.origin);
 }
-

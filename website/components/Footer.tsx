@@ -6,7 +6,9 @@ export function Footer() {
     <footer className="border-t border-line bg-surface">
       <div className="container-page flex flex-col gap-8 py-12 md:flex-row md:items-start md:justify-between">
         <div className="max-w-sm">
-          <Wordmark />
+          <a href="/" className="inline-flex text-ink" aria-label="Fovea home">
+            <Wordmark />
+          </a>
           <p className="mt-3 text-[0.95rem] leading-relaxed text-ink-2">{site.tagline}</p>
         </div>
 
@@ -25,7 +27,9 @@ export function Footer() {
 
       <div className="border-t border-line">
         <div className="container-page flex flex-col gap-2 py-5 text-[0.82rem] text-ink-3 sm:flex-row sm:items-center sm:justify-between">
-          <p>© {new Date().getFullYear()} {site.name}. All rights reserved.</p>
+          <p>
+            © {new Date().getFullYear()} {site.name}. All rights reserved.
+          </p>
           <p>Works fully offline. Your images never leave your machine.</p>
         </div>
       </div>

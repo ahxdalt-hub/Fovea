@@ -16,19 +16,16 @@ export const site = {
   url: 'https://fovea.caelmont.in',
   description:
     'Fovea is a Windows app that enhances and upscales your photos with a local AI model. Your images are processed on your own machine and never uploaded.',
-} as const
+} as const;
 
 export const navLinks = [
-  { href: '#problem', label: 'Why Fovea' },
-  { href: '#showcase', label: 'Results' },
-  { href: '#privacy', label: 'Privacy' },
-  { href: '#features', label: 'Features' },
-  { href: '#plans', label: 'Free vs Pro' },
-  { href: '#hardware', label: 'Performance' },
+  { href: '/#showcase', label: 'Results' },
+  { href: '/#compare', label: 'Compare' },
+  { href: '/#pricing', label: 'Pricing' },
+  { href: '/product', label: 'Product' },
+  { href: '/#faq', label: 'FAQ' },
   { href: '/docs', label: 'Docs' },
-  { href: '#pricing', label: 'Pricing' },
-  { href: '#faq', label: 'FAQ' },
-] as const
+] as const;
 
 export const howItWorks = [
   { title: 'Import', body: 'Drag photos in or pick them. JPEG, PNG and WebP are supported.' },
@@ -39,7 +36,7 @@ export const howItWorks = [
   { title: 'Enhance locally', body: 'The AI model runs on your machine. Nothing is uploaded.' },
   { title: 'Compare', body: 'Slide between original and result before you commit.' },
   { title: 'Export', body: 'Save as PNG, JPEG or WebP, at the quality you want.' },
-] as const
+] as const;
 
 /** Only capabilities that genuinely exist in the app, named the way the
  * app names them. A feature that is designed but not wired is not here. */
@@ -100,45 +97,50 @@ export const features = [
     title: 'No watermark, ever',
     body: 'Fovea does not stamp output. That is true unlicensed, so it is a fact rather than a promise you buy.',
   },
-] as const
+] as const;
 
 /**
- * What a paid key actually changes. Fovea’s engine is identical in every
- * column: licensing is a commercial record, not a capability switch, so the
- * rows that differ are about rights and coverage — not features.
- *
- * This is the honest version of a "Free vs Pro vs Studio" table. If the
- * product later gates capability by tier, this matrix is the place that
- * changes — and only once the app genuinely enforces it.
+ * The plan matrix, row by row. Every capability cell here is enforced by
+ * the desktop app at its command boundary (see `services::license::
+ * minimum_edition`), so a cell may only claim what the build actually
+ * refuses without a key. The rights-and-coverage rows are the honest
+ * exception: those are terms, and each one says so in its note.
  */
-export type PlanValue = boolean | string
+export type PlanValue = boolean | string;
 
 export type PlanRow = {
-  label: string
-  note: string
-  free: PlanValue
-  pro: PlanValue
-  studio: PlanValue
-}
+  label: string;
+  note: string;
+  free: PlanValue;
+  pro: PlanValue;
+  studio: PlanValue;
+};
 
 export const planRows: PlanRow[] = [
   {
     label: 'Enhancement modes',
-    note: 'Standard, Natural and Detail — all three, in every column.',
-    free: true,
-    pro: true,
-    studio: true,
+    note: 'Standard is free; Natural and Detail need a Pro key.',
+    free: 'Standard',
+    pro: 'All three',
+    studio: 'All three',
   },
   {
     label: '2× and 4× upscaling',
-    note: 'Both scales are produced by the model, not by stretching.',
-    free: true,
-    pro: true,
-    studio: true,
+    note: 'Both scales come from the model, never by stretching — 4× is the Pro ceiling.',
+    free: '2×',
+    pro: '2× and 4×',
+    studio: '2× and 4×',
+  },
+  {
+    label: 'Finishing looks',
+    note: 'Ten pixel-math looks plus “original”. Portrait is the face-specific one, and it needs Pro.',
+    free: 'All but Portrait',
+    pro: 'All eleven',
+    studio: 'All eleven',
   },
   {
     label: 'Batch queue',
-    note: 'Up to 500 images, cancel and retry included.',
+    note: 'Up to 500 images, cancel and retry included. A batch spends from the same monthly count.',
     free: true,
     pro: true,
     studio: true,
@@ -152,9 +154,16 @@ export const planRows: PlanRow[] = [
   },
   {
     label: 'GPU acceleration and CPU fallback',
-    note: 'DirectML on any DirectX 12 card, automatic fallback, adaptive tiling.',
+    note: 'DirectML on any DirectX 12 card, automatic fallback, adaptive tiling — free, like the engine itself.',
     free: true,
     pro: true,
+    studio: true,
+  },
+  {
+    label: 'Engine controls',
+    note: 'The Settings switches that force the CPU path, or let a CPU run claim every logical core.',
+    free: false,
+    pro: false,
     studio: true,
   },
   {
@@ -173,8 +182,8 @@ export const planRows: PlanRow[] = [
   },
   {
     label: 'Monthly processing cap',
-    note: 'Fovea does not meter you. Run a hundred images a day if you want.',
-    free: 'None',
+    note: 'Counted in images actually written, not time or days, and it refills with the calendar month. A failed or cancelled run costs nothing.',
+    free: '10 a month',
     pro: 'None',
     studio: 'None',
   },
@@ -220,7 +229,7 @@ export const planRows: PlanRow[] = [
     pro: 'Via your receipt',
     studio: 'Via your receipt',
   },
-]
+];
 
 /** Real limits from the code, so nobody discovers them by hitting one. */
 export const limits = [
@@ -229,7 +238,11 @@ export const limits = [
     v: 'JPEG · PNG · WebP',
     d: 'Up to 200 MB per file and 64 megapixels per source image.',
   },
-  { k: 'Upscale', v: '2× · 4×', d: 'Refused with a clear message rather than silently clamped.' },
+  {
+    k: 'Upscale',
+    v: '2× · 4×',
+    d: 'A factor beyond 4×, or a result past the 256 MP ceiling, is refused with a plain message — never quietly downscaled.',
+  },
   { k: 'Output ceiling', v: '256 megapixels', d: 'About 16 MP in at 4×, or 64 MP in at 2×.' },
   {
     k: 'Batch',
@@ -248,7 +261,7 @@ export const limits = [
     v: 'Windows 10 · 11, 64-bit',
     d: 'No CUDA, no Python, no terminal, no developer tools.',
   },
-] as const
+] as const;
 
 /**
  * Measured, not estimated. Run on one test machine (RTX 3050 Laptop 6 GB,
@@ -305,10 +318,10 @@ export const benchmarks = [
     rate: '3.9 MP/s',
     peak: '319 MB',
   },
-] as const
+] as const;
 
 export const benchmarkNote =
-  'The last row squeezes Fovea’s memory budget to 16 MB on purpose to reproduce a small integrated or low-VRAM graphics chip: tiles shrink to 64 px and the job runs about 2.5× slower — degraded, never a crash.'
+  'The last row squeezes Fovea’s memory budget to 16 MB on purpose to reproduce a small integrated or low-VRAM graphics chip: tiles shrink to 64 px and the job runs about 2.5× slower — degraded, never a crash.';
 
 /**
  * Pricing. These are the values to edit when the business decides final
@@ -320,15 +333,15 @@ export const benchmarkNote =
  * commercial use, not by fabricated feature gates.
  */
 export type Tier = {
-  id: string
-  name: string
-  price: string
-  cadence: string
-  blurb: string
-  seats: string
-  highlights: string[]
-  featured: boolean
-}
+  id: string;
+  name: string;
+  price: string;
+  cadence: string;
+  blurb: string;
+  seats: string;
+  highlights: string[];
+  featured: boolean;
+};
 
 export const tiers: Tier[] = [
   {
@@ -336,13 +349,15 @@ export const tiers: Tier[] = [
     name: 'Fovea Pro',
     price: '$49',
     cadence: 'one-time',
-    blurb: 'The license for one machine, and the paperwork that says your use is licensed.',
+    blurb:
+      'The ceiling lifted: 4×, every mode, the Portrait look, and no monthly count — on one machine.',
     seats: 'Covers 1 machine',
     highlights: [
+      '4× upscaling, Natural and Detail modes, the Portrait look',
+      'No monthly cap — run as many images as you want',
       'Signed offline key — verified on your machine, no server',
       'Cleared for client, commercial and business work',
       'Re-issued key if you replace that machine',
-      'The full app: every mode, both scales, batch, every format',
     ],
     featured: false,
   },
@@ -355,8 +370,8 @@ export const tiers: Tier[] = [
     seats: 'Covers up to 5 machines',
     highlights: [
       'Everything in Pro, across up to 5 machines',
+      'Engine controls — force the CPU path, or claim every core',
       'Written for distributing Fovea around a team',
-      'Commercial use for client work',
       'Re-issued keys as machines change',
     ],
     featured: true,
@@ -367,26 +382,60 @@ export const tiers: Tier[] = [
     price: '$0',
     cadence: 'no time limit',
     blurb:
-      'The whole app, running on your own photos, with no key and no cap. Buy a license when you need the rights covered.',
+      'The real engine on your own photos — no key, no account, no watermark. Standard mode at 2×, ten enhancements a month.',
     seats: 'Your machine',
     highlights: [
-      'Every enhancement mode, 2× and 4×',
+      'Standard mode at 2× — the general reconstruction model',
       'Batch, history, and all export formats',
-      'GPU acceleration and CPU fallback',
-      'No watermark and no metered quota',
+      'GPU acceleration with automatic CPU fallback',
+      '10 enhancements a calendar month, none watermarked',
     ],
     featured: false,
   },
-]
+];
+
+/**
+ * What a plan is actually allowed to run on the machine, as the desktop app
+ * enforces it at its command boundary (`services::license::minimum_edition`
+ * and `FREE_MAX_SCALE` in the Fovea source). /download and the pricing cards
+ * read this instead of restating it, so the install page can never promise a
+ * ceiling the build refuses. Keep it in step with that table.
+ */
+export type PlanFact = { k: string; v: string };
+
+export const planFacts: Record<'evaluate' | 'pro' | 'studio', PlanFact[]> = {
+  evaluate: [
+    { k: 'Scale', v: '2×' },
+    { k: 'Modes', v: 'Standard' },
+    { k: 'Finishing looks', v: 'All but Portrait' },
+    { k: 'Enhancements', v: '10 a calendar month' },
+    { k: 'License key', v: 'None needed' },
+  ],
+  pro: [
+    { k: 'Scale', v: '2× and 4×' },
+    { k: 'Modes', v: 'Standard, Natural, Detail' },
+    { k: 'Finishing looks', v: 'All eleven' },
+    { k: 'Enhancements', v: 'Unlimited' },
+    { k: 'License key', v: 'FOVEA1. — activate once' },
+  ],
+  studio: [
+    { k: 'Scale', v: '2× and 4×' },
+    { k: 'Modes', v: 'Standard, Natural, Detail' },
+    { k: 'Finishing looks', v: 'All eleven' },
+    { k: 'Enhancements', v: 'Unlimited' },
+    { k: 'Engine controls', v: 'CPU-only and full-power' },
+    { k: 'License key', v: 'One key, up to 5 machines' },
+  ],
+};
 
 export const faqs = [
   {
     q: 'Is the free version crippled in any way?',
-    a: 'No, and this is the question we get most. Fovea’s engine is the same program whether or not you have a key: all three modes, 2× and 4×, batch, every export format, GPU acceleration, and no watermark or monthly cap. What a license buys is the right to use Fovea for client, commercial and business work, coverage for more machines, and the ability to get a key re-issued. If you only ever enhance your own photos for yourself, the free version is the complete product.',
+    a: 'It is capped, not crippled — and the cap is honest about itself. Free runs the same bundled model doing real reconstruction: Standard mode at 2×, the batch queue, the history journal, every export format, GPU acceleration with CPU fallback, no watermark, no sign-in and no time limit, with ten enhancements in a calendar month. What it does not carry is the top end of the engine: 4×, the Natural and Detail modes, the Portrait look, and unlimited processing. That is what a $49 key switches on, offline and permanently.',
   },
   {
-    q: 'Does a license unlock features the free version can’t do?',
-    a: 'No — deliberately. Fovea’s licensing is a signed commercial record, not a switch inside the image pipeline. Nothing in import, enhancement, batch or export reads your license state, which is also why a licensing problem can never stop you finishing work you already have open.',
+    q: 'What exactly does a key switch on?',
+    a: 'Four things, each enforced by the app itself rather than just claimed on this page: 4× upscaling, the Natural and Detail restoration modes, the Portrait finishing look, and no monthly count. Studio adds the engine controls in Settings. Everything else — import, Standard mode at 2×, batch, history, PNG, JPEG and WebP export, GPU acceleration — keeps running with no key at all, and a failed or cancelled run never spends one of your ten.',
   },
   {
     q: 'Does Fovea upload my images?',
@@ -434,7 +483,7 @@ export const faqs = [
   },
   {
     q: 'How does licensing work?',
-    a: 'A license is a signed key beginning FOVEA1. that you paste into Settings → License. It is verified offline on your machine by a public key built into the app and stored in Windows Credential Manager. Enhancement works with or without a license, so a licensing hiccup can never block your work.',
+    a: 'A license is a signed key beginning FOVEA1. that you paste into Settings → License. It is verified offline on your machine by a public key built into the app and stored in Windows Credential Manager. Enhancement runs with or without a key — the plan sets the ceiling, it does not switch the engine off — so a licensing problem can never lose work you already have, and deactivating simply drops you back to the free limits.',
   },
   {
     q: 'You say "up to 5 machines" — does the software count them?',
@@ -452,56 +501,4 @@ export const faqs = [
     q: 'Why is it a one-time price instead of a subscription?',
     a: 'Because there is no service to pay for. The model runs on your hardware, so a subscription would be rent for a server we never use. You buy a license once and it keeps working offline.',
   },
-] as const
-
-/**
- * Plain-spoken facts buyers check before paying. Each is true of the shipped
- * app today — no aspirational claims.
- */
-export const trustDetails = [
-  {
-    label: 'Runs locally',
-    value: 'On your CPU or GPU',
-    detail: 'The model is bundled with the app; enhancement, batch and export need no connection.',
-  },
-  {
-    label: 'Your images',
-    value: 'Never uploaded',
-    detail: 'There is no upload path and no account. Nothing about your photos leaves the machine.',
-  },
-  {
-    label: 'Formats',
-    value: 'JPEG · PNG · WebP',
-    detail:
-      'Import and export in all three; PNG is lossless, JPEG and WebP have a quality control.',
-  },
-  {
-    label: 'System',
-    value: 'Windows 10 & 11 · 64-bit',
-    detail:
-      'No CUDA, no developer tools. A DirectX 12 GPU accelerates it; a CPU runs it regardless.',
-  },
-  {
-    label: 'Free tier',
-    value: 'The full engine',
-    detail:
-      'No metered quota, no watermark and no locked mode. A license covers rights and machines.',
-  },
-  {
-    label: 'License model',
-    value: 'Offline · one-time',
-    detail:
-      'A signed key, verified on your machine, covering seats and commercial use — never a feature gate.',
-  },
-  {
-    label: 'Your originals',
-    value: 'Never modified',
-    detail: 'Fovea writes new files only, atomically, and adds a suffix instead of overwriting.',
-  },
-  {
-    label: 'Support',
-    value: 'Reply to your receipt',
-    detail:
-      'Your order confirmation is your receipt and support entry point — quote its license id for help with a key or billing.',
-  },
-] as const
+] as const;

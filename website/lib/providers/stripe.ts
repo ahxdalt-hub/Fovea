@@ -27,10 +27,14 @@ import type { CheckoutRequest, CheckoutResult, PaymentProvider } from '../commer
 import { TIER_EDITION, type TierId } from '../commerce';
 import { supabaseConfigured, upsertOrder } from '../supabase';
 
-/** Thrown when the provider is selected but its secrets are missing. */
+/**
+ * Thrown when a secret-requiring provider is selected but its configuration is
+ * incomplete. Provider-neutral: the checkout route turns it into a 503 for any
+ * adapter, so its message must not claim one provider while another failed.
+ */
 export class ProviderConfigError extends Error {
   constructor(missing: string) {
-    super(`Stripe provider is selected but ${missing} is not set`);
+    super(`payment provider is selected but ${missing} is not set`);
   }
 }
 
@@ -60,7 +64,10 @@ function priceParams(tier: TierId, form: URLSearchParams): void {
   }
   form.set('line_items[0][price_data][currency]', 'usd');
   form.set('line_items[0][price_data][unit_amount]', String(Math.round(usd * 100)));
-  form.set('line_items[0][price_data][product_data][name]', `Fovea ${tier === 'pro' ? 'Pro' : 'Studio'} (one-time)`);
+  form.set(
+    'line_items[0][price_data][product_data][name]',
+    `Fovea ${tier === 'pro' ? 'Pro' : 'Studio'} (one-time)`,
+  );
 }
 
 export class StripeProvider implements PaymentProvider {
@@ -82,7 +89,10 @@ export class StripeProvider implements PaymentProvider {
 
     const form = new URLSearchParams();
     form.set('mode', 'payment');
-    form.set('success_url', `${origin}/download?tier=${req.tier}&source=stripe&session_id={CHECKOUT_SESSION_ID}`);
+    form.set(
+      'success_url',
+      `${origin}/download?tier=${req.tier}&source=stripe&session_id={CHECKOUT_SESSION_ID}`,
+    );
     form.set('cancel_url', `${origin}/#pricing`);
     form.set('client_reference_id', req.tier);
     form.set('metadata[tier]', req.tier);

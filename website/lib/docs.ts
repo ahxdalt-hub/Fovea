@@ -4,14 +4,14 @@
  * take in the shipped app; nothing here describes a planned feature.
  */
 
-export type DocStep = string
+export type DocStep = string;
 export type DocSection = {
-  id: string
-  title: string
-  intro: string
-  steps?: DocStep[]
-  note?: string
-}
+  id: string;
+  title: string;
+  intro: string;
+  steps?: DocStep[];
+  note?: string;
+};
 
 export const docs: DocSection[] = [
   {
@@ -30,7 +30,7 @@ export const docs: DocSection[] = [
     id: 'activation',
     title: 'Activation',
     intro:
-      'Activation is optional for use and fully offline. Enhancement, batch and export work with or without a key; activating records your commercial license for this copy.',
+      'Activation is optional and fully offline. Without a key Fovea runs the free plan — Standard mode at 2×, ten enhancements a calendar month, nothing watermarked. Activating lifts that ceiling and records your commercial license for this copy.',
     steps: [
       'Open Settings — click the gear in the top bar, or press Ctrl + ,.',
       'Select the License section.',
@@ -59,7 +59,7 @@ export const docs: DocSection[] = [
       'Start the enhancement. Progress and, on large images, adaptive tiling are handled for you.',
       'Use the before/after compare to judge the result at full resolution.',
     ],
-    note: 'The model runs on your DirectX 12 GPU through DirectML when one is present, and on your CPU otherwise — the same quality either way.',
+    note: 'The model runs on your DirectX 12 GPU through DirectML when one is present, and on your CPU otherwise — the same quality either way. Without a key the choices are Standard and 2×; a Pro or Studio key adds Natural, Detail, the Portrait look and 4×.',
   },
   {
     id: 'batch',
@@ -114,13 +114,13 @@ export const docs: DocSection[] = [
     intro: 'Everything configurable is on one screen, opened with the gear or Ctrl + ,.',
     steps: [
       'General — theme (System, Light, Dark), which view Fovea opens on, and whether recent files are remembered.',
-      'Processing — your default scale and mode, and an engine preference of Auto or CPU-only.',
+      'Processing — your default scale and mode. The engine switches there (force CPU-only, or let a CPU run claim every logical core) belong to the Studio plan; on any plan the engine still picks GPU or CPU by itself.',
       'Export — default format, quality, and the folder results go to.',
       'Diagnostics — your CPU, memory and graphics adapters, the tile and band ceilings Fovea planned, model availability, and paths to the app data, models and log folders.',
     ],
     note: 'Settings are stored on your machine. Diagnostics shows the same numbers Fovea uses to plan a run, so you can see why an image is being tiled the way it is.',
   },
-]
+];
 
 export const troubleshooting: { q: string; a: string }[] = [
   {
@@ -133,7 +133,7 @@ export const troubleshooting: { q: string; a: string }[] = [
   },
   {
     q: 'The license shows as expired or revoked.',
-    a: 'Renew or contact the store that issued the key. Either way, enhancement on this machine keeps working meanwhile — the license is a record, not a gate.',
+    a: 'Renew or contact the store that issued the key. Until you do this machine falls back to the free plan — Standard mode at 2×, ten enhancements a calendar month — so the app keeps running and every image you already made stays exactly as it is.',
   },
   {
     q: 'A clock warning appears.',
@@ -153,10 +153,10 @@ export const troubleshooting: { q: string; a: string }[] = [
   },
   {
     q: 'Can I use the free version for paid client work?',
-    a: 'Not as licensed use. The free build is the complete app with no feature or usage limits, but the commercial right to use it for client and business work is what a Pro or Studio license grants. Activation never changes what the software can do.',
+    a: 'Not as licensed use. The free plan is a real working tool — Standard mode at 2×, batch, every export format, no watermark — but it is capped at ten enhancements a calendar month, and the commercial right to use Fovea for client and business work is what a Pro or Studio key grants. A key also lifts the ceiling: 4×, the Natural and Detail modes, the Portrait look, and no monthly count.',
   },
   {
     q: 'Where did my processed images go?',
     a: 'Working results stay in Fovea’s private app folder until you export. On export you choose the exact folder, and the finished file is written there.',
   },
-]
+];

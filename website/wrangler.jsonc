@@ -8,11 +8,9 @@
   "workers_dev": true,
   "assets": {
     "directory": ".open-next/assets",
-    "binding": "ASSETS"
+    "binding": "ASSETS",
   },
-  // Server-side only — never exposed to the browser. Defaults: manual
-  // checkout (no payment secret), no installer URL yet, so /download shows
-  // the honest "not published" state. Flip these when the launch is ready.
+  // Server-side only — never exposed to the browser.
   //
   // SECRETS are not vars — set them once per environment:
   //   wrangler secret put SUPABASE_SERVICE_ROLE_KEY
@@ -21,10 +19,23 @@
   // (OpenNext exposes vars + secrets to the worker as process.env.)
   "vars": {
     "FOVEA_PAYMENT_PROVIDER": "manual",
-    "SUPABASE_URL": "https://ulpwhvfqhfbrjbjbvivz.supabase.co"
-  }
-,
+    "SUPABASE_URL": "https://ulpwhvfqhfbrjbjbvivz.supabase.co",
+    "FOVEA_DOWNLOAD_VERSION": "1.1.0",
+    "FOVEA_DOWNLOAD_URL": "https://github.com/ahxdalt-hub/Fovea/releases/download/v1.1.0/Fovea-1.1.0-x64.exe",
+    "FOVEA_DOWNLOAD_MSI_URL": "https://github.com/ahxdalt-hub/Fovea/releases/download/v1.1.0/Fovea-1.1.0-x64.msi",
+    "FOVEA_DOWNLOAD_SIZE": "16 MB",
+    "FOVEA_DOWNLOAD_URL_PRO": "https://github.com/ahxdalt-hub/Fovea/releases/download/v1.1.0/Fovea-Pro-1.1.0-x64.exe",
+    "FOVEA_DOWNLOAD_MSI_URL_PRO": "https://github.com/ahxdalt-hub/Fovea/releases/download/v1.1.0/Fovea-Pro-1.1.0-x64.msi",
+    "FOVEA_DOWNLOAD_SIZE_PRO": "16 MB",
+    "FOVEA_DOWNLOAD_URL_STUDIO": "https://github.com/ahxdalt-hub/Fovea/releases/download/v1.1.0/Fovea-Studio-1.1.0-x64.exe",
+    "FOVEA_DOWNLOAD_MSI_URL_STUDIO": "https://github.com/ahxdalt-hub/Fovea/releases/download/v1.1.0/Fovea-Studio-1.1.0-x64.msi",
+    "FOVEA_DOWNLOAD_SIZE_STUDIO": "16 MB",
+  },
   "routes": [
-    { "pattern": "fovea.caelmont.in", "custom_domain": true, "zone_id": "92a841adaa6883716e87795e513d2cf1" }
-  ]
+    {
+      "pattern": "fovea.caelmont.in",
+      "custom_domain": true,
+      "zone_id": "92a841adaa6883716e87795e513d2cf1",
+    },
+  ],
 }

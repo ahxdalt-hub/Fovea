@@ -53,6 +53,8 @@
 
 html {
   scroll-behavior: smooth;
+  /* Anchored sections land below the sticky nav, not under it. */
+  scroll-padding-top: 4.5rem;
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -110,6 +112,22 @@ body {
   .js .reveal {
     opacity: 1;
     transform: none;
+  }
+}
+
+/* ── Parallax photo bands ───────────────────────────────────────────────
+   Sections set a background-image inline; the fixed attachment makes the
+   photo stay put while the section scrolls over it — a quiet depth effect
+   with zero JavaScript. On touch devices and with reduced motion, fixed
+   backgrounds are janky, so they fall back to a plain scroll position. */
+.parallax-band {
+  background-size: cover;
+  background-position: center;
+  background-attachment: fixed;
+}
+@media (prefers-reduced-motion: reduce), (hover: none) {
+  .parallax-band {
+    background-attachment: local;
   }
 }
 

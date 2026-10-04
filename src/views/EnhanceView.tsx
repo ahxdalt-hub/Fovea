@@ -162,9 +162,7 @@ export function EnhanceView({ importApi, enhanceApi, images, onReopen }: Enhance
           <div className="fovea-collection__bar">
             <h2 className="fovea-collection__heading">
               Imported
-              <span className="fovea-collection__count u-tabular">
-                {collectionSummary(images)}
-              </span>
+              <span className="fovea-collection__count u-tabular">{collectionSummary(images)}</span>
             </h2>
             <div className="fovea-collection__actions">
               {importing && (

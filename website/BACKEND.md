@@ -32,12 +32,12 @@ share a key).
 
 ## Database (`supabase/schema.sql`)
 
-| Table / function | Purpose |
-| --- | --- |
-| `orders` | One row per checkout: tier, edition, email, amount, status (`pending → paid → fulfilled`, or `canceled` / `refunded`), Stripe session id, claimed license key. |
-| `license_pool` | Pre-issued keys waiting to be sold, each claimed at most once. |
-| `claim_license_key(edition, order_id)` | Atomic key handout used by the webhook. |
-| `merge_order_metadata(id, patch)` | Records the Stripe `payment_intent` on the order so refund events can find it. |
+| Table / function                       | Purpose                                                                                                                                                        |
+| -------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `orders`                               | One row per checkout: tier, edition, email, amount, status (`pending → paid → fulfilled`, or `canceled` / `refunded`), Stripe session id, claimed license key. |
+| `license_pool`                         | Pre-issued keys waiting to be sold, each claimed at most once.                                                                                                 |
+| `claim_license_key(edition, order_id)` | Atomic key handout used by the webhook.                                                                                                                        |
+| `merge_order_metadata(id, patch)`      | Records the Stripe `payment_intent` on the order so refund events can find it.                                                                                 |
 
 Row Level Security is enabled on both tables with **zero policies** (deny all
 to `anon`/`authenticated`); the site's server uses the `service_role` key,
@@ -77,12 +77,12 @@ which bypasses RLS. Nothing here is called from the browser.
 
 ## Degradation behavior (by design)
 
-| Missing piece | What happens |
-| --- | --- |
-| `SUPABASE_*` not set | Checkout and delivery work exactly like the old manual flow; no orders are recorded, `/download` shows the generic "delivered by your purchase channel" text. |
-| `FOVEA_STRIPE_SECRET_KEY` missing while provider is `stripe` | `/api/checkout` returns **503** — it never silently downgrades to the free manual path, which would sell a license nobody delivers. |
-| License pool runs dry | Payment is confirmed, order stays `pending`→`paid` with no key; the vendor sees it in the Supabase dashboard and delivers manually. Never a lost sale. |
-| Webhook secret missing | `/api/webhooks/stripe` returns 503; Stripe retries. |
+| Missing piece                                                | What happens                                                                                                                                                  |
+| ------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `SUPABASE_*` not set                                         | Checkout and delivery work exactly like the old manual flow; no orders are recorded, `/download` shows the generic "delivered by your purchase channel" text. |
+| `FOVEA_STRIPE_SECRET_KEY` missing while provider is `stripe` | `/api/checkout` returns **503** — it never silently downgrades to the free manual path, which would sell a license nobody delivers.                           |
+| License pool runs dry                                        | Payment is confirmed, order stays `pending`→`paid` with no key; the vendor sees it in the Supabase dashboard and delivers manually. Never a lost sale.        |
+| Webhook secret missing                                       | `/api/webhooks/stripe` returns 503; Stripe retries.                                                                                                           |
 
 ## Security notes
 

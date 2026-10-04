@@ -16,11 +16,6 @@
     ]
   },
   "bundle": {
-    "icon": [
-      "icons-pro/32x32.png",
-      "icons-pro/128x128.png",
-      "icons-pro/128x128@2x.png",
-      "icons-pro/icon.ico"
-    ]
+    "icon": ["icons-pro/32x32.png", "icons-pro/128x128.png", "icons-pro/128x128@2x.png", "icons-pro/icon.ico"]
   }
 }
