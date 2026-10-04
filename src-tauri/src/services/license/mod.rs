@@ -15,9 +15,11 @@
 //! trusted beyond the signature itself.
 //!
 //! Coupling rules, enforced by structure:
-//! - No inference/export/import path calls into this module. The AI
-//!   engine processes images with or without a license — proven by the
-//!   fact that no engine service even imports `license`.
+//! - No *engine* path calls into this module. Decoding, tiling, inference
+//!   and export do their work with or without a license; what licensing
+//!   decides is whether a command is *allowed to ask* for a paid
+//!   capability, at the command boundary (`commands::*`), one call before
+//!   the engine is involved.
 //! - Licensing never calls the network. Payment-provider integrations
 //!   (whose APIs change and must not be assumed) live on the issuing
 //!   side; a future *optional* online check plugs in behind
@@ -25,11 +27,16 @@
 //!   provider that cannot reach its service returns
 //!   [`Revocation::Unknown`] — activation then stands on the signature.
 //!
-//! Feature access: [`allows`] answers "does the current edition permit
-//! this feature". In this build the answer is yes for every shipped
-//! feature — the local engine's capabilities are not paywalled — and the
-//! seam exists so a commercial edition policy lands in one table here
-//! rather than scattered through commands.
+//! Feature access: [`minimum_edition`] is the whole commercial policy,
+//! as one table. [`Entitlement::allows`] answers "does the license in
+//! force right now permit this feature", [`Entitlement::require`] turns a
+//! no into a [`AppError::FeatureLocked`], and the same table produces the
+//! capability list the UI renders — so a control can never be disabled
+//! for a reason the engine would not enforce, or the other way round.
+//! The free plan is a real plan, not a trial: the baseline features
+//! (`Enhance`, `Export`, `Batch`, `HistoryJournal`) are gated for nobody,
+//! and what the paid editions add is the ceiling (4×), the model choice,
+//! the engine controls, and no monthly meter.
 
 pub mod key;
 pub mod keys;
@@ -41,6 +48,7 @@ use std::path::Path;
 use serde::Serialize;
 
 use crate::error::{AppError, AppResult};
+use crate::services::quota;
 use key::{Edition, KeyRejection, LicensePayload};
 
 pub use store::Backend;
@@ -100,11 +108,16 @@ pub struct LicenseStatusDto {
     pub expires_at: Option<u64>,
     pub activated_at: Option<u64>,
     pub machine_bound: bool,
-    /// The capabilities the current state grants (see `Feature`).
+    /// The capabilities the state in force grants (see `Feature`). This is
+    /// the same table the commands enforce, so the UI's disabled controls
+    /// and a refused job can never disagree.
     pub capabilities: Vec<&'static str>,
     /// This machine's fingerprint, in full — a machine-bound key is issued
     /// with exactly this value. A hash, never a personal identifier.
     pub machine_hint: String,
+    /// The monthly meter, present only while the plan is metered. `None`
+    /// = unlimited processing.
+    pub quota: Option<quota::Snapshot>,
 }
 
 /// What an activation returns: the fresh status plus whether this exact
@@ -117,42 +130,37 @@ pub struct ActivationDto {
 }
 
 impl LicenseStatusDto {
-    fn unactivated() -> Self {
-        Self::state_only(LicenseState::NotActivated, None)
-    }
-
-    /// A status with no verifiable claims: state, the local activation
-    /// timestamp if one was recorded, and the unactivated baseline.
-    fn state_only(state: LicenseState, activated_at: Option<u64>) -> Self {
+    /// One builder for every state. A key's own claims are shown whenever
+    /// they verified — who held it, when it lapses — while the
+    /// *capabilities* follow [`in_force_edition`] alone: a lapsed,
+    /// revoked or foreign-machine key still identifies itself to the
+    /// owner, it simply no longer unlocks anything past the free plan.
+    fn of(
+        state: LicenseState,
+        payload: Option<&LicensePayload>,
+        activated_at: Option<u64>,
+        quota: Option<quota::Snapshot>,
+    ) -> Self {
         LicenseStatusDto {
             state: state.as_str(),
-            edition: None,
-            holder: None,
-            license_id: None,
-            issued_at: None,
-            expires_at: None,
+            edition: payload.map(|p| p.edition.as_str()),
+            holder: payload.map(|p| p.holder.clone()),
+            license_id: payload.map(|p| p.license_id.clone()),
+            issued_at: payload.map(|p| p.issued),
+            expires_at: payload.and_then(|p| p.expires),
             activated_at,
-            machine_bound: false,
-            capabilities: capabilities_for(None),
+            machine_bound: payload.is_some_and(|p| p.machine.is_some()),
+            capabilities: capabilities_for(in_force_edition(state, payload)),
             machine_hint: machine::display_id(),
+            quota,
         }
     }
-
-    fn of(state: LicenseState, payload: &LicensePayload, activated_at: Option<u64>) -> Self {
-        let edition = payload.edition;
-        LicenseStatusDto {
-            state: state.as_str(),
-            edition: Some(edition.as_str()),
-            holder: Some(payload.holder.clone()),
-            license_id: Some(payload.license_id.clone()),
-            issued_at: Some(payload.issued),
-            expires_at: payload.expires,
-            activated_at,
-            machine_bound: payload.machine.is_some(),
-            capabilities: capabilities_for(Some(edition)),
-            machine_hint: machine::display_id(),
-        }
-    }
+}
+/// The meter the UI should show for an in-force edition: `None` when the
+/// edition removes the cap, otherwise this month's local count.
+fn meter(app_data: &Path, edition: Option<Edition>, now: u64) -> Option<quota::Snapshot> {
+    let limit = monthly_limit(edition)?;
+    Some(quota::peek(app_data, limit, now))
 }
 
 // ── Provider seam (issuance / future online checks) ──────────────────
@@ -192,15 +200,49 @@ pub fn provider() -> &'static dyn LicenseProvider {
 
 // ── Feature access ───────────────────────────────────────────────────
 
-/// Product capabilities a commercial edition could gate. Gating policy
-/// lives in [`minimum_edition`] only — commands and UI ask [`allows`].
+/// Product capabilities the commercial editions gate. The policy lives in
+/// [`minimum_edition`] only — commands ask [`Entitlement::require`], the
+/// UI asks [`allows`], and both read this one table.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Feature {
+    // ── the free plan: gating these would make the download a demo ──
     Enhance,
     Export,
     Batch,
     HistoryJournal,
+    // ── Pro: the ceiling and the model choice ──────────────────────
+    /// 4× reproduction. Without this the plan's ceiling is 2×.
+    Upscale4x,
+    /// The denoise-first (Natural) model and the unsharp (Detail) pass —
+    /// the two restorations beyond general reconstruction.
+    AdvancedRestoration,
+    /// The portrait look: the engine's only face-specific operation.
+    FaceEnhancement,
+    /// No monthly meter. Without it, enhancements are counted against
+    /// [`quota::FREE_MONTHLY_ENHANCEMENTS`] in the calendar month.
+    UnlimitedProcessing,
+    // ── Studio: the machine's own controls ─────────────────────────
+    /// The hardware path and power mode in Settings.
+    EngineControls,
 }
+
+/// Every feature, in policy order: the free baseline first, then what
+/// each edition adds. Drives the capability list in the status DTO.
+const ALL_FEATURES: [Feature; 9] = [
+    Feature::Enhance,
+    Feature::Export,
+    Feature::Batch,
+    Feature::HistoryJournal,
+    Feature::Upscale4x,
+    Feature::AdvancedRestoration,
+    Feature::FaceEnhancement,
+    Feature::UnlimitedProcessing,
+    Feature::EngineControls,
+];
+
+/// A 4× run on the free plan would ask the meter for an image the user
+/// cannot afford; the plan names its own ceiling instead.
+pub const FREE_MAX_SCALE: usize = 2;
 
 impl Feature {
     pub fn key(self) -> &'static str {
@@ -209,20 +251,41 @@ impl Feature {
             Feature::Export => "export",
             Feature::Batch => "batch",
             Feature::HistoryJournal => "journal",
+            Feature::Upscale4x => "upscale_4x",
+            Feature::AdvancedRestoration => "advanced_restoration",
+            Feature::FaceEnhancement => "face_enhancement",
+            Feature::UnlimitedProcessing => "unlimited_processing",
+            Feature::EngineControls => "engine_controls",
         }
     }
 }
 
 /// The license edition required for a feature; `None` = available to
-/// everyone. Deliberately `None` across the board in this build: the
-/// commercial model licenses *terms* (seats, machine binding, support),
-/// not the local engine, and Fovea's promise is that image processing
-/// runs on your machine whether or not a key is present.
-pub fn minimum_edition(_feature: Feature) -> Option<Edition> {
-    None
+/// everyone, activated or not. This table *is* the commercial model:
+/// the free plan keeps its own images and every way to file them, and
+/// money buys the top end of the engine, the model choice, the machine's
+/// controls, and the removal of the monthly count.
+pub fn minimum_edition(feature: Feature) -> Option<Edition> {
+    match feature {
+        Feature::Enhance | Feature::Export | Feature::Batch | Feature::HistoryJournal => None,
+        Feature::Upscale4x
+        | Feature::AdvancedRestoration
+        | Feature::FaceEnhancement
+        | Feature::UnlimitedProcessing => Some(Edition::Pro),
+        Feature::EngineControls => Some(Edition::Studio),
+    }
 }
 
-/// Does the current license (None = unactivated) permit this feature?
+/// The plan to name when a feature is locked — the shortest true answer.
+fn plan_for(feature: Feature) -> &'static str {
+    match minimum_edition(feature) {
+        None => "the free plan",
+        Some(Edition::Pro) => "Fovea Pro",
+        Some(Edition::Studio) => "Fovea Studio",
+    }
+}
+
+/// Does the edition in force (None = free plan) permit this feature?
 pub fn allows(current: Option<Edition>, feature: Feature) -> bool {
     match minimum_edition(feature) {
         None => true,
@@ -236,18 +299,114 @@ pub fn allows(current: Option<Edition>, feature: Feature) -> bool {
     }
 }
 
+/// The monthly cap the in-force edition runs under; `None` = unlimited.
+pub fn monthly_limit(edition: Option<Edition>) -> Option<u32> {
+    if allows(edition, Feature::UnlimitedProcessing) {
+        None
+    } else {
+        Some(quota::FREE_MONTHLY_ENHANCEMENTS)
+    }
+}
+
+/// The edition whose options are actually live. Only an *Active* license
+/// unlocks its paid options; every other state — expired, revoked, bound
+/// to another machine, sitting under a wound-back clock, or nothing stored
+/// at all — runs the free plan. A purchase that lapsed should cost the
+/// user its extras, not the app.
+fn in_force_edition(state: LicenseState, payload: Option<&LicensePayload>) -> Option<Edition> {
+    match state {
+        LicenseState::Active => payload.map(|p| p.edition),
+        _ => None,
+    }
+}
+
+/// What the stored license grants *right now*, re-verified on every call.
+/// This is the object the command layer consults before it lets an image
+/// be processed; nothing here is cached, so deactivating or lapsing a key
+/// takes effect on the next job rather than the next restart.
+#[derive(Debug, Clone)]
+pub struct Entitlement {
+    pub state: LicenseState,
+    /// The in-force edition; `None` = the free plan.
+    pub edition: Option<Edition>,
+    /// The app-data directory the meter reads and writes. Kept with the
+    /// entitlement so a caller cannot check one directory and spend in
+    /// another.
+    app_data: std::path::PathBuf,
+}
+
+impl Entitlement {
+    pub fn allows(&self, feature: Feature) -> bool {
+        allows(self.edition, feature)
+    }
+
+    /// Ok when the plan carries this feature; a named refusal when it
+    /// does not. Commands call this at their boundary, before any work.
+    pub fn require(&self, feature: Feature) -> AppResult<()> {
+        if self.allows(feature) {
+            return Ok(());
+        }
+        Err(AppError::FeatureLocked {
+            detail: format!(
+                "{:?} license (state {}) needs {} for {}",
+                self.edition,
+                self.state.as_str(),
+                plan_for(feature),
+                feature.key()
+            ),
+        })
+    }
+
+    /// The cap in images for this calendar month, or `None` when the plan
+    /// is unlimited.
+    pub fn monthly_limit(&self) -> Option<u32> {
+        monthly_limit(self.edition)
+    }
+
+    /// May `count` more enhancements be produced this month? Says no
+    /// without spending; [`Entitlement::spend`] is what actually charges.
+    pub fn check(&self, count: u32) -> AppResult<()> {
+        match self.monthly_limit() {
+            None => Ok(()),
+            Some(limit) => quota::check(&self.app_data, limit, now_secs(), count),
+        }
+    }
+
+    /// Charge `count` enhancements. Call *after* the images exist: a
+    /// failed or cancelled job must not cost the user a credit.
+    pub fn spend(&self, count: u32) -> AppResult<()> {
+        match self.monthly_limit() {
+            None => Ok(()),
+            Some(limit) => quota::take(&self.app_data, limit, now_secs(), count),
+        }
+    }
+
+    /// This month's meter, for the status DTO.
+    pub fn snapshot(&self) -> Option<quota::Snapshot> {
+        meter(&self.app_data, self.edition, now_secs())
+    }
+}
+
+/// The entitlement in force on this machine, straight from the stored
+/// signature. Cheap enough to call per command (one file or credential
+/// read and one Ed25519 verify), and it means no command can act on a
+/// license picture that was already stale when the UI painted it.
+pub fn entitlement(app_data: &Path) -> Entitlement {
+    let resolution = resolve(app_data, Backend::Auto, now_secs(), provider());
+    Entitlement {
+        state: resolution.state,
+        edition: resolution.in_force(),
+        app_data: app_data.to_path_buf(),
+    }
+}
+
 /// Capability list for the status DTO (what the UI shows the user owns).
 fn capabilities_for(edition: Option<Edition>) -> Vec<&'static str> {
-    [
-        Feature::Enhance,
-        Feature::Export,
-        Feature::Batch,
-        Feature::HistoryJournal,
-    ]
-    .into_iter()
-    .filter(|f| allows(edition, *f))
-    .map(Feature::key)
-    .collect()
+    ALL_FEATURES
+        .into_iter()
+        .filter(|f| allows(edition, *f))
+        .map(Feature::key)
+        .collect()
 }
 
 // ── Service API ──────────────────────────────────────────────────────
@@ -265,15 +424,31 @@ pub fn status(app_data: &Path) -> LicenseStatusDto {
     status_with(app_data, Backend::Auto, now_secs(), provider())
 }
 
-fn status_with(
-    app_data: &Path,
-    backend: Backend,
-    now: u64,
-    prov: &dyn LicenseProvider,
-) -> LicenseStatusDto {
+/// The verified picture of the stored key at an instant: what state it is
+/// in, the payload when one verified, and the local activation stamp.
+/// Both the status DTO and the command-side [`entitlement`] come from
+/// here, so the label the user reads and the gate that refused them can
+/// not disagree.
+struct Resolution {
+    state: LicenseState,
+    payload: Option<LicensePayload>,
+    activated_at: Option<u64>,
+}
+
+impl Resolution {
+    fn in_force(&self) -> Option<Edition> {
+        in_force_edition(self.state, self.payload.as_ref())
+    }
+}
+
+fn resolve(app_data: &Path, backend: Backend, now: u64, prov: &dyn LicenseProvider) -> Resolution {
     let bookkeeping = store::read_state(app_data);
     let Some(raw) = store::read_key(app_data, backend) else {
-        return LicenseStatusDto::unactivated();
+        return Resolution {
+            state: LicenseState::NotActivated,
+            payload: None,
+            activated_at: None,
+        };
     };
     // Clock rollback is checked against the stored high-water mark for
     // any stored key, before anything else about that key is decided.
@@ -281,42 +456,70 @@ fn status_with(
         .max_seen_at
         .is_some_and(|seen| now.saturating_add(ROLLBACK_GRACE_SECONDS) < seen);
     match key::verify_key(&raw, now, machine::id()) {
-        Ok(payload) if rolled_back => LicenseStatusDto::of(
-            LicenseState::ClockSuspect,
-            &payload,
-            bookkeeping.activated_at,
-        ),
+        Ok(payload) if rolled_back => Resolution {
+            state: LicenseState::ClockSuspect,
+            payload: Some(payload),
+            activated_at: bookkeeping.activated_at,
+        },
         Ok(payload) => match prov.check(&payload) {
-            Revocation::Revoked => {
-                LicenseStatusDto::of(LicenseState::Revoked, &payload, bookkeeping.activated_at)
-            }
+            Revocation::Revoked => Resolution {
+                state: LicenseState::Revoked,
+                payload: Some(payload),
+                activated_at: bookkeeping.activated_at,
+            },
             Revocation::Unknown | Revocation::Accepted => {
                 advance_watermark(app_data, bookkeeping, now);
-                LicenseStatusDto::of(
-                    LicenseState::Active,
-                    &payload,
-                    bookkeeping.activated_at.or(Some(now)),
-                )
+                Resolution {
+                    state: LicenseState::Active,
+                    payload: Some(payload),
+                    activated_at: bookkeeping.activated_at.or(Some(now)),
+                }
             }
         },
-        Err(KeyRejection::Expired(payload)) => {
-            LicenseStatusDto::of(LicenseState::Expired, &payload, bookkeeping.activated_at)
-        }
-        Err(KeyRejection::WrongMachine) => {
-            LicenseStatusDto::state_only(LicenseState::WrongMachine, bookkeeping.activated_at)
-        }
-        Err(KeyRejection::ClockSuspect) => {
-            LicenseStatusDto::state_only(LicenseState::ClockSuspect, bookkeeping.activated_at)
-        }
+        Err(KeyRejection::Expired(payload)) => Resolution {
+            state: LicenseState::Expired,
+            payload: Some(*payload),
+            activated_at: bookkeeping.activated_at,
+        },
+        Err(KeyRejection::WrongMachine) => Resolution {
+            state: LicenseState::WrongMachine,
+            payload: None,
+            activated_at: bookkeeping.activated_at,
+        },
+        Err(KeyRejection::ClockSuspect) => Resolution {
+            state: LicenseState::ClockSuspect,
+            payload: None,
+            activated_at: bookkeeping.activated_at,
+        },
         // Everything else that once verified and no longer does — or that
         // never did — lands as tampered: the store's bytes are not a key
         // this build can honour. Which sub-reason it was is a log line,
         // not a user puzzle.
         Err(other) => {
             log::warn!("stored license rejected: {other:?}");
-            LicenseStatusDto::state_only(LicenseState::Tampered, bookkeeping.activated_at)
+            Resolution {
+                state: LicenseState::Tampered,
+                payload: None,
+                activated_at: bookkeeping.activated_at,
+            }
         }
     }
+}
+
+fn status_with(
+    app_data: &Path,
+    backend: Backend,
+    now: u64,
+    prov: &dyn LicenseProvider,
+) -> LicenseStatusDto {
+    let resolution = resolve(app_data, backend, now, prov);
+    let edition = resolution.in_force();
+    LicenseStatusDto::of(
+        resolution.state,
+        resolution.payload.as_ref(),
+        resolution.activated_at,
+        meter(app_data, edition, now),
+    )
 }
 
 /// Activate a pasted key. Fully offline-capable: the signature is the
@@ -362,8 +565,14 @@ fn activate_with(
     bookkeeping.max_seen_at = Some(bookkeeping.max_seen_at.unwrap_or(0).max(now));
     store::write_state(app_data, bookkeeping);
 
+    let edition = payload.edition;
     Ok(ActivationDto {
-        status: LicenseStatusDto::of(LicenseState::Active, &payload, Some(now)),
+        status: LicenseStatusDto::of(
+            LicenseState::Active,
+            Some(&payload),
+            Some(now),
+            meter(app_data, Some(edition), now),
+        ),
         already_active: already,
     })
 }
@@ -427,7 +636,12 @@ fn rejection_to_error(rejection: KeyRejection) -> AppError {
     }
 }
 
-#[cfg(test)]
+// Debug-only, and not for tidiness: every test here issues its key with the
+// committed dev pair, and a release build deliberately does not trust that
+// pair, so the suite describes the debug configuration. What the *release*
+// configuration guarantees — that no dev key verifies anything — is asserted
+// once, in `keys.rs`.
+#[cfg(all(test, debug_assertions))]
 mod tests {
     use super::*;
     use std::path::PathBuf;
@@ -501,10 +715,22 @@ mod tests {
         assert_eq!(res.status.expires_at, None); // perpetual
         assert!(!res.status.machine_bound);
         assert!(!res.already_active);
+        // A Pro key in force: the free baseline plus what Pro buys.
         assert_eq!(
             res.status.capabilities,
-            vec!["enhance", "export", "batch", "journal"]
+            vec![
+                "enhance",
+                "export",
+                "batch",
+                "journal",
+                "upscale_4x",
+                "advanced_restoration",
+                "face_enhancement",
+                "unlimited_processing",
+            ]
         );
+        // Unlimited plan → no meter in the payload at all.
+        assert!(res.status.quota.is_none());
         // Restart = a fresh read. Nothing is cached in the process, so a
         // new status sees the stored key again, re-verified.
         let after_restart = status_with(&dir, Backend::File, T0 + DAY, &OK);
@@ -741,25 +967,140 @@ mod tests {
         assert_eq!(json["state"], "active");
         assert_eq!(json["licenseId"], "PL-TEST-1");
         assert_eq!(json["machineBound"], false);
-        assert_eq!(json["capabilities"].as_array().unwrap().len(), 4);
+        assert_eq!(json["capabilities"].as_array().unwrap().len(), 8);
+        assert!(json.get("quota").is_some_and(|q| q.is_null()));
         assert_eq!(serde_json::to_value(&res).unwrap()["alreadyActive"], false);
     }
 
+    // ── the entitlement table (Stage 20) ────────────────────────────
+
     #[test]
-    fn unactivated_still_grants_every_shipped_capability() {
-        // The Stage 13 contract: licensing never gates the local engine.
-        let s = LicenseStatusDto::unactivated();
+    fn the_free_plan_is_a_plan_not_a_lockout() {
+        // Nothing stored: the whole workflow is usable — enhance, export,
+        // batch, journal — under the plan's own ceiling and its meter.
+        let dir = scratch("free-contract");
+        let s = status_with(&dir, Backend::File, T0, &OK);
         assert_eq!(s.state, "not_activated");
         assert_eq!(s.edition, None);
-        assert!(s.capabilities.contains(&"enhance"));
+        assert_eq!(
+            s.capabilities,
+            vec!["enhance", "export", "batch", "journal"]
+        );
         for f in [
             Feature::Enhance,
             Feature::Export,
             Feature::Batch,
             Feature::HistoryJournal,
         ] {
-            assert!(allows(None, f));
-            assert!(allows(Some(Edition::Pro), f));
+            assert!(allows(None, f), "{} must stay free", f.key());
+        }
+        // What money buys is named, and the meter is present.
+        for f in [
+            Feature::Upscale4x,
+            Feature::AdvancedRestoration,
+            Feature::FaceEnhancement,
+            Feature::UnlimitedProcessing,
+            Feature::EngineControls,
+        ] {
+            assert!(!allows(None, f), "{} is a paid option", f.key());
+        }
+        let q = s.quota.expect("the free plan is metered");
+        assert_eq!(q.limit, quota::FREE_MONTHLY_ENHANCEMENTS);
+        assert_eq!(q.used, 0);
+        assert_eq!(q.remaining, 10);
+        assert_eq!(q.period, "2025-10");
+    }
+
+    #[test]
+    fn studio_adds_the_machine_controls_on_top_of_pro() {
+        let pro = allows(Some(Edition::Pro), Feature::EngineControls);
+        let studio = allows(Some(Edition::Studio), Feature::EngineControls);
+        assert!(!pro);
+        assert!(studio);
+        for f in ALL_FEATURES {
+            // Studio is a superset: nothing Pro grants can Studio lose.
+            if allows(Some(Edition::Pro), f) {
+                assert!(allows(Some(Edition::Studio), f), "{}", f.key());
+            }
+        }
+    }
+
+    #[test]
+    fn a_lapsed_or_revoked_key_drops_to_the_free_plan_not_to_nothing() {
+        let dir = scratch("lapsed-gates");
+        let mut p = payload_at(T0 - 2 * DAY);
+        p.expires = Some(T0 + DAY);
+        activate_ok(&dir, &issue(&p));
+        // Still Pro inside the window.
+        assert!(entitlement_at(&dir, T0).allows(Feature::Upscale4x));
+        // Lapsed: the extras go, the free workflow stays.
+        let after = entitlement_at(&dir, T0 + 2 * DAY);
+        assert_eq!(after.state, LicenseState::Expired);
+        assert!(!after.allows(Feature::Upscale4x));
+        assert!(after.allows(Feature::Enhance));
+        assert!(after.allows(Feature::Export));
+        assert_eq!(
+            after
+                .require(Feature::Upscale4x)
+                .expect_err("locked")
+                .code(),
+            "feature_locked"
+        );
+        // And the meter is back, so a lapsed Pro cannot process without
+        // limit — the plan it fell to is the plan it is charged for.
+        assert_eq!(
+            after.monthly_limit(),
+            Some(quota::FREE_MONTHLY_ENHANCEMENTS)
+        );
+    }
+
+    #[test]
+    fn the_meter_charges_only_after_the_images_exist() {
+        let dir = scratch("meter");
+        let ent = entitlement_at(&dir, T0);
+        assert_eq!(ent.monthly_limit(), Some(10));
+        ent.check(10).expect("ten fit this month");
+        assert_eq!(
+            ent.check(11).expect_err("eleven do not").code(),
+            "quota_exceeded"
+        );
+        // A refused queue spent nothing…
+        assert_eq!(entitlement_at(&dir, T0).snapshot().unwrap().used, 0);
+        // …and nine written images cost nine.
+        ent.spend(9).unwrap();
+        let now = entitlement_at(&dir, T0);
+        assert_eq!(now.snapshot().unwrap().remaining, 1);
+        now.spend(1).unwrap();
+        assert_eq!(
+            entitlement_at(&dir, T0).check(1).expect_err("empty").code(),
+            "quota_exceeded"
+        );
+    }
+
+    #[test]
+    fn a_paid_key_makes_the_meter_disappear_entirely() {
+        let dir = scratch("meter-off");
+        let ent = entitlement_at(&dir, T0);
+        assert!(ent.monthly_limit().is_some());
+        activate_ok(&dir, &issue(&payload_at(T0 - 10))); // Pro, perpetual
+        let paid = entitlement_at(&dir, T0);
+        assert_eq!(paid.monthly_limit(), None);
+        assert!(paid.snapshot().is_none());
+        // Unlimited means the checks pass with no counter touched.
+        paid.check(u32::MAX).expect("no ceiling to exceed");
+        assert!(
+            !dir.join("quota.json").exists(),
+            "an unlimited plan must not be metered at all"
+        );
+    }
+
+    /// `entitlement()` reads the wall clock; tests drive a fixed instant.
+    fn entitlement_at(dir: &Path, now: u64) -> Entitlement {
+        let resolution = resolve(dir, Backend::File, now, &OK);
+        Entitlement {
+            state: resolution.state,
+            edition: resolution.in_force(),
+            app_data: dir.to_path_buf(),
         }
     }
 

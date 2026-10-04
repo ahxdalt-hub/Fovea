@@ -69,6 +69,10 @@ const inference: InferenceStatusDto = {
     { key: 'natural', label: 'Natural', description: 'Denoise-first', available: true },
     { key: 'detail', label: 'Detail', description: 'Plus sharpening', available: false },
   ],
+  filters: [
+    { key: 'original', label: 'Original', description: '', available: true },
+    { key: 'natural', label: 'Natural', description: '', available: true },
+  ],
   modelsDirDisplay: 'C:/Users/test/AppData/models',
 }
 
@@ -124,8 +128,8 @@ describe('Settings dialog', () => {
   it('opens on General with the theme control reflecting defaults', () => {
     renderDialog()
     expect(within(nav()).getByRole('button', { name: /^General/ })).toHaveAttribute('aria-current')
-    expect(screen.getByRole('radio', { name: 'System' })).toBeChecked()
-    expect(screen.getByRole('radio', { name: 'Dark' })).not.toBeChecked()
+    expect(screen.getByRole('radio', { name: 'Light' })).toBeChecked()
+    expect(screen.getByRole('radio', { name: 'System' })).not.toBeChecked()
   })
 
   it('a theme change persists and mirrors nothing it does not need to', async () => {

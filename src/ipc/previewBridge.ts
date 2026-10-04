@@ -48,9 +48,13 @@ export function previewInvoke(cmd: string): Promise<unknown> {
     case 'import_images':
       return Promise.resolve([])
     // Stage 13: there is no local license store in a browser. The
-    // honest answer is "not activated" — the license section stays
-    // reviewable, and activation itself refuses (see bridge.ts).
-    case 'get_license_status':
+    // honest answer is "not activated" — which since Stage 20 genuinely
+    // means the free plan, so the preview shows the locked controls the
+    // free plan ships with (4×, Natural, Detail, Portrait, the hardware
+    // switches) and an untouched month meter. Activation itself refuses
+    // (see bridge.ts).
+    case 'get_license_status': {
+      const now = new Date()
       return Promise.resolve({
         state: 'not_activated',
         edition: null,
@@ -62,7 +66,14 @@ export function previewInvoke(cmd: string): Promise<unknown> {
         machineBound: false,
         capabilities: ['enhance', 'export', 'batch', 'journal'],
         machineHint: 'preview',
+        quota: {
+          period: `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`,
+          limit: 10,
+          used: 0,
+          remaining: 10,
+        },
       })
+    }
     default:
       return Promise.resolve(null)
   }

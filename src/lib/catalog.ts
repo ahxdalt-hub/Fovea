@@ -9,7 +9,7 @@
  * somewhere else is a bug waiting to happen. Constants go here so the
  * components stay component-only.
  */
-import type { EnhanceModeKey, ExportFormatKey, FilterKey } from '../types/ipc'
+import type { EnhanceModeKey, ExportFormatKey, FilterKey, FilterStatusDto } from '../types/ipc'
 
 /** Order is the product's opinion; availability comes from native. */
 export const MODE_ORDER: EnhanceModeKey[] = ['standard', 'natural', 'detail']
@@ -44,6 +44,17 @@ export const FILTER_ORDER: FilterKey[] = [
   'product',
   'portrait',
 ]
+
+/** The filters the engine actually offers, in product order — from the
+ * native status once it has arrived, from the catalog until then. A plain
+ * helper, so the shared look fields can stay component-only. */
+export function availableFilterKeys(filters: FilterStatusDto[] | null): FilterKey[] {
+  if (!filters) return FILTER_ORDER
+  return filters
+    .filter((f) => f.available)
+    .map((f) => f.key as FilterKey)
+    .filter((key) => FILTER_ORDER.includes(key))
+}
 
 export const FILTER_LABEL: Record<FilterKey, string> = {
   original: 'Original',

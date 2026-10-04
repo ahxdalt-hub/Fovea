@@ -2,12 +2,18 @@
  * EnhanceControls — the Stage 06 enhancement strip for the Enhance view.
  *
  * Sits in the collection bar and carries the whole enhance interaction: the
- * scale and mode choices (SegmentedFields, offering only what the installed
- * models genuinely deliver — read from the native status, never hard-coded),
- * the finishing look (a preset, one of the ten filters, and its strength),
- * the primary Enhance action, and the honest job lifecycle: measured
- * progress from native tile counts, cancel, failure/retry, and a completion
- * state that hands the result to the compare slider and the Export action.
+ * scale and mode choices (SegmentedFields), the finishing look (a preset, one
+ * of the ten filters, and its strength), the primary Enhance action, and the
+ * honest job lifecycle: measured progress from native tile counts, cancel,
+ * failure/retry, and a completion state that hands the result to the compare
+ * slider and the Export action.
+ *
+ * Two independent facts decide what each control offers (Stage 20), and both
+ * are read rather than hard-coded: what the installed models genuinely
+ * deliver, from the native inference status, and what the plan on this machine
+ * allows, from the native license record. A choice the plan withholds is drawn
+ * in place, unselectable, with that plan's name beside it — never removed,
+ * because a feature you cannot see is a feature that does not exist.
  *
  * The workflow it encodes is Select → Enhance → Compare → Export, in that
  * reading order, with the image kept dominant: all of this is one compact
@@ -25,21 +31,27 @@ import { useSettings } from '../state/useSettings'
 import type { ProcessingSettings } from '../state/settings'
 import type { EnhanceApi } from '../state/useEnhance'
 import { Button } from '../ui/Button'
-import { SegmentedField, SelectField } from '../ui/Field'
-import { cx } from '../ui/cx'
+import { SegmentedField } from '../ui/Field'
 import { ProgressBar, Spinner } from '../ui/Progress'
 import { Tooltip } from '../ui/Tooltip'
+import { cx } from '../ui/cx'
 import { IconExport, IconRetry, IconSparkle, IconWarning } from '../ui/Icons'
 import { formatDimensions } from '../lib/format'
+import { availableFilterKeys, MODE_HINT, MODE_LABEL, MODE_ORDER } from '../lib/catalog'
 import {
-  FILTER_HINT,
-  FILTER_LABEL,
-  FILTER_ORDER,
-  MODE_HINT,
-  MODE_LABEL,
-  MODE_ORDER,
-} from '../lib/catalog'
-import { PRESETS, matchingPreset, presetByKey, type PresetKey } from '../lib/presets'
+  filterLock,
+  modeLock,
+  periodLabel,
+  planBadge,
+  planName,
+  planQuota,
+  planScaleCeiling,
+  planView,
+  presetLock,
+  scaleLock,
+} from '../lib/entitlements'
+import { matchingPreset, presetByKey, type PresetKey } from '../lib/presets'
+import { LookFields, PresetChips } from './FinishingLook'
 import { isTauriRuntime } from '../state/useNativeFileDrop'
 import './EnhanceControls.css'
 
@@ -109,6 +121,11 @@ export function EnhanceControls({
     (job.phase === 'preparing' || job.phase === 'processing' || job.phase === 'completing')
   const terminal = job !== null && !active
   const modelReady = status === null || status.ready
+  // The plan in force, read once from the native license record. `null` (not
+  // fetched yet) is *unknown*, not the free plan: nothing is locked and
+  // nothing is repaired until native actually answers, so a Pro user never
+  // sees a paywall flash on start and a stored 4× is never quietly rewritten.
+  const plan = useMemo(() => planView(state.license), [state.license])
 
   // Scales / modes offered are exactly what the installed models support.
   // Before the first native status arrives, fall back to the defaults the
@@ -124,44 +141,70 @@ export function EnhanceControls({
   // native list is complete by construction — but it is still the source of
   // the labels and hints, exactly like the modes.
   const filterOptions = useMemo<FilterKey[]>(
-    () =>
-      status
-        ? status.filters
-            .filter((f) => f.available)
-            .map((f) => f.key as FilterKey)
-            .filter((k) => FILTER_ORDER.includes(k))
-        : FILTER_ORDER,
+    () => availableFilterKeys(status?.filters ?? null),
     [status],
   )
-  const filterLabel = (key: FilterKey) =>
-    status?.filters.find((f) => f.key === key)?.label ?? FILTER_LABEL[key]
-  const filterHint = (key: FilterKey) =>
-    status?.filters.find((f) => f.key === key)?.description ?? FILTER_HINT[key]
+
+  // The plan's layer on top: the same options, minus what this plan cannot
+  // run. Everything the strip *does* (healing a stored choice, enabling the
+  // Enhance button) is decided against these, so the button can never offer
+  // a run that native would refuse.
+  const ceiling = planScaleCeiling(plan)
+  const runnableScales = useMemo(
+    () => scales.filter((s) => ceiling === null || s <= ceiling),
+    [scales, ceiling],
+  )
+  const runnableModes = useMemo(
+    () => MODE_ORDER.filter((m) => availableModes.has(m) && modeLock(plan, m) === null),
+    [availableModes, plan],
+  )
+  const runnableFilters = useMemo(
+    () => filterOptions.filter((f) => filterLock(plan, f) === null),
+    [filterOptions, plan],
+  )
+  // The recipe on screen is one this machine can actually run — true whenever
+  // the strip is consistent, and false only in a corner where the plan and
+  // the installed models together leave nothing runnable (a free plan with
+  // only the restoration models installed, say).
+  const recipeRunnable =
+    runnableScales.includes(choices.scale) &&
+    runnableModes.includes(choices.mode) &&
+    runnableFilters.includes(choices.filter)
+
+  // The free plan's month meter (Stage 20). `null` means this plan is not
+  // metered — Pro and Studio simply never see a counter.
+  const quota = planQuota(plan)
+  const outOfCredits = quota !== null && quota.remaining <= 0
+  const spentMessage = quota
+    ? `You have used all ${quota.limit} free enhancements in ${periodLabel(quota.period)} — the count resets on the 1st, or ${planName('pro')} lifts it`
+    : ''
+
   // The preset whose four values the strip currently shows. A hand-tuned
   // combination reads as "Custom" rather than lying about being "Photo".
   const activePreset = matchingPreset(choices)
 
-  // Self-heal a stored choice the engine can't deliver (e.g. a model was
-  // removed): snap to the nearest supported value instead of a dead
-  // button. Guarded on non-empty option sets — with no model installed
-  // there is nothing to snap to, and the action is simply disabled.
+  // Self-heal a stored choice this machine can't deliver (a model was
+  // removed, or the plan changed under the settings that were written): snap
+  // to the nearest runnable value instead of a dead button. Guarded on
+  // non-empty option sets — with nothing runnable there is nothing to snap
+  // to, and the action is simply disabled.
   useEffect(() => {
     const fixes: Partial<ProcessingSettings> = {}
-    if (scales.length > 0 && !scales.includes(choices.scale)) {
-      fixes.defaultScale = scales[scales.length - 1]
+    if (runnableScales.length > 0 && !runnableScales.includes(choices.scale)) {
+      fixes.defaultScale = runnableScales[runnableScales.length - 1]
     }
-    if (availableModes.size > 0 && !availableModes.has(choices.mode)) {
-      const first = MODE_ORDER.find((m) => availableModes.has(m))
+    if (runnableModes.length > 0 && !runnableModes.includes(choices.mode)) {
+      const first = runnableModes[0]
       if (first) fixes.defaultMode = first
     }
-    // A filter the product no longer offers (a future removal, a corrupt
-    // store) falls back to "no filter" — the choice that cannot change the
-    // picture, which is the safest thing to land on.
-    if (filterOptions.length > 0 && !filterOptions.includes(choices.filter)) {
+    // A look the plan withholds (or the product no longer offers) falls back
+    // to "no filter" — the choice that cannot change the picture, which is
+    // the safest thing to land on.
+    if (runnableFilters.length > 0 && !runnableFilters.includes(choices.filter)) {
       fixes.defaultFilter = 'original'
     }
     if (Object.keys(fixes).length > 0) update('processing', fixes)
-  }, [scales, availableModes, filterOptions, choices, update])
+  }, [runnableScales, runnableModes, runnableFilters, choices, update])
 
   // The fraction is a measurement: completed tiles / planned tiles.
   const percent =
@@ -177,15 +220,17 @@ export function EnhanceControls({
   const changeScale = (value: string) => update('processing', { defaultScale: Number(value) })
   const changeMode = (value: string) =>
     update('processing', { defaultMode: value as EnhanceModeKey })
-  const changeFilter = (value: string) =>
-    update('processing', { defaultFilter: value as FilterKey })
-  const changeIntensity = (value: number) => update('processing', { defaultIntensity: value })
+  const changeLook = (patch: { filter?: FilterKey; intensity?: number }) =>
+    update('processing', {
+      ...(patch.filter === undefined ? {} : { defaultFilter: patch.filter }),
+      ...(patch.intensity === undefined ? {} : { defaultIntensity: patch.intensity }),
+    })
   /** Writes the preset's real parameters into the same record the controls
    * read — including the export hints, where the workflow genuinely wants a
    * different file. No hidden mode, no per-preset engine branch. */
   const applyPreset = (key: PresetKey) => {
     const preset = presetByKey(key)
-    if (!preset) return
+    if (!preset || presetLock(plan, preset) !== null) return
     update('processing', {
       defaultScale: preset.processing.scale,
       defaultMode: preset.processing.mode,
@@ -211,83 +256,24 @@ export function EnhanceControls({
       {/* Stage 19: the finishing look, first in the reading order because a
           preset writes the four values the whole strip shows — it is not a
           hidden mode. The filter and its strength are exactly the pixel pass
-          the engine runs on the model's result. */}
+          the engine runs on the model's result. These are the same shared
+          fields the batch preset renders, so the two surfaces can never
+          describe one look with two different words. */}
       <div className="pix-enhance__look">
-        <div className="pix-field pix-enhance__group pix-enhance__group--preset">
-          <span className="pix-field__label" id="fovea-preset-label">
-            Preset
-          </span>
-          <div className="pix-enhance__chips" role="group" aria-labelledby="fovea-preset-label">
-            {PRESETS.map((preset) => (
-              <button
-                key={preset.key}
-                type="button"
-                className={cx(
-                  'pix-enhance__chip',
-                  activePreset?.key === preset.key && 'pix-enhance__chip--on',
-                )}
-                aria-pressed={activePreset?.key === preset.key}
-                disabled={active}
-                onClick={() => applyPreset(preset.key)}
-              >
-                {preset.label}
-              </button>
-            ))}
-          </div>
-          <p className="pix-field__message">
-            {activePreset
-              ? `${activePreset.label}: ${activePreset.hint}`
-              : 'Custom — these settings are your own, kept as your defaults'}
-          </p>
-        </div>
-
-        <SelectField
-          className="pix-enhance__group"
-          label="Look"
-          name="fovea-filter"
-          value={choices.filter}
-          onChange={(event) => changeFilter(event.target.value)}
+        <PresetChips
+          active={activePreset?.key ?? null}
           disabled={active}
-          hint={filterHint(choices.filter)}
-        >
-          {filterOptions.map((key) => (
-            <option key={key} value={key}>
-              {filterLabel(key)}
-            </option>
-          ))}
-        </SelectField>
-
-        <div
-          className={cx(
-            'pix-field pix-enhance__group',
-            choices.filter === 'original' && 'pix-enhance__group--off',
-          )}
-        >
-          <label className="pix-field__label pix-enhance__value-row" htmlFor="fovea-intensity">
-            <span>Strength</span>
-            <span className="u-tabular">
-              {choices.filter === 'original' ? 'off' : choices.intensity}
-            </span>
-          </label>
-          <input
-            id="fovea-intensity"
-            className="pix-range"
-            type="range"
-            min={0}
-            max={100}
-            step={5}
-            value={choices.intensity}
-            // Original runs no pass, so the knob is genuinely inert — shown
-            // disabled, never hidden, so the reason stays on screen.
-            disabled={active || choices.filter === 'original'}
-            onChange={(event) => changeIntensity(Number(event.target.value))}
-          />
-          <p className="pix-field__message">
-            {choices.filter === 'original'
-              ? 'Original adds nothing — the model result is the picture.'
-              : '0 leaves the result untouched, 50 is how the look was designed, 100 is full strength.'}
-          </p>
-        </div>
+          lockFor={(preset) => presetLock(plan, preset)}
+          onPick={applyPreset}
+        />
+        <LookFields
+          filter={choices.filter}
+          intensity={choices.intensity}
+          filters={status?.filters ?? null}
+          disabled={active}
+          lockFor={(key) => filterLock(plan, key)}
+          onChange={changeLook}
+        />
       </div>
 
       <div className="pix-enhance__actions">
@@ -308,7 +294,16 @@ export function EnhanceControls({
             value={String(choices.scale)}
             onChange={changeScale}
             disabled={active}
-            options={scales.map((s) => ({ value: String(s), label: `${s}×` }))}
+            options={scales.map((s) => {
+              const tier = scaleLock(plan, s)
+              return {
+                value: String(s),
+                label: `${s}×`,
+                locked: tier !== null,
+                badge: tier === null ? undefined : planBadge(tier),
+                lockHint: tier === null ? undefined : `${s}× upscaling is ${planName(tier)}`,
+              }
+            })}
           />
         ) : null}
         {modeOptions.length > 1 && (
@@ -319,7 +314,19 @@ export function EnhanceControls({
             value={choices.mode}
             onChange={changeMode}
             disabled={active}
-            options={modeOptions.map((m) => ({ value: m, label: MODE_LABEL[m] }))}
+            options={modeOptions.map((m) => {
+              const tier = modeLock(plan, m)
+              return {
+                value: m,
+                label: MODE_LABEL[m],
+                locked: tier !== null,
+                badge: tier === null ? undefined : planBadge(tier),
+                lockHint:
+                  tier === null
+                    ? undefined
+                    : `${MODE_LABEL[m]} is a restoration mode — part of ${planName(tier)}`,
+              }
+            })}
           />
         )}
         {modeOptions.length > 1 && (
@@ -329,6 +336,24 @@ export function EnhanceControls({
           >
             {status?.modes.find((m) => m.key === choices.mode)?.description ??
               MODE_HINT[choices.mode]}
+          </span>
+        )}
+
+        {/* The free plan's month, in plain numbers (Stage 20). A metered plan
+            says so before you press anything; an unmetered one has nothing to
+            report and stays silent. */}
+        {quota && (
+          <span
+            className={cx('pix-enhance__meter', outOfCredits && 'pix-enhance__meter--spent')}
+            title={
+              outOfCredits
+                ? 'The count resets on the 1st of next month'
+                : 'Each finished image uses one; the count resets on the 1st'
+            }
+          >
+            {outOfCredits
+              ? `All ${quota.limit} free enhancements used in ${periodLabel(quota.period)}`
+              : `${quota.remaining} of ${quota.limit} free enhancements left in ${periodLabel(quota.period)}`}
           </span>
         )}
 
@@ -352,7 +377,11 @@ export function EnhanceControls({
                 ? 'Install the enhancement model first'
                 : active
                   ? 'An enhancement is already running'
-                  : undefined
+                  : outOfCredits
+                    ? spentMessage
+                    : !recipeRunnable
+                      ? 'No installed model offers an option this plan can run — see Settings → Processing'
+                      : undefined
           }
           side="bottom"
         >
@@ -360,7 +389,9 @@ export function EnhanceControls({
             variant="primary"
             size="md"
             iconStart={active ? <Spinner /> : <IconSparkle size="sm" />}
-            disabled={!native || !modelReady || active || !selectedId}
+            disabled={
+              !native || !modelReady || active || !selectedId || outOfCredits || !recipeRunnable
+            }
             onClick={startEnhance}
           >
             {active ? `Enhancing ${choices.scale}×…` : `Enhance ${choices.scale}×`}

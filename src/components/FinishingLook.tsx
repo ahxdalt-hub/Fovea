@@ -12,25 +12,22 @@
  * The controls describe real pixel work only. A chip highlights when the
  * strip's own four values genuinely equal that preset's, and the strength
  * knob is disabled (never hidden) for Original, which runs no pass at all.
+ * A plan-locked choice follows the same rule (Stage 20): it stays on screen,
+ * unselectable, with the plan that unlocks it named beside it.
  */
-import { useId } from 'react'
 import { useId } from 'react'
 import type { FilterKey, FilterStatusDto } from '../types/ipc'
 import { SelectField } from '../ui/Field'
 import { cx } from '../ui/cx'
-import { FILTER_DEFAULT_INTENSITY, FILTER_HINT, FILTER_LABEL, FILTER_ORDER } from '../lib/catalog'
-import { PRESETS, type PresetKey } from '../lib/presets'
+import {
+  availableFilterKeys,
+  FILTER_DEFAULT_INTENSITY,
+  FILTER_HINT,
+  FILTER_LABEL,
+} from '../lib/catalog'
+import { planBadge, planName, type PlanTier } from '../lib/entitlements'
+import { PRESETS, type Preset, type PresetKey } from '../lib/presets'
 import './FinishingLook.css'
-
-/** Labels and hints come from native whenever the status is there, so the
- * two surfaces can never call the same look two different names. */
-export function availableFilterKeys(filters: FilterStatusDto[] | null): FilterKey[] {
-  if (!filters) return FILTER_ORDER
-  return filters
-    .filter((f) => f.available)
-    .map((f) => f.key as FilterKey)
-    .filter((key) => FILTER_ORDER.includes(key))
-}
 
 function labelFor(filters: FilterStatusDto[] | null, key: FilterKey): string {
   return filters?.find((f) => f.key === key)?.label ?? FILTER_LABEL[key]
@@ -46,11 +43,22 @@ export interface PresetChipsProps {
   /** Filters the chips to the ones the engine can actually run. */
   keys?: PresetKey[]
   disabled?: boolean
+  /** The plan a preset needs, or `null` when this one can run it. A locked
+   * chip is drawn and named, never removed — the free plan's 4× is a real
+   * thing the user can see they are missing. */
+  lockFor?: (preset: Preset) => PlanTier | null
   onPick: (key: PresetKey) => void
   className?: string
 }
 
-export function PresetChips({ active, keys, disabled = false, onPick, className }: PresetChipsProps) {
+export function PresetChips({
+  active,
+  keys,
+  disabled = false,
+  lockFor,
+  onPick,
+  className,
+}: PresetChipsProps) {
   const groupId = useId()
   const options = keys ? PRESETS.filter((p) => keys.includes(p.key)) : PRESETS
   const activePreset = options.find((p) => p.key === active) ?? null
@@ -60,18 +68,29 @@ export function PresetChips({ active, keys, disabled = false, onPick, className 
         Preset
       </span>
       <div className="pix-look__chips" role="group" aria-labelledby={groupId}>
-        {options.map((preset) => (
-          <button
-            key={preset.key}
-            type="button"
-            className={cx('pix-look__chip', preset.key === active && 'pix-look__chip--on')}
-            aria-pressed={preset.key === active}
-            disabled={disabled}
-            onClick={() => onPick(preset.key)}
-          >
-            {preset.label}
-          </button>
-        ))}
+        {options.map((preset) => {
+          const tier = lockFor?.(preset) ?? null
+          return (
+            <button
+              key={preset.key}
+              type="button"
+              className={cx(
+                'pix-look__chip',
+                preset.key === active && 'pix-look__chip--on',
+                tier !== null && 'pix-look__chip--locked',
+              )}
+              aria-pressed={preset.key === active}
+              disabled={disabled || tier !== null}
+              title={tier === null ? preset.hint : `${preset.label} needs ${planName(tier)}`}
+              onClick={() => onPick(preset.key)}
+            >
+              {preset.label}
+              {tier !== null ? (
+                <span className="pix-look__chip-badge">{planBadge(tier)}</span>
+              ) : null}
+            </button>
+          )
+        })}
       </div>
       <p className="pix-field__message">
         {activePreset
@@ -88,6 +107,10 @@ export interface LookFieldsProps {
   /** The native filter list, or `null` before the first status arrives. */
   filters: FilterStatusDto[] | null
   disabled?: boolean
+  /** The plan a look needs, or `null` when this plan can run it. Portrait is
+   * the one filter with a face-detection pass behind it, so it is the one a
+   * plan can hold back. */
+  lockFor?: (filter: FilterKey) => PlanTier | null
   onChange: (patch: { filter?: FilterKey; intensity?: number }) => void
 }
 
@@ -96,6 +119,7 @@ export function LookFields({
   intensity,
   filters,
   disabled = false,
+  lockFor,
   onChange,
 }: LookFieldsProps) {
   const options = availableFilterKeys(filters)
@@ -112,11 +136,16 @@ export function LookFields({
         disabled={disabled}
         hint={hintFor(filters, filter)}
       >
-        {options.map((key) => (
-          <option key={key} value={key}>
-            {labelFor(filters, key)}
-          </option>
-        ))}
+        {options.map((key) => {
+          const tier = lockFor?.(key) ?? null
+          return (
+            <option key={key} value={key} disabled={tier !== null}>
+              {tier === null
+                ? labelFor(filters, key)
+                : `${labelFor(filters, key)} — ${planBadge(tier)}`}
+            </option>
+          )
+        })}
       </SelectField>
 
       <div className={cx('pix-field pix-look__group', off && 'pix-look__group--off')}>

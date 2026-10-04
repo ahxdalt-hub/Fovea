@@ -146,6 +146,29 @@
   opacity: 0.55;
 }
 
+/* A plan-locked choice (Stage 20) stays legible — the point is that you can
+   read what you're missing — but it is visibly not a button: no hover lift,
+   no pointer affordance, and the plan's name sitting beside it. */
+.pix-segmented__option--locked {
+  color: var(--text-tertiary);
+  cursor: not-allowed;
+}
+
+.pix-segmented__option--locked:hover {
+  color: var(--text-tertiary);
+}
+
+.pix-segmented__badge {
+  padding: 1px 5px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 999px;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-tertiary);
+}
+
 /* The hidden radio must still paint a focus ring on its option. */
 .pix-segmented__option:has(:focus-visible) {
   outline: 2px solid var(--focus-ring);

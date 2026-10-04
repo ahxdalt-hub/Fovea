@@ -4,6 +4,9 @@
    a panel, and it wraps instead of crushing the chips on a narrow window. */
 
 .pix-look__group {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
   min-width: 0;
   flex: 0 1 auto;
 }
@@ -51,6 +54,30 @@
 .pix-look__chip:disabled {
   opacity: 0.55;
   cursor: default;
+}
+
+/* Plan-locked (Stage 20): dimmer than a chip that is merely busy, but never
+   ghosted — the label and the plan's name have to stay readable, since the
+   whole point is that you can see what you are missing. A dashed edge is the
+   "not yet yours" affordance; a solid one always means a real choice. */
+.pix-look__chip--locked:disabled {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  opacity: 0.9;
+  border-style: dashed;
+  cursor: not-allowed;
+}
+
+.pix-look__chip-badge {
+  padding: 1px 5px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 999px;
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--text-tertiary);
 }
 
 .pix-look__chip:focus-visible {

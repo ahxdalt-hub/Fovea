@@ -28,6 +28,7 @@ use crate::services::inference::model::{EnhanceMode, ModelRegistry};
 use crate::services::inference::service::{
     self, EngineConfig, EnhanceEvent, EnhanceResult, InferenceStatus, JobRegistry,
 };
+use crate::services::license;
 
 /// Shared engine state, managed at setup and resolved per command.
 pub struct EngineState {
@@ -59,6 +60,11 @@ pub struct EngineState {
 /// but an unknown filter key is still refused rather than silently
 /// downgraded to "original", because a look the user asked for and did not
 /// get is a bug, not a fallback.
+///
+/// Stage 20: the recipe is checked against the license in force before the
+/// job slot is taken (see `services::license` for the policy table), and
+/// the free plan's monthly meter is charged when an image is written —
+/// never when a job is merely asked for.
 #[tauri::command]
 pub async fn enhance_image(
     app: AppHandle,
@@ -85,6 +91,26 @@ pub async fn enhance_image(
             detail: "zero scale".into(),
         });
     }
+    // The plan gate. The engine itself is plan-blind — it would run 4× for
+    // anybody — so this boundary is the whole enforcement, and it lands
+    // before the job slot is reserved so a locked recipe refuses instead
+    // of spinning. One key read plus one signature verify: cheap, and it
+    // means no command ever acts on a license picture the UI painted
+    // minutes ago.
+    let app_data = crate::commands::license::app_data(&app)?;
+    let entitlement = license::entitlement(&app_data);
+    if scale > license::FREE_MAX_SCALE {
+        entitlement.require(license::Feature::Upscale4x)?;
+    }
+    if mode != EnhanceMode::Standard {
+        entitlement.require(license::Feature::AdvancedRestoration)?;
+    }
+    if filter == Filter::Portrait {
+        entitlement.require(license::Feature::FaceEnhancement)?;
+    }
+    // Ceiling now, charge later: a run that fails, or that the user
+    // cancels mid-tile, costs no credit.
+    entitlement.check(1)?;
     let state = app.state::<EngineState>();
     let job_id = state.jobs.next_job_id();
     let token = Arc::new(CancelToken::new());
@@ -176,6 +202,12 @@ pub async fn enhance_image(
                         kind: EntryKind::Single,
                         output_path: Some(result.file_path.to_string_lossy().into_owned()),
                     });
+                    // The image exists; now it is counted. A meter that
+                    // cannot be written must not undo the user's work —
+                    // the spend is logged and the result still returns.
+                    if let Err(err) = entitlement.spend(1) {
+                        log::warn!("monthly meter could not be recorded: {}", err.code());
+                    }
                 }
                 Err(err) if err.code() != "cancelled" => {
                     history.record(HistoryEntry {

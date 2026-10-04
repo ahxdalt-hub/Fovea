@@ -66,7 +66,13 @@ describe('normalizeSettings', () => {
         rememberRecentFiles: false,
         recentFilesLimit: 9,
       },
-      processing: { defaultScale: 2, defaultMode: 'detail', enginePath: 'cpu' },
+      processing: {
+        defaultScale: 2,
+        defaultMode: 'detail',
+        defaultFilter: 'original',
+        defaultIntensity: 50,
+        enginePath: 'cpu',
+      },
       export: { format: 'webp', quality: 82, folder: 'D:/Exports' },
       performance: { speed: 'maximum' },
     }

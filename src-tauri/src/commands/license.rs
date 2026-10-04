@@ -1,10 +1,11 @@
 //! License commands (Stage 13) — the whole licensing surface.
 //!
-//! Three commands, one service. They deliberately say nothing about
-//! what the app can *do*: activation state never changes how images are
-//! processed (see `services::license` coupling rules). The DTO carries
-//! the commercial identity — edition, holder, expiry — for display and
-//! for the feature-access seam that future policy would use.
+//! Three commands, one service, plus the `app_data` resolver the gated
+//! commands share. These commands report the commercial identity (edition,
+//! holder, expiry, meter); the *enforcement* of that identity lives in the
+//! commands that do the work (`enhance_image`, `start_batch`,
+//! `set_engine_hints`), each asking `services::license::entitlement` at
+//! its own boundary. See that module for the coupling rules.
 
 use tauri::AppHandle;
 use tauri::Manager;
@@ -39,7 +40,10 @@ pub fn deactivate_license(app: AppHandle) -> AppResult<LicenseStatusDto> {
     Ok(license::deactivate(&dir))
 }
 
-fn app_data(app: &AppHandle) -> AppResult<std::path::PathBuf> {
+/// The app-data directory every license-side read needs: the stored key,
+/// the meter. Shared with the commands that gate on an entitlement, so
+/// there is exactly one place that can say "this machine has no app data".
+pub(crate) fn app_data(app: &AppHandle) -> AppResult<std::path::PathBuf> {
     app.path()
         .app_data_dir()
         .map_err(|err| AppError::LicenseStoreUnavailable {

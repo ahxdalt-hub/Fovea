@@ -417,8 +417,11 @@ export function openExportFolder(): Promise<string> {
  * ── Stage 13: licensing ───────────────────────────────────────────────
  *
  * The whole licensing surface, deliberately tiny: status, activate,
- * deactivate. Nothing here can affect image processing — the engine
- * commands do not ask, and never will.
+ * deactivate. Everything verifies on this machine and nothing here reaches
+ * the network. Since Stage 20 the working commands do read the plan — to
+ * decide whether they may be *asked* for a paid option — but a license
+ * question never interrupts an enhancement already running, and a key buys
+ * options, never permission to use files you already made.
  */
 
 /** The local license state, re-verified natively from the stored

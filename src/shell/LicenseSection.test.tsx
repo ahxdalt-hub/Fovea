@@ -1,25 +1,29 @@
 /**
- * License section (Stage 13) — the activation experience under test:
- * honest status rendering, human-readable success/failure copy,
- * idempotent re-activation, and the deactivate round trip. The bridge is
- * mocked at the boundary; the real cryptographic behaviour it mirrors is
- * covered by the Rust suite (services/license).
+ * License section (Stage 13, gated by Stage 20) — the activation experience
+ * under test: honest status rendering, the plan a record puts in force, the
+ * month's meter, human-readable success/failure copy, idempotent
+ * re-activation, and the deactivate round trip. The bridge is mocked at the
+ * boundary; the real cryptographic behaviour it mirrors is covered by the
+ * Rust suite (services/license).
  */
 import { fireEvent, render, screen } from '@testing-library/react'
+import { useEffect } from 'react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { ActivationResultDto, LicenseStatusDto } from '../types/ipc'
 
-const getLicenseStatus = vi.fn()
 const activateLicense = vi.fn()
 const deactivateLicense = vi.fn()
 vi.mock('../ipc/bridge', () => ({
-  getLicenseStatus: () => getLicenseStatus(),
+  getLicenseStatus: () => Promise.reject(new Error('the section does not read it')),
   activateLicense: (key: string) => activateLicense(key),
   deactivateLicense: () => deactivateLicense(),
 }))
 
 import { LicenseSection } from './LicenseSection'
+import { AppStateProvider } from '../state/AppState'
+import { useAppState } from '../state/useAppState'
 
+/** The free plan's record: the four ungated capabilities and a full month. */
 const unactivated: LicenseStatusDto = {
   state: 'not_activated',
   edition: null,
@@ -31,6 +35,7 @@ const unactivated: LicenseStatusDto = {
   machineBound: false,
   capabilities: ['enhance', 'export', 'batch', 'journal'],
   machineHint: 'd442e094',
+  quota: { period: '2026-10', limit: 10, used: 3, remaining: 7 },
 }
 
 const active: LicenseStatusDto = {
@@ -41,6 +46,18 @@ const active: LicenseStatusDto = {
   licenseId: 'PL-2026-000001',
   issuedAt: 1759990000,
   activatedAt: 1760000000,
+  capabilities: [
+    'enhance',
+    'export',
+    'batch',
+    'journal',
+    'upscale_4x',
+    'advanced_restoration',
+    'face_enhancement',
+    'unlimited_processing',
+  ],
+  // An unlimited plan has no meter, so native reports none.
+  quota: null,
 }
 
 const asResult = (status: LicenseStatusDto, alreadyActive = false): ActivationResultDto => ({
@@ -48,23 +65,55 @@ const asResult = (status: LicenseStatusDto, alreadyActive = false): ActivationRe
   alreadyActive,
 })
 
+/** The section reads the shell's license record, so the tests seed it the
+ * way the bootstrap does — by dispatch, never by reaching into state. */
+function Harness({ seed }: { seed: LicenseStatusDto | null }) {
+  const { dispatch } = useAppState()
+  useEffect(() => {
+    dispatch(seed === null ? { type: 'license/error' } : { type: 'license/set', status: seed })
+  }, [dispatch, seed])
+  return <LicenseSection />
+}
+
+function renderSection(seed: LicenseStatusDto | null = unactivated) {
+  return render(
+    <AppStateProvider>
+      <Harness seed={seed} />
+    </AppStateProvider>,
+  )
+}
+
+beforeEach(() => {
+  activateLicense.mockReset()
+  deactivateLicense.mockReset()
+})
+
 describe('License section', () => {
-  beforeEach(() => {
-    getLicenseStatus.mockReset()
-    activateLicense.mockReset()
-    deactivateLicense.mockReset()
+  it('renders the unactivated story, and names the plan it means', async () => {
+    renderSection(unactivated)
+    expect(await screen.findByText(/running unactivated, on the free plan/i)).toBeInTheDocument()
+    expect(
+      screen.getByText(/every option marked pro or studio belongs to a key/i),
+    ).toBeInTheDocument()
+    expect(
+      screen.getByText(/the free plan: up to 2× upscaling, standard restoration/i),
+    ).toBeInTheDocument()
   })
 
-  it('reads the license on open and lands on the unactivated story', async () => {
-    getLicenseStatus.mockResolvedValue(unactivated)
-    render(<LicenseSection />)
-    expect(await screen.findByText(/running unactivated/i)).toBeInTheDocument()
-    expect(screen.getByText(/runs on this machine with or without a key/i)).toBeInTheDocument()
+  it('shows the month meter with native’s own numbers', async () => {
+    renderSection(unactivated)
+    expect(await screen.findByText(/7 of 10 free enhancements left in october 2026/i)).toBeVisible()
+    expect(screen.getByText(/a run that fails or is cancelled uses none/i)).toBeInTheDocument()
+  })
+
+  it('an unlimited plan reports no counter at all', async () => {
+    renderSection(active)
+    expect(await screen.findByText(/no monthly count/i)).toBeInTheDocument()
+    expect(screen.queryByText(/free enhancements left/i)).not.toBeInTheDocument()
   })
 
   it('shows the full activation record when a license is active', async () => {
-    getLicenseStatus.mockResolvedValue(active)
-    render(<LicenseSection />)
+    renderSection(active)
     expect(await screen.findByText('Fovea Pro')).toBeInTheDocument()
     expect(screen.getByText('Licensed to')).toBeInTheDocument()
     expect(screen.getByText('ada@example.com')).toBeInTheDocument()
@@ -75,8 +124,7 @@ describe('License section', () => {
   })
 
   it('the activate button waits for a key, then reports success in plain words', async () => {
-    getLicenseStatus.mockResolvedValue(unactivated)
-    render(<LicenseSection />)
+    renderSection(unactivated)
     const box = await screen.findByLabelText('License key')
     const activate = screen.getByRole('button', { name: 'Activate' })
     expect(activate).toBeDisabled()
@@ -95,9 +143,20 @@ describe('License section', () => {
     expect(await screen.findByText('Fovea Pro')).toBeInTheDocument()
   })
 
+  it('activating switches the plan on screen, in the same render', async () => {
+    renderSection(unactivated)
+    const box = await screen.findByLabelText('License key')
+    activateLicense.mockResolvedValue(asResult(active))
+    fireEvent.change(box, { target: { value: 'FOVEA1.abc.def' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Activate' }))
+    // The meter is gone and the paid options are named — the record the
+    // strip reads is this one, so the two surfaces cannot disagree.
+    expect(await screen.findByText(/4× upscaling, all three restoration modes/i)).toBeVisible()
+    expect(screen.queryByText(/free enhancements left/i)).not.toBeInTheDocument()
+  })
+
   it('a repeated key says so honestly instead of pretending it is new', async () => {
-    getLicenseStatus.mockResolvedValue(active)
-    render(<LicenseSection />)
+    renderSection(active)
     await screen.findByText('Fovea Pro')
     const box = screen.getByLabelText('License key')
     fireEvent.change(box, { target: { value: 'FOVEA1.abc.def' } })
@@ -107,8 +166,7 @@ describe('License section', () => {
   })
 
   it('a failed activation shows the native human-readable message, and recovers', async () => {
-    getLicenseStatus.mockResolvedValue(unactivated)
-    render(<LicenseSection />)
+    renderSection(unactivated)
     const box = await screen.findByLabelText('License key')
     fireEvent.change(box, { target: { value: 'FOVEA1.nonsense.nonsense' } })
     activateLicense.mockRejectedValue({
@@ -131,35 +189,28 @@ describe('License section', () => {
     expect(await screen.findByRole('status')).toHaveTextContent(/License activated/i)
   })
 
-  it('expired licenses say who held them and when they lapsed', async () => {
-    getLicenseStatus.mockResolvedValue({
-      ...active,
-      state: 'expired',
-      expiresAt: 1760000000,
-    })
-    render(<LicenseSection />)
+  it('expired licenses say who held them, when they lapsed, and what plan is left', async () => {
+    renderSection({ ...active, state: 'expired', expiresAt: 1760000000 })
     expect(await screen.findByText(/license has expired/i)).toBeInTheDocument()
     expect(screen.getByText(/Renew with the store/i)).toBeInTheDocument()
+    expect(screen.getByText(/on the free plan again/i)).toBeInTheDocument()
     expect(screen.getByText('Expires')).toBeInTheDocument()
   })
 
   it('a damaged local record invites re-pasting the key, not panic', async () => {
-    getLicenseStatus.mockResolvedValue({ ...unactivated, state: 'tampered' })
-    render(<LicenseSection />)
+    renderSection({ ...unactivated, state: 'tampered' })
     expect(await screen.findByText(/record is damaged/i)).toBeInTheDocument()
     expect(screen.getByText(/paste your key again/i)).toBeInTheDocument()
   })
 
   it('a wound-back clock explains the fix in Windows settings', async () => {
-    getLicenseStatus.mockResolvedValue({ ...active, state: 'clock_suspect' })
-    render(<LicenseSection />)
+    renderSection({ ...active, state: 'clock_suspect' })
     expect(await screen.findByText(/clock is set behind/i)).toBeInTheDocument()
     expect(screen.getByText(/Fix the date and time in Windows settings/i)).toBeInTheDocument()
   })
 
   it('deactivation runs through the bridge and lands back unactivated', async () => {
-    getLicenseStatus.mockResolvedValue(active)
-    render(<LicenseSection />)
+    renderSection(active)
     await screen.findByText('Fovea Pro')
     deactivateLicense.mockResolvedValue(unactivated)
     fireEvent.click(screen.getByRole('button', { name: 'Deactivate' }))
@@ -167,16 +218,19 @@ describe('License section', () => {
     expect(deactivateLicense).toHaveBeenCalled()
   })
 
-  it('an unreadable license degrades to a note, never a stack of errors', async () => {
-    getLicenseStatus.mockRejectedValue({ code: 'unexpected_error', message: 'no' })
-    render(<LicenseSection />)
-    expect(await screen.findByText(/License information is unavailable/i)).toBeInTheDocument()
-    expect(screen.getByText(/images and enhancement are unaffected/i)).toBeInTheDocument()
+  it('an unreadable license is said plainly, and takes nothing away', async () => {
+    renderSection(null)
+    expect(await screen.findByText(/could not be read on this machine/i)).toBeInTheDocument()
+    expect(screen.getByText(/images and enhancement are/i)).toBeInTheDocument()
+    // The dead end is in the record, not on the screen: asking again puts the
+    // plan back to "reading", which is the state the shell re-fetches from.
+    fireEvent.click(screen.getByRole('button', { name: 'Check again' }))
+    expect(screen.getByText(/reading the license record/i)).toBeInTheDocument()
   })
 
   it('repeats the product promise where licenses live', async () => {
-    getLicenseStatus.mockResolvedValue(unactivated)
-    render(<LicenseSection />)
-    expect(await screen.findByText(/will not wait on a license check/i)).toBeInTheDocument()
+    renderSection(unactivated)
+    expect(await screen.findByText(/never interrupted by a license question/i)).toBeInTheDocument()
+    expect(screen.getByText(/verified on this machine, never online/i)).toBeInTheDocument()
   })
 })

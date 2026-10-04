@@ -378,6 +378,7 @@ describe('appReducer — enhance job (Stage 05)', () => {
       ready: true,
       scales: [2, 4],
       modes: [{ key: 'standard', label: 'Standard', description: 'd', available: true }],
+      filters: [{ key: 'original' as const, label: 'Original', description: 'd', available: true }],
       modelsDirDisplay: 'C:/models',
     }
     const s = appReducer(initialState, { type: 'inference/set', status })
@@ -439,6 +440,8 @@ function batchItem(overrides: Partial<import('../types/ipc').BatchItemDto> & { i
     output: null,
     mode: 'standard',
     scale: 2,
+    filter: 'original',
+    intensity: 50,
     cancelling: false,
     ...overrides,
   } satisfies import('../types/ipc').BatchItemDto

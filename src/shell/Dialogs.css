@@ -402,6 +402,19 @@
   min-width: 0;
 }
 
+/* The plan's practical meaning (Stage 20): the one block on this screen that
+   answers "so what can I actually do now?", set apart from the record's raw
+   fields because it is the part a buyer reads twice. */
+.pix-license__plan {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  padding: var(--space-3);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  background: var(--bg-sunken);
+}
+
 .pix-license__key {
   font-family: var(--font-mono);
   font-size: var(--text-sm);

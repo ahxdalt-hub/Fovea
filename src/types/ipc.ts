@@ -54,6 +54,8 @@ export interface AppErrorPayload {
     | 'license_clock_suspect'
     | 'license_unsupported_version'
     | 'license_store_unavailable'
+    | 'feature_locked'
+    | 'quota_exceeded'
     | 'unexpected_error'
   message: string
 }
@@ -541,6 +543,10 @@ export function isBatchSnapshot(value: unknown): value is BatchSnapshotDto {
       stateOk &&
       typeof i.done === 'number' &&
       typeof i.total === 'number' &&
+      typeof i.mode === 'string' &&
+      typeof i.scale === 'number' &&
+      typeof i.filter === 'string' &&
+      typeof i.intensity === 'number' &&
       outputOk &&
       errorOk
     )
@@ -744,6 +750,17 @@ export type LicenseState =
   | 'revoked'
   | 'clock_suspect'
 
+/** Serialized `quota::Snapshot` from Rust — the free plan's month meter.
+ * Absent (`null`) when the plan in force is unlimited: then there is
+ * nothing to count, and the UI shows no meter at all. */
+export interface LicenseQuotaDto {
+  /** The calendar month being counted, 'YYYY-MM'. */
+  period: string
+  limit: number
+  used: number
+  remaining: number
+}
+
 /** Serialized `LicenseStatusDto` from Rust. */
 export interface LicenseStatusDto {
   state: LicenseState
@@ -756,15 +773,31 @@ export interface LicenseStatusDto {
   expiresAt: number | null
   activatedAt: number | null
   machineBound: boolean
+  /** The capability keys the plan in force grants — the same table the
+   * native commands enforce. See `lib/entitlements`. */
   capabilities: string[]
   /** Short fingerprint group for support conversations. */
   machineHint: string
+  /** This month's meter, or null on an unlimited plan. */
+  quota: LicenseQuotaDto | null
 }
 
 /** Serialized `ActivationDto` from Rust. */
 export interface ActivationResultDto {
   status: LicenseStatusDto
   alreadyActive: boolean
+}
+
+/** Runtime guard for the monthly meter. */
+export function isLicenseQuota(value: unknown): value is LicenseQuotaDto {
+  if (typeof value !== 'object' || value === null) return false
+  const v = value as Record<string, unknown>
+  return (
+    typeof v.period === 'string' &&
+    typeof v.limit === 'number' &&
+    typeof v.used === 'number' &&
+    typeof v.remaining === 'number'
+  )
 }
 
 /** Runtime guard for the license status payload. */
@@ -791,7 +824,10 @@ export function isLicenseStatus(value: unknown): value is LicenseStatusDto {
     (v.activatedAt === null || typeof v.activatedAt === 'number') &&
     typeof v.machineBound === 'boolean' &&
     Array.isArray(v.capabilities) &&
-    typeof v.machineHint === 'string'
+    typeof v.machineHint === 'string' &&
+    // The meter is either genuinely absent or a well-formed snapshot —
+    // a missing field is a shape change, not an unlimited plan.
+    (v.quota === null || isLicenseQuota(v.quota))
   )
 }
 

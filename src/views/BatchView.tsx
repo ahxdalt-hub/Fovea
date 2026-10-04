@@ -19,16 +19,33 @@ import type {
   BatchConfigPayload,
   BatchItemDto,
   BatchItemStateDto,
+  EnhanceModeKey,
   ExportFormatKey,
+  FilterKey,
 } from '../types/ipc'
 import { toAppError } from '../types/ipc'
 import { openExportFolder, pickExportFolder } from '../ipc/bridge'
-import { FORMATS } from '../lib/catalog'
+import { FORMATS, FILTER_LABEL, availableFilterKeys } from '../lib/catalog'
+import {
+  filterLock,
+  modeLock,
+  periodLabel,
+  planBadge,
+  planName,
+  planQuota,
+  planScaleCeiling,
+  planView,
+  presetLock,
+  scaleLock,
+} from '../lib/entitlements'
+import { matchingPreset, presetByKey, type PresetKey } from '../lib/presets'
+import { LookFields, PresetChips } from '../components/FinishingLook'
 import { useAppState } from '../state/useAppState'
 import type { BatchApi } from '../state/useBatch'
 import { useNotify } from '../ui/notificationContext'
 import { Badge } from '../ui/Badge'
 import { Button, IconButton } from '../ui/Button'
+import { cx } from '../ui/cx'
 import { SegmentedField } from '../ui/Field'
 import { ProgressBar, Spinner } from '../ui/Progress'
 import { EmptyState } from '../ui/States'
@@ -95,13 +112,62 @@ export function BatchView({ batchApi, onGoToEnhance }: BatchViewProps) {
   // and the export defaults (format, quality, folder). Only installed
   // scales/modes are offered.
   const status = state.inference
+  const plan = useMemo(() => planView(state.license), [state.license])
   const scales = useMemo(() => (status ? status.scales : [2, 4]), [status])
   const availableModes = useMemo(() => {
     if (!status) return new Set(['standard', 'natural', 'detail'])
     return new Set(status.modes.filter((m) => m.available).map((m) => m.key))
   }, [status])
   const [scale, setScale] = useState(state.settings.processing.defaultScale)
-  const [mode, setMode] = useState<string>(state.settings.processing.defaultMode)
+  const [mode, setMode] = useState<EnhanceModeKey>(state.settings.processing.defaultMode)
+  // Stage 19: the same finishing look the Enhance strip holds, as a
+  // per-run choice. It defaults to the persisted processing settings so a
+  // batch matches what the user just used on one image.
+  const [filter, setFilter] = useState<FilterKey>(state.settings.processing.defaultFilter)
+  const [intensity, setIntensity] = useState(state.settings.processing.defaultIntensity)
+  const filterOptions = useMemo(() => availableFilterKeys(status?.filters ?? null), [status])
+
+  // The plan's layer on the engine's options (Stage 20) — a batch is one run
+  // of many images, so a choice that is merely unselectable in the controls
+  // is not enough: the queued recipe itself has to be one this plan can pay
+  // for. Anything carried over from the persisted defaults that the plan (or
+  // a removed model) cannot run is *derived* to the nearest runnable value —
+  // the stored choice is left alone, so a lapsed Pro that stored 4× comes back
+  // to 4× the moment the key returns, and the screen always describes the run
+  // that would actually happen.
+  const ceiling = planScaleCeiling(plan)
+  const runnableScales = useMemo(
+    () => scales.filter((s) => ceiling === null || s <= ceiling),
+    [scales, ceiling],
+  )
+  const runnableModes = useMemo(
+    () => [...availableModes].filter((m) => modeLock(plan, m as EnhanceModeKey) === null),
+    [availableModes, plan],
+  )
+  const effectiveScale = runnableScales.includes(scale)
+    ? scale
+    : (runnableScales[runnableScales.length - 1] ?? scale)
+  const effectiveMode = runnableModes.includes(mode)
+    ? mode
+    : ((runnableModes[0] as EnhanceModeKey | undefined) ?? mode)
+  const filterUsable = filterOptions.includes(filter) && filterLock(plan, filter) === null
+  const effectiveFilter = filterUsable ? filter : 'original'
+  const choices = useMemo(
+    () => ({ scale: effectiveScale, mode: effectiveMode, filter: effectiveFilter, intensity }),
+    [effectiveScale, effectiveMode, effectiveFilter, intensity],
+  )
+  const activePreset = matchingPreset(choices)
+  // False only in the corner where the plan and the installed models together
+  // leave nothing to run; then Run is disabled rather than queueing a refusal.
+  const recipeRunnable =
+    runnableScales.includes(effectiveScale) &&
+    runnableModes.includes(effectiveMode) &&
+    filterLock(plan, effectiveFilter) === null
+  // The meter charges one credit per finished image, so a queue larger than
+  // what is left this month is refused whole — never started and stopped
+  // half-way through.
+  const quota = planQuota(plan)
+  const creditsShort = quota !== null && images.length > quota.remaining
 
   // Output settings — default to the configured export choice (folder:
   // "" = Fovea's own batch folder inside Documents, named by the native
@@ -136,12 +202,37 @@ export function BatchView({ batchApi, onGoToEnhance }: BatchViewProps) {
     const items = images.map((img) => ({
       path: img.id,
       name: img.name,
-      scale,
-      mode: mode as 'standard' | 'natural' | 'detail',
+      scale: effectiveScale,
+      mode: effectiveMode,
+      filter: effectiveFilter,
+      intensity,
     }))
     const output: BatchConfigPayload = { folder, format, quality: state.settings.export.quality }
     void batchApi.start(items, output)
-  }, [images, scale, mode, folder, format, state.settings.export.quality, batchApi])
+  }, [
+    images,
+    effectiveScale,
+    effectiveMode,
+    effectiveFilter,
+    intensity,
+    folder,
+    format,
+    state.settings.export.quality,
+    batchApi,
+  ])
+
+  /** A preset writes this run's four processing values — the same mechanism
+   * as the Enhance strip, just held per-run instead of persisted. Format is
+   * deliberately left alone: this view has its own Format control, and a
+   * preset that quietly moved something off-screen would be a hidden change. */
+  const applyPreset = (key: PresetKey) => {
+    const preset = presetByKey(key)
+    if (!preset || presetLock(plan, preset) !== null) return
+    setScale(preset.processing.scale)
+    setMode(preset.processing.mode)
+    setFilter(preset.processing.filter)
+    setIntensity(preset.processing.intensity)
+  }
 
   // Empty collection → honest empty state, no fake table.
   if (images.length === 0 && !batch) {
@@ -185,26 +276,65 @@ export function BatchView({ batchApi, onGoToEnhance }: BatchViewProps) {
         {/* Preset strip: what every item runs with. */}
         <section className="pix-batch__preset" aria-label="Batch preset">
           <div className="pix-batch__preset-grid">
+            <PresetChips
+              active={activePreset?.key ?? null}
+              disabled={running}
+              lockFor={(preset) => presetLock(plan, preset)}
+              onPick={applyPreset}
+            />
             {scales.length > 1 && (
               <SegmentedField
                 label="Scale"
                 name="fovea-batch-scale"
-                value={String(scale)}
+                value={String(effectiveScale)}
                 onChange={(v) => setScale(Number(v))}
                 disabled={running}
-                options={scales.map((s) => ({ value: String(s), label: `${s}×` }))}
+                options={scales.map((s) => {
+                  const tier = scaleLock(plan, s)
+                  return {
+                    value: String(s),
+                    label: `${s}×`,
+                    locked: tier !== null,
+                    badge: tier === null ? undefined : planBadge(tier),
+                    lockHint: tier === null ? undefined : `${s}× upscaling is ${planName(tier)}`,
+                  }
+                })}
               />
             )}
             {availableModes.size > 1 && (
               <SegmentedField
                 label="Mode"
                 name="fovea-batch-mode"
-                value={mode}
-                onChange={setMode}
+                value={effectiveMode}
+                onChange={(v) => setMode(v as EnhanceModeKey)}
                 disabled={running}
-                options={[...availableModes].map((m) => ({ value: m, label: MODE_LABEL[m] ?? m }))}
+                options={[...availableModes].map((m) => {
+                  const tier = modeLock(plan, m as EnhanceModeKey)
+                  const label = MODE_LABEL[m] ?? m
+                  return {
+                    value: m,
+                    label,
+                    locked: tier !== null,
+                    badge: tier === null ? undefined : planBadge(tier),
+                    lockHint:
+                      tier === null
+                        ? undefined
+                        : `${label} is a restoration mode — ${planName(tier)}`,
+                  }
+                })}
               />
             )}
+            <LookFields
+              filter={effectiveFilter}
+              intensity={intensity}
+              filters={status?.filters ?? null}
+              disabled={running}
+              lockFor={(key) => filterLock(plan, key)}
+              onChange={(patch) => {
+                if (patch.filter !== undefined) setFilter(patch.filter)
+                if (patch.intensity !== undefined) setIntensity(patch.intensity)
+              }}
+            />
             <SegmentedField
               label="Format"
               name="fovea-batch-format"
@@ -246,9 +376,21 @@ export function BatchView({ batchApi, onGoToEnhance }: BatchViewProps) {
 
           <div className="pix-batch__run">
             <span className="pix-batch__summary">
-              {images.length} image{images.length === 1 ? '' : 's'} · {scale}× ·{' '}
-              {MODE_LABEL[mode] ?? mode}
+              {images.length} image{images.length === 1 ? '' : 's'} · {choices.scale}× ·{' '}
+              {MODE_LABEL[choices.mode] ?? choices.mode} ·{' '}
+              {status?.filters.find((f) => f.key === effectiveFilter)?.label ??
+                FILTER_LABEL[effectiveFilter]}
             </span>
+            {/* The meter, in the same words the Enhance strip uses — one
+                plan, two surfaces, one sentence. A batch spends one credit per
+                finished image, so the queue size is stated next to it. */}
+            {quota && (
+              <span className={cx('pix-batch__meter', creditsShort && 'pix-batch__meter--short')}>
+                {creditsShort
+                  ? `Needs ${images.length} of the ${quota.remaining} free enhancements left in ${periodLabel(quota.period)}`
+                  : `${quota.remaining} of ${quota.limit} free enhancements left in ${periodLabel(quota.period)}`}
+              </span>
+            )}
             <Tooltip
               content={
                 !native
@@ -257,7 +399,11 @@ export function BatchView({ batchApi, onGoToEnhance }: BatchViewProps) {
                     ? 'Import images first'
                     : running
                       ? 'A batch is already running'
-                      : undefined
+                      : creditsShort
+                        ? `A batch of ${images.length} spends ${images.length} enhancements and only ${quota?.remaining ?? 0} are left this month — ${planName('pro')} lifts the count`
+                        : !recipeRunnable
+                          ? 'No installed model offers an option this plan can run — change the preset above'
+                          : undefined
               }
               side="bottom"
             >
@@ -265,7 +411,9 @@ export function BatchView({ batchApi, onGoToEnhance }: BatchViewProps) {
                 variant="primary"
                 size="md"
                 iconStart={running ? <Spinner /> : <IconLayers size="sm" />}
-                disabled={!native || running || images.length === 0}
+                disabled={
+                  !native || running || images.length === 0 || creditsShort || !recipeRunnable
+                }
                 onClick={runBatch}
               >
                 {running ? 'Batching…' : `Enhance ${images.length} as a batch`}

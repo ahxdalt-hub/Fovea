@@ -323,6 +323,19 @@
   color: var(--text-secondary);
 }
 
+/* The free plan's month meter, sitting beside the run summary (Stage 20). A
+   divider instead of a new row: it is a fact about the run about to happen. */
+.pix-batch__meter {
+  font-size: var(--text-xs);
+  color: var(--text-tertiary);
+  padding-left: var(--space-3);
+  border-left: 1px solid var(--border-subtle);
+}
+
+.pix-batch__meter--short {
+  color: var(--warning);
+}
+
 .pix-batch__spacer {
   flex: 1;
 }

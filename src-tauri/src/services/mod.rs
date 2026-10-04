@@ -12,5 +12,6 @@ pub mod history;
 pub mod import;
 pub mod inference;
 pub mod license;
+pub mod quota;
 pub mod settings;
 pub mod system;

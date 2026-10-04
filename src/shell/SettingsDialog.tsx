@@ -17,12 +17,24 @@
  *   reported in Diagnostics).
  * - Changes take effect immediately and persist; the dialog is never a
  *   form with a Save button.
+ * - A choice the plan in force cannot run (Stage 20) is drawn disabled with
+ *   that plan's name beside it, never removed — a setting you cannot see is
+ *   a setting that does not exist.
  */
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { getDiagnostics, openLogsFolder, pickExportFolder } from '../ipc/bridge'
 import type { DiagnosticsDto } from '../types/ipc'
 import { formatBytes } from '../lib/format'
 import { FORMATS, MODE_HINT, MODE_LABEL, MODE_ORDER } from '../lib/catalog'
+import {
+  modeLock,
+  planBadge,
+  planLock,
+  planName,
+  planView,
+  scaleLock,
+  type PlanTier,
+} from '../lib/entitlements'
 import { useAppState } from '../state/useAppState'
 import { useSettings } from '../state/useSettings'
 import { isTauriRuntime } from '../state/useNativeFileDrop'
@@ -106,6 +118,11 @@ function SettingsBody({ onClose }: { onClose: () => void }) {
   const native = isTauriRuntime()
   const hw = diagnostics?.hardware
   const inference = state.inference
+  // The plan in force (Stage 20). Settings describes every preference the
+  // app has, so a paid option is shown and named here even when this plan
+  // cannot take it — the control is disabled, never absent.
+  const plan = useMemo(() => planView(state.license), [state.license])
+  const engineControlsLock = planLock(plan, 'engine_controls')
   /** The folder the native layer actually writes to: the user's chosen one,
    * else Fovea's own inside Documents ("" until the app hands that over). */
   const shownFolder = settings.export.folder || state.systemInfo?.defaultExportDir || ''
@@ -120,7 +137,19 @@ function SettingsBody({ onClose }: { onClose: () => void }) {
     }
   }
 
-  const modeOptions = MODE_ORDER.map((m) => ({ value: m, label: MODE_LABEL[m] }))
+  /** A choice the plan in force cannot run, in the shape `SegmentedField`
+   * wants: present, named, unselectable. */
+  const lock = (tier: PlanTier | null, what: string) => ({
+    locked: tier !== null,
+    badge: tier === null ? undefined : planBadge(tier),
+    lockHint: tier === null ? undefined : `${what} — ${planName(tier)}`,
+  })
+
+  const modeOptions = MODE_ORDER.map((m) => ({
+    value: m,
+    label: MODE_LABEL[m],
+    ...lock(modeLock(plan, m), `${MODE_LABEL[m]} restoration`),
+  }))
   const modeHint =
     inference?.modes.find((m) => m.key === settings.processing.defaultMode)?.description ??
     MODE_HINT[settings.processing.defaultMode]
@@ -230,10 +259,11 @@ function SettingsBody({ onClose }: { onClose: () => void }) {
                     label="Default scale"
                     value={String(settings.processing.defaultScale)}
                     onChange={(value) => update('processing', { defaultScale: Number(value) })}
-                    options={[
-                      { value: '2', label: '2×' },
-                      { value: '4', label: '4×' },
-                    ]}
+                    options={[2, 4].map((s) => ({
+                      value: String(s),
+                      label: `${s}×`,
+                      ...lock(scaleLock(plan, s), `${s}× upscaling`),
+                    }))}
                     hint="How much larger the result gets. 4× suits prints; 2× is often plenty for screens."
                   />
                   <SegmentedField
@@ -257,7 +287,11 @@ function SettingsBody({ onClose }: { onClose: () => void }) {
                     }
                     options={[
                       { value: 'auto', label: 'Graphics card when it helps' },
-                      { value: 'cpu', label: 'The processor' },
+                      {
+                        value: 'cpu',
+                        label: 'The processor',
+                        ...lock(engineControlsLock, 'Forcing the processor'),
+                      },
                     ]}
                     hint={
                       settings.processing.enginePath === 'auto'
@@ -370,7 +404,11 @@ function SettingsBody({ onClose }: { onClose: () => void }) {
                     }
                     options={[
                       { value: 'balanced', label: 'Keep things responsive' },
-                      { value: 'maximum', label: 'Use the full machine' },
+                      {
+                        value: 'maximum',
+                        label: 'Use the full machine',
+                        ...lock(engineControlsLock, 'Asking for every processor'),
+                      },
                     ]}
                     hint={
                       settings.performance.speed === 'balanced'
@@ -378,6 +416,13 @@ function SettingsBody({ onClose }: { onClose: () => void }) {
                         : 'A long run may use every processor the machine has. Slightly faster on an otherwise idle computer; expect the rest of Windows to feel busier while it works.'
                     }
                   />
+                  {engineControlsLock !== null && (
+                    <p className="pix-settings__note">
+                      Fovea decides which hardware to use and how hard to use it, tuned to this
+                      machine. Choosing for yourself — forcing the processor, or asking for every
+                      core — is part of {planName('studio')}.
+                    </p>
+                  )}
                 </div>
                 <p className="pix-settings__footnote">
                   That is the whole performance page on purpose. Tile sizes, buffer ceilings and

@@ -171,6 +171,7 @@ describe('Stage 05 guards', () => {
       ready: true,
       scales: [2, 4],
       modes: [{ key: 'standard', label: 'Standard', description: 'd', available: true }],
+      filters: [{ key: 'original', label: 'Original', description: 'd', available: true }],
       modelsDirDisplay: 'C:/models',
     }
     expect(isInferenceStatus(ok)).toBe(true)
@@ -178,6 +179,8 @@ describe('Stage 05 guards', () => {
     expect(isInferenceStatus({ ...ok, ready: 'yes' })).toBe(false)
     expect(isInferenceStatus({ ...ok, scales: 'two' })).toBe(false)
     expect(isInferenceStatus({ ...ok, modes: [{ key: 'x' }] })).toBe(false)
+    expect(isInferenceStatus({ ...ok, filters: 'original' })).toBe(false)
+    expect(isInferenceStatus({ ...ok, filters: [{ key: 'vivid' }] })).toBe(false)
     expect(isInferenceStatus(null)).toBe(false)
   })
 
@@ -209,6 +212,8 @@ describe('Stage 05 guards', () => {
           output: null,
           mode: 'standard',
           scale: 2,
+          filter: 'original',
+          intensity: 50,
           cancelling: false,
         },
       ],
@@ -216,6 +221,10 @@ describe('Stage 05 guards', () => {
       workerLimit: 1,
     }
     expect(isBatchSnapshot(ok)).toBe(true)
+    // The recipe travels with every item, so the queue is readable after a
+    // resubscribe — a missing field is a malformed payload, not a default.
+    expect(isBatchSnapshot({ ...ok, items: [{ ...ok.items[0], filter: undefined }] })).toBe(false)
+    expect(isBatchSnapshot({ ...ok, items: [{ ...ok.items[0], intensity: 'high' }] })).toBe(false)
     expect(isBatchSnapshot({ ...ok, items: [{ ...ok.items[0], state: 'teleporting' }] })).toBe(
       false,
     )
@@ -308,6 +317,7 @@ describe('Stage 13 license guards', () => {
     machineBound: false,
     capabilities: ['enhance'],
     machineHint: 'abcd1234',
+    quota: null,
   }
 
   it('isLicenseStatus accepts the real shape and rejects drift', () => {
@@ -317,6 +327,13 @@ describe('Stage 13 license guards', () => {
     expect(isLicenseStatus({ ...status, holder: 42 })).toBe(false)
     expect(isLicenseStatus({ ...status, capabilities: 'enhance' })).toBe(false)
     expect(isLicenseStatus(null)).toBe(false)
+  })
+
+  it('carries the free plan meter when one exists', () => {
+    const metered = { period: '2026-10', limit: 10, used: 3, remaining: 7 }
+    expect(isLicenseStatus({ ...status, quota: metered })).toBe(true)
+    expect(isLicenseStatus({ ...status, quota: { ...metered, limit: '10' } })).toBe(false)
+    expect(isLicenseStatus({ ...status, quota: { ...metered, period: 202610 } })).toBe(false)
   })
 
   it('isActivationResult needs both halves', () => {

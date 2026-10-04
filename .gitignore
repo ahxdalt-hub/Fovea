@@ -17,6 +17,9 @@ src-tauri/target/
 src-tauri/gen/
 *.pdb
 
+# Packaged installers — published to the GitHub Release, never committed
+installers/
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json

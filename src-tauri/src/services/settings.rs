@@ -109,6 +109,18 @@ fn apply(hints: EngineHints) {
     RECORD_RECENTS.store(hints.record_recents, Ordering::Relaxed);
 }
 
+/// Take a plan's limit in effect: the two hardware switches go back to
+/// the automatic path, the privacy switch stays where the user left it.
+/// Not persisted — the file keeps the choice for the day the plan carries
+/// it again, and the atomics below are all the engine ever reads.
+pub fn clamp_engine_path(record_recents: bool) {
+    apply(EngineHints {
+        cpu_only: false,
+        full_power: false,
+        record_recents,
+    });
+}
+
 /// Take effect immediately and persist to the app-data file. A failed
 /// write is logged, never fatal — the in-memory hints stay correct for
 /// this session, and the frontend re-syncs (and re-writes) at next boot.
@@ -229,6 +241,27 @@ mod tests {
         )
         .unwrap();
         assert_eq!(read(&dir), EngineHints::default());
+    }
+
+    #[test]
+    fn clamp_engine_path_drops_the_hardware_switches_and_keeps_the_other() {
+        // What a plan check at startup does: the paid hardware choices go
+        // to the automatic path in memory, the privacy switch stays where
+        // the user left it, and the file is not touched.
+        let dir = scratch("clamp");
+        let chosen = EngineHints {
+            cpu_only: true,
+            full_power: true,
+            record_recents: false,
+        };
+        save(&dir, chosen).expect("save");
+        hydrate(&dir);
+        clamp_engine_path(record_recents());
+        let live = (cpu_only(), full_power(), record_recents());
+        apply(EngineHints::default());
+        assert_eq!(live, (false, false, false));
+        // Still stored for the day the plan carries it again.
+        assert_eq!(read(&dir), chosen);
     }
 
     #[test]

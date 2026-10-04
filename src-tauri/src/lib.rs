@@ -125,27 +125,44 @@ pub fn run() {
             // path, power mode, recents switch) take effect before the
             // engine config derives its memory budgets below — a choice
             // made last session shapes this one from the first job.
+            //
+            // Stage 13 + 20: the same block then reads the license, because
+            // one of those preferences belongs to a plan. The settings file
+            // outlives the plan that wrote it (a lapsed key, a deactivation,
+            // a file copied from another machine), so the hardware switches
+            // are re-checked here and clamped to the automatic path when the
+            // plan no longer carries them — the file keeps the user's choice
+            // for the day they upgrade, the engine runs what the license
+            // allows. `set_engine_hints` is what refuses to re-arm it from
+            // then on. Enforcement of the rest of the table lives at the
+            // command boundary (`enhance_image`, `start_batch`), per job.
             if let Some(dir) = app_data.as_ref() {
                 let hints = settings::hydrate(dir);
+                let lic = services::license::status(dir);
+                // The capability list is the policy table's own output —
+                // read it once here rather than re-verifying the key.
+                let in_effect = if lic.capabilities.contains(&"engine_controls") {
+                    hints
+                } else {
+                    if hints.cpu_only || hints.full_power {
+                        log::info!("engine path locked by plan — using the automatic path");
+                        settings::clamp_engine_path(hints.record_recents);
+                    }
+                    settings::EngineHints {
+                        cpu_only: false,
+                        full_power: false,
+                        ..hints
+                    }
+                };
                 log::info!(
-                    "engine hints: {}",
-                    if hints.cpu_only {
+                    "engine hints: {} | license: {} (edition {}, machine {})",
+                    if in_effect.cpu_only {
                         "processor (forced)"
-                    } else if hints.full_power {
+                    } else if in_effect.full_power {
                         "full power"
                     } else {
                         "default"
-                    }
-                );
-            }
-            // Stage 13: the licensing picture, logged once at startup —
-            // state and edition only, never the holder or key. It exists
-            // beside the engine, not inside it: the lines below would
-            // read exactly the same with this block deleted.
-            if let Some(dir) = app_data.as_ref() {
-                let lic = services::license::status(dir);
-                log::info!(
-                    "license: {} (edition {}, machine {})",
+                    },
                     lic.state,
                     lic.edition.unwrap_or("free"),
                     lic.machine_hint

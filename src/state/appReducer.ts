@@ -20,6 +20,7 @@ import type {
   ImageEnhancementDto,
   ImportedImageDto,
   InferenceStatusDto,
+  LicenseStatusDto,
   SystemInfoDto,
 } from '../types/ipc'
 import { DEFAULT_SETTINGS, readSettings, resolveStartupView, type FoveaSettings } from './settings'
@@ -35,6 +36,11 @@ export type HistoryStatus = 'idle' | 'loading' | 'ready' | 'error'
 
 /** Primary navigation destinations in the shell. */
 export type ViewId = 'enhance' | 'batch' | 'history'
+
+/** The license read's lifecycle (Stage 20), shaped like `HistoryStatus`: the
+ * record alone cannot tell "not read yet" apart from "could not be read", and
+ * the License section has to say which one it is showing. */
+export type LicenseStatus = 'loading' | 'ready' | 'error'
 
 /**
  * The six honest phases of an enhancement job, mirroring the native
@@ -111,6 +117,17 @@ export interface AppState {
   inference: InferenceStatusDto | null
   /** The single live enhancement job, if any (Stage 05). */
   enhanceJob: EnhanceJob | null
+  /**
+   * Stage 20: the plan in force, read from the native license record once per
+   * session (and rewritten by activation). Every surface that offers a paid
+   * option reads this to draw it disabled and name the plan that unlocks it —
+   * the same table the native commands enforce, so a control and a refusal can
+   * never disagree. `null` means "not read yet", which locks nothing.
+   */
+  license: LicenseStatusDto | null
+  /** Load lifecycle for `license`, so the License section can be honest about
+   * a record it could not read instead of claiming one is coming. */
+  licenseStatus: LicenseStatus
   /** Stage 06/10: the user's persisted preferences (appearance, processing
    * defaults, export defaults, performance). The Enhance strip reads
    * `processing` and writes back through it, so the workspace choice and
@@ -157,6 +174,9 @@ export type AppAction =
   | { type: 'enhancements/set'; enhancement: ImageEnhancementDto }
   | { type: 'enhancements/clear'; imageId?: string }
   | { type: 'inference/set'; status: InferenceStatusDto }
+  | { type: 'license/loading' }
+  | { type: 'license/set'; status: LicenseStatusDto }
+  | { type: 'license/error' }
   | { type: 'enhance/start'; imageId: string }
   | { type: 'enhance/event'; event: EnhanceEventDto }
   | { type: 'enhance/cancelRequested' }
@@ -180,6 +200,8 @@ export const initialState: AppState = {
   importing: false,
   inference: null,
   enhanceJob: null,
+  license: null,
+  licenseStatus: 'loading',
   settings: DEFAULT_SETTINGS,
   exports: {},
   batch: null,
@@ -280,7 +302,18 @@ export function appReducer(state: AppState, action: AppAction): AppState {
       return { ...state, enhancements: rest }
     }
     case 'inference/set':
-      return { ...state, inference: action.status }
+      return state.inference === action.status ? state : { ...state, inference: action.status }
+    case 'license/loading':
+      return state.licenseStatus === 'loading' ? state : { ...state, licenseStatus: 'loading' }
+    case 'license/set':
+      // Activation, deactivation and the startup read all land here: one
+      // plan record for the whole shell.
+      return { ...state, license: action.status, licenseStatus: 'ready' }
+    case 'license/error':
+      // A record that cannot be read is reported as such. The plan then stays
+      // unknown, which locks nothing — an unreadable license must never grey
+      // out a working app.
+      return { ...state, license: null, licenseStatus: 'error' }
     case 'enhance/start':
       // A fresh job always replaces whatever finished state lingered;
       // the id is unknown until the native `preparing` event arrives.

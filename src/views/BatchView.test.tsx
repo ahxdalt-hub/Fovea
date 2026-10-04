@@ -35,6 +35,8 @@ function item(overrides: Partial<BatchItemDto> & { id: string }): BatchItemDto {
     output: null,
     mode: 'standard',
     scale: 2,
+    filter: 'original',
+    intensity: 50,
     cancelling: false,
     ...overrides,
   }
@@ -51,6 +53,29 @@ function mockApi(running: boolean, extra: Partial<BatchApi> = {}): BatchApi {
     refresh: vi.fn(async () => {}),
     ...extra,
   }
+}
+
+/** A collection with no queue yet — the state the run button needs. */
+function SeedCollection() {
+  const { dispatch, state } = useAppState()
+  useEffect(() => {
+    if (state.images.length === 0)
+      dispatch({
+        type: 'images/add',
+        images: [
+          {
+            id: 'C:/a.png',
+            name: 'a.png',
+            format: 'PNG',
+            width: 100,
+            height: 80,
+            sizeBytes: 1000,
+            previewDataUrl: 'data:,p',
+          },
+        ],
+      })
+  }, [dispatch, state.images.length])
+  return null
 }
 
 function Seed({ items, running }: { items: BatchItemDto[]; running: boolean }) {
@@ -141,6 +166,32 @@ describe('BatchView', () => {
     renderBatch([item({ id: 'a', state: 'completed' })], false, api)
     fireEvent.click(screen.getByRole('button', { name: /^clear$/i }))
     expect(api.dismiss).toHaveBeenCalled()
+  })
+
+  it('runs the batch with the finishing look the preset wrote (Stage 19)', async () => {
+    // The batch strip and the Enhance strip share one component, so the
+    // queued items must carry the same four values the controls show —
+    // nothing applied behind the user's back.
+    ;(window as { __TAURI_INTERNALS__?: unknown }).__TAURI_INTERNALS__ = {}
+    const api = mockApi(false)
+    render(
+      <AppStateProvider>
+        <NotificationProvider>
+          <SeedCollection />
+          <BatchView batchApi={api} onGoToEnhance={() => {}} />
+        </NotificationProvider>
+      </AppStateProvider>,
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: /^print$/i }))
+    fireEvent.click(screen.getByRole('button', { name: /enhance 1 as a batch/i }))
+    await waitFor(() => expect(api.start).toHaveBeenCalled())
+    const queued = vi.mocked(api.start).mock.calls[0]?.[0]
+    expect(queued?.[0]).toEqual(
+      expect.objectContaining({ path: 'C:/a.png', mode: 'detail', scale: 4, intensity: 35 }),
+    )
+    expect(queued?.[0]?.filter).toBe('natural')
+    delete (window as { __TAURI_INTERNALS__?: unknown }).__TAURI_INTERNALS__
   })
 
   it('reveals the folder a finished run wrote to', async () => {

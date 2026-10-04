@@ -17,10 +17,15 @@
 //!   ... --expires 2027-10-01          # a dated license
 //!   ... --machine <fingerprint-hex>   # machine-bound (status shows this machine's)
 //!   cargo run ... --example issue_license -- --generate   # new keypair
+//!   cargo run ... --example issue_license -- --public     # the public key for
+//!     the seed in FOVEA_LICENSE_PRIVATE_KEY — what a build must embed
+//!   cargo run ... --example issue_license -- --verify "FOVEA1.…" [--machine <hex>]
+//!     # read a key back with this build's verifiers; needs no private key
 
 use std::io::Write as _;
 
 use upscaler_lib::services::license::key::{Edition, LicensePayload, sign_key};
+#[cfg(debug_assertions)]
 use upscaler_lib::services::license::keys::DEV_SEED_HEX;
 
 fn main() {
@@ -38,8 +43,17 @@ fn main() {
         return;
     }
 
+    // The read end of the vendor loop: check a key with the *same* verifier the
+    // shipped app runs — the public keys this build was packaged with — before
+    // it is emailed to anyone, and to answer a support ticket without the
+    // private key being involved at all.
+    if let Some(raw) = value("--verify") {
+        verify(&raw.trim(), value("--machine").as_deref());
+        return;
+    }
+
     let seed_hex = if has("--dev") {
-        DEV_SEED_HEX.to_string()
+        dev_seed()
     } else if let Some(s) = value("--seed") {
         s
     } else if let Ok(s) = std::env::var("FOVEA_LICENSE_PRIVATE_KEY") {
@@ -48,6 +62,18 @@ fn main() {
         die("no seed: pass --dev, --seed <hex>, or FOVEA_LICENSE_PRIVATE_KEY");
     };
     let seed = hex32(&seed_hex);
+
+    // The question packaging itself cannot answer: is the public key baked
+    // into a release build the one this guarded seed actually signs with? A
+    // mismatch means every customer key fails activation in the field with no
+    // clue on the machine. Prints the verifier and stops, so the seed never
+    // has to leave the vendor machine.
+    if has("--public") {
+        use ed25519_compact::{KeyPair, Seed};
+        let bytes = <[u8; 32]>::try_from(seed.as_slice()).expect("hex32 checked length");
+        println!("{}", hex(KeyPair::from_seed(Seed::from(bytes)).pk.as_ref()));
+        return;
+    }
 
     let holder = value("--holder").unwrap_or_else(|| die("--holder is required"));
     let edition = match value("--edition").as_deref() {
@@ -103,6 +129,23 @@ fn main() {
     println!("{key}");
 }
 
+/// `--dev` is a debug affordance: the committed dev pair does not exist as a
+/// verifier in a release build, so a release-built tool has no business
+/// signing with it. Keeping the branch honest in both configurations means the
+/// example compiles — and refuses — the same way whichever profile built it.
+#[cfg(debug_assertions)]
+fn dev_seed() -> String {
+    DEV_SEED_HEX.to_string()
+}
+
+#[cfg(not(debug_assertions))]
+fn dev_seed() -> ! {
+    die(
+        "--dev signs with the debug-only dev pair, which a release build cannot verify; \
+         pass --seed or FOVEA_LICENSE_PRIVATE_KEY",
+    )
+}
+
 fn generate() {
     use ed25519_compact::{KeyPair, Seed};
     let pair = KeyPair::from_seed(Seed::generate());
@@ -112,6 +155,37 @@ fn generate() {
         "→ rebuild the app with FOVEA_LICENSE_PUBKEYS=\"{}\"",
         hex(pair.pk.as_ref())
     );
+}
+
+/// Read a key back exactly as the app would: same verifier list, same clock
+/// rule, same machine binding. Anything this prints is what a customer's
+/// Fovea will conclude about that key.
+fn verify(raw: &str, machine: Option<&str>) {
+    use upscaler_lib::services::license::key::verify_key;
+    use upscaler_lib::services::license::{keys, now_secs};
+    match verify_key(raw, now_secs(), machine) {
+        Ok(payload) => {
+            println!(
+                "signature  : verifies against this build's keys — {}",
+                keys::public_keys_hex().join(", ")
+            );
+            println!("license id : {}", payload.license_id);
+            println!("holder     : {}", payload.holder);
+            println!("edition    : {}", payload.edition.as_str());
+            println!(
+                "expires    : {}",
+                payload
+                    .expires
+                    .map(format_date)
+                    .unwrap_or_else(|| "perpetual".into())
+            );
+            println!(
+                "machine    : {}",
+                payload.machine.as_deref().unwrap_or("unbound")
+            );
+        }
+        Err(reason) => die(&format!("rejected: {reason:?}")),
+    }
 }
 
 fn hex(bytes: &[u8]) -> String {

@@ -6,10 +6,16 @@
  * the `invoke` boundary; a captured Tauri `Channel` lets the fake engine
  * stream events exactly like the real one does.
  */
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { useEffect } from 'react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import type { EnhanceEventDto, EnhanceResultDto, InferenceStatusDto } from '../types/ipc'
+import type {
+  EnhanceEventDto,
+  EnhanceResultDto,
+  InferenceStatusDto,
+  LicenseStatusDto,
+} from '../types/ipc'
+import { FILTER_ORDER } from '../lib/catalog'
 
 const invoke = vi.fn()
 let lastChannel: { onmessage?: (e: EnhanceEventDto) => void } | null = null
@@ -48,22 +54,25 @@ const result: EnhanceResultDto = {
 
 /** Seed app state from a hook the tests control (like the view's own
  * bootstrap does), then render the real strip + real hook. */
-function Harness({ seed }: { seed?: InferenceStatusDto }) {
+function Harness({ seed, license }: { seed?: InferenceStatusDto; license?: LicenseStatusDto }) {
   const { dispatch } = useAppState()
   const api = useEnhance()
   useEffect(() => {
     if (seed) dispatch({ type: 'inference/set', status: seed })
   }, [dispatch, seed])
+  useEffect(() => {
+    if (license) dispatch({ type: 'license/set', status: license })
+  }, [dispatch, license])
   return (
     <EnhanceControls enhanceApi={api} selectedId="a" onExport={() => {}} onCompare={() => {}} />
   )
 }
 
-function renderHarness(seed?: InferenceStatusDto) {
+function renderHarness(seed?: InferenceStatusDto, license?: LicenseStatusDto) {
   return render(
     <AppStateProvider>
       <NotificationProvider>
-        <Harness seed={seed} />
+        <Harness seed={seed} license={license} />
       </NotificationProvider>
     </AppStateProvider>,
   )
@@ -82,6 +91,12 @@ const readyStatus: InferenceStatusDto = {
     { key: 'natural', label: 'Natural', description: 'Denoise-first', available: true },
     { key: 'detail', label: 'Detail', description: 'Standard + sharpen', available: true },
   ],
+  filters: FILTER_ORDER.map((key) => ({
+    key,
+    label: key.charAt(0).toUpperCase() + key.slice(1),
+    description: `${key} description`,
+    available: true,
+  })),
   modelsDirDisplay: 'C:/models',
 }
 
@@ -182,11 +197,18 @@ describe('EnhanceControls (Stage 06)', () => {
     expect(screen.getByRole('button', { name: /enhance 2×/i })).toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: /enhance 2×/i }))
 
-    // The native call carries the chosen mode + scale.
+    // The native call carries the chosen mode + scale, and the finishing
+    // look exactly as the strip shows it (Stage 19).
     await waitFor(() =>
       expect(invoke).toHaveBeenCalledWith(
         'enhance_image',
-        expect.objectContaining({ imageId: 'a', mode: 'natural', scale: 2 }),
+        expect.objectContaining({
+          imageId: 'a',
+          mode: 'natural',
+          scale: 2,
+          filter: 'original',
+          intensity: 50,
+        }),
       ),
     )
     // Preparing shows immediately (optimistically via enhance/start).
@@ -202,6 +224,11 @@ describe('EnhanceControls (Stage 06)', () => {
   })
 
   it('shows the engine device while processing, following a GPU→CPU retry', async () => {
+    // The ladder-down event is pushed by the test rather than timed: a
+    // wall-clock gap between the two device events is not something a
+    // query can promise to observe, and under suite load it reliably misses
+    // the first one.
+    const ladderDown = { run: () => {} }
     invoke.mockImplementation((cmd: string) => {
       if (cmd !== 'enhance_image') return Promise.resolve(null)
       setTimeout(() => {
@@ -209,17 +236,18 @@ describe('EnhanceControls (Stage 06)', () => {
         lastChannel?.onmessage?.({ phase: 'device', device: 'DirectML GPU', tile: 256 })
         lastChannel?.onmessage?.({ phase: 'processing', done: 1, total: 4 })
       }, 0)
-      setTimeout(() => {
+      ladderDown.run = () => {
         // The ladder downgraded mid-job: the chip must follow the truth.
         lastChannel?.onmessage?.({ phase: 'device', device: 'CPU', tile: 128 })
         lastChannel?.onmessage?.({ phase: 'processing', done: 2, total: 8 })
-      }, 20)
+      }
       return new Promise<EnhanceResultDto>(() => {})
     })
     renderHarness(readyStatus)
     fireEvent.click(screen.getByRole('button', { name: /enhance 4×/i }))
     expect(await screen.findByText('GPU')).toBeInTheDocument()
-    expect(await screen.findByText('Processor')).toBeInTheDocument()
+    act(() => ladderDown.run())
+    expect(screen.getByText('Processor')).toBeInTheDocument()
   })
 
   it('cancel asks the native engine by job id and flags the panel', async () => {
@@ -339,5 +367,124 @@ describe('EnhanceControls (Stage 06)', () => {
     renderHarness(readyStatus)
     expect(screen.getByRole('button', { name: /enhance 2×/i })).toBeInTheDocument()
     expect((screen.getByRole('radio', { name: 'Detail' }) as HTMLInputElement).checked).toBe(true)
+  })
+})
+
+/**
+ * Stage 20 — the plan in force. The rule under test is the product's: a
+ * locked option stays on screen, unselectable, with the plan that unlocks it
+ * named beside it. Native's capability list is what the strip is given, so
+ * these records are written the way `services/license` emits them.
+ */
+const FREE_CAPS = ['enhance', 'export', 'batch', 'journal']
+const PRO_CAPS = [
+  ...FREE_CAPS,
+  'upscale_4x',
+  'advanced_restoration',
+  'face_enhancement',
+  'unlimited_processing',
+]
+
+function licenseStatus(over: Partial<LicenseStatusDto>): LicenseStatusDto {
+  return {
+    state: 'not_activated',
+    edition: null,
+    holder: null,
+    licenseId: null,
+    issuedAt: null,
+    expiresAt: null,
+    activatedAt: null,
+    machineBound: false,
+    capabilities: FREE_CAPS,
+    machineHint: 'abcd1234',
+    quota: { period: '2026-10', limit: 10, used: 3, remaining: 7 },
+    ...over,
+  }
+}
+
+const freePlan = licenseStatus({})
+const proPlan = licenseStatus({
+  state: 'active',
+  edition: 'pro',
+  holder: 'ada@example.com',
+  licenseId: 'PL-1',
+  capabilities: PRO_CAPS,
+  quota: null,
+})
+
+describe('EnhanceControls under a plan lock (Stage 20)', () => {
+  it('shows 4× as a Pro option and falls back to the largest it can run', async () => {
+    renderHarness(readyStatus, freePlan)
+    const four = await screen.findByRole('radio', { name: /4×/ })
+    expect(four).toBeDisabled()
+    expect(four.closest('label')?.textContent).toContain('Pro')
+    expect(four.closest('label')?.title).toContain('Fovea Pro')
+    // The stored default is 4× — the strip heals it rather than dead-ending.
+    expect(screen.getByRole('radio', { name: /^2×$/ })).toBeChecked()
+    expect(await screen.findByRole('button', { name: /enhance 2×/i })).toBeEnabled()
+  })
+
+  it('keeps Standard free and names Pro beside the other two restorations', () => {
+    renderHarness(readyStatus, freePlan)
+    expect(screen.getByRole('radio', { name: /^Standard$/ })).toBeEnabled()
+    for (const mode of ['Natural', 'Detail']) {
+      const option = screen.getByRole('radio', { name: new RegExp(mode) })
+      expect(option).toBeDisabled()
+      expect(option.closest('label')?.textContent).toContain('Pro')
+    }
+  })
+
+  it('holds Portrait back as the one look a plan can gate', () => {
+    renderHarness(readyStatus, freePlan)
+    const look = screen.getByLabelText('Look')
+    const portrait = within(look).getByRole('option', { name: /Portrait/i })
+    expect(portrait).toBeDisabled()
+    expect(portrait.textContent).toContain('Pro')
+    expect(within(look).getByRole('option', { name: /^Vivid$/i })).toBeEnabled()
+  })
+
+  it('disables only the presets that reach for a paid part', () => {
+    renderHarness(readyStatus, freePlan)
+    // 'Photo' is 2× + Standard; 'Old Photo' is 4×, 'Portrait' is the look.
+    expect(screen.getByRole('button', { name: /^photo$/i })).toBeEnabled()
+    expect(screen.getByRole('button', { name: /old photo/i })).toBeDisabled()
+    expect(screen.getByRole('button', { name: /old photo/i }).textContent).toContain('Pro')
+    expect(screen.getByRole('button', { name: /portrait/i })).toBeDisabled()
+  })
+
+  it('a locked preset cannot be applied, even by clicking it', () => {
+    renderHarness(readyStatus, freePlan)
+    fireEvent.click(screen.getByRole('button', { name: /print/i }))
+    // Still the healed free recipe, unchanged.
+    expect(screen.getByRole('radio', { name: /^2×$/ })).toBeChecked()
+    expect(screen.getByRole('radio', { name: /^Standard$/ })).toBeChecked()
+  })
+
+  it('counts the month in plain numbers', async () => {
+    renderHarness(readyStatus, freePlan)
+    expect(
+      await screen.findByText(/7 of 10 free enhancements left in October 2026/i),
+    ).toBeInTheDocument()
+  })
+
+  it('says so in words when the month is spent', async () => {
+    const spent = licenseStatus({
+      quota: { period: '2026-10', limit: 10, used: 10, remaining: 0 },
+    })
+    renderHarness(readyStatus, spent)
+    const meter = await screen.findByText(/all 10 free enhancements used in October 2026/i)
+    expect(meter).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /enhance 2×/i })).toBeDisabled()
+  })
+
+  it('a paid plan sees no counter at all, and the whole strip', async () => {
+    renderHarness(readyStatus, proPlan)
+    expect(screen.queryByText(/free enhancements/i)).not.toBeInTheDocument()
+    expect(await screen.findByRole('button', { name: /enhance 4×/i })).toBeEnabled()
+    expect(screen.getByRole('radio', { name: /^Detail$/ })).toBeEnabled()
+    const portrait = within(screen.getByLabelText('Look')).getByRole('option', {
+      name: /^Portrait$/i,
+    })
+    expect(portrait).toBeEnabled()
   })
 })

@@ -99,10 +99,25 @@ export function SelectField({
 }
 
 /** Segmented radio group — for small, either/or choices (≤4 options). */
+export interface SegmentedOption {
+  value: string
+  label: string
+  icon?: ReactNode
+  /** A *plan*-locked choice (Stage 20). The product rule is that a locked
+   * option is shown, never hidden: it renders in place, unselectable, with
+   * the plan that unlocks it named beside it. Distinct from the group's own
+   * `disabled`, which is temporary (a job running). */
+  locked?: boolean
+  /** The word beside a locked choice — 'Pro' | 'Studio'. */
+  badge?: string
+  /** One honest sentence for the pointer, e.g. "4× upscaling is Fovea Pro". */
+  lockHint?: string
+}
+
 export interface SegmentedFieldProps {
   label: string
   value: string
-  options: Array<{ value: string; label: string; icon?: ReactNode }>
+  options: Array<SegmentedOption>
   onChange: (value: string) => void
   name?: string
   className?: string
@@ -136,7 +151,9 @@ export function SegmentedField({
             'pix-segmented__option',
             value === option.value && 'pix-segmented__option--checked',
             disabled && 'pix-segmented__option--disabled',
+            option.locked && 'pix-segmented__option--locked',
           )}
+          title={option.locked ? option.lockHint : undefined}
         >
           <input
             type="radio"
@@ -144,11 +161,14 @@ export function SegmentedField({
             className="u-visually-hidden"
             value={option.value}
             checked={value === option.value}
-            disabled={disabled}
+            disabled={disabled || option.locked === true}
             onChange={() => onChange(option.value)}
           />
           {option.icon}
           {option.label}
+          {option.locked && option.badge ? (
+            <span className="pix-segmented__badge">{option.badge}</span>
+          ) : null}
         </label>
       ))}
     </div>

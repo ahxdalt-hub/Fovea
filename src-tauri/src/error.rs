@@ -81,6 +81,15 @@ pub enum AppError {
     /// Neither the credential store nor the app-data file accepted the
     /// key on activation (or deactivation couldn't reach them).
     LicenseStoreUnavailable { detail: String },
+    /// Stage 20 entitlements: the in-force license does not include this
+    /// capability (4×, a restoration mode, an engine control). Detail
+    /// names the feature and the plan that carries it — log only, since
+    /// the UI already knows which control the user touched.
+    FeatureLocked { detail: String },
+    /// The free plan's monthly enhancement allowance is used up. The
+    /// meter is local and resets with the calendar month; this is a
+    /// commercial boundary, not a fault with the user's file.
+    QuotaExceeded { detail: String },
     /// Anything that did not fit the expected failure categories.
     Unexpected { detail: String },
 }
@@ -110,6 +119,8 @@ impl AppError {
             AppError::LicenseClockSuspect { .. } => "license_clock_suspect",
             AppError::LicenseUnsupportedVersion { .. } => "license_unsupported_version",
             AppError::LicenseStoreUnavailable { .. } => "license_store_unavailable",
+            AppError::FeatureLocked { .. } => "feature_locked",
+            AppError::QuotaExceeded { .. } => "quota_exceeded",
             AppError::Unexpected { .. } => "unexpected_error",
         }
     }
@@ -161,7 +172,7 @@ impl AppError {
                 "That doesn't read as a Fovea license key. Copy it again from your purchase email and try once more."
             }
             AppError::LicenseExpired { .. } => {
-                "That license key has expired. Renew it to keep your activation current — until then, enhancement on this machine is unaffected."
+                "That license key has expired. Renew it to get your paid options back — until then Fovea keeps working on the free plan."
             }
             AppError::LicenseRevoked { .. } => {
                 "That license key was revoked by its issuer. Contact the store where you bought it."
@@ -177,6 +188,12 @@ impl AppError {
             }
             AppError::LicenseStoreUnavailable { .. } => {
                 "Fovea couldn't save the license on this computer. Check free disk space and app-data permissions, then try again."
+            }
+            AppError::FeatureLocked { .. } => {
+                "That option isn't part of the plan you're running. Upgrade to unlock it — images you've already enhanced stay exactly as they are."
+            }
+            AppError::QuotaExceeded { .. } => {
+                "You've used this month's free enhancements. The count resets at the start of next month, or upgrade for unlimited processing."
             }
             AppError::Unexpected { .. } => "Something went wrong. The application log may help.",
         }
@@ -228,6 +245,8 @@ fn other_detail(err: &AppError) -> &str {
         | AppError::LicenseClockSuspect { detail }
         | AppError::LicenseUnsupportedVersion { detail }
         | AppError::LicenseStoreUnavailable { detail }
+        | AppError::FeatureLocked { detail }
+        | AppError::QuotaExceeded { detail }
         | AppError::Unexpected { detail } => detail,
     }
 }
@@ -314,6 +333,14 @@ mod tests {
             (
                 AppError::ProcessingFailed { detail: "x".into() },
                 "processing_failed",
+            ),
+            (
+                AppError::FeatureLocked { detail: "x".into() },
+                "feature_locked",
+            ),
+            (
+                AppError::QuotaExceeded { detail: "x".into() },
+                "quota_exceeded",
             ),
             (AppError::unexpected("boom"), "unexpected_error"),
         ];

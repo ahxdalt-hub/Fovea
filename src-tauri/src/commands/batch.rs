@@ -18,6 +18,12 @@
 //! - **The event relay.** The queue's sync channel drains into the
 //!   webview `Channel` on its own thread; a closed window stops the
 //!   relay, not the work — items finish to disk and the journal anyway.
+//!   The relay is also where the free plan's monthly meter is charged:
+//!   one credit per item that actually completed, never per item queued.
+//! - **The plan gate.** Every queued recipe is checked against the
+//!   license in force before the first file opens, and the queue must fit
+//!   this month's remaining credits whole. A batch is one intention;
+//!   half of it silently running on a downgraded recipe would be a lie.
 
 use std::sync::Mutex;
 use std::sync::mpsc;
@@ -29,13 +35,15 @@ use tauri::{AppHandle, Manager};
 use crate::commands::inference::EngineState;
 use crate::error::{AppError, AppResult};
 use crate::services::batch::{
-    self, BatchEngine, BatchEvent, BatchOutputConfig, BatchSession, BatchSnapshot, BatchSource,
+    self, BatchEngine, BatchEvent, BatchItemState, BatchOutputConfig, BatchSession, BatchSnapshot,
+    BatchSource,
 };
 use crate::services::export::{self, ExportFormat};
 use crate::services::history::Store as HistoryStore;
 use crate::services::import;
 use crate::services::inference::finish::Filter;
 use crate::services::inference::model::EnhanceMode;
+use crate::services::license;
 
 /// The queue session slot. `None` until the first batch starts.
 pub struct BatchState {
@@ -93,6 +101,13 @@ pub async fn start_batch(
         ExportFormat::from_key(&output.format).ok_or_else(|| AppError::UnsupportedFormat {
             detail: format!("unknown export format {:?}", output.format),
         })?;
+
+    // Stage 20: the plan gate. Read once here (a key verify, not a job),
+    // applied per item in the validation pass below, and charged per
+    // completed item by the event relay. This is the whole enforcement —
+    // `services::batch` and the engine know nothing about editions.
+    let app_data = crate::commands::license::app_data(&app)?;
+    let entitlement = license::entitlement(&app_data);
 
     // Resolve handles and validate paths off the async executor thread —
     // `import_one` decodes pixels.
@@ -166,6 +181,18 @@ pub async fn start_batch(
                     detail: "zero scale".into(),
                 });
             }
+            // Locked ingredients refuse the whole run. Dropping the
+            // offending files instead would report a batch that quietly
+            // did something other than what was asked.
+            if item.scale > license::FREE_MAX_SCALE {
+                entitlement.require(license::Feature::Upscale4x)?;
+            }
+            if mode != EnhanceMode::Standard {
+                entitlement.require(license::Feature::AdvancedRestoration)?;
+            }
+            if filter == Filter::Portrait {
+                entitlement.require(license::Feature::FaceEnhancement)?;
+            }
             // Validate cheaply: existence + format + pixel/byte limits,
             // header-only (a batch can be hundreds of files, and decoding
             // all of them before the first item runs is minutes of dead
@@ -194,6 +221,11 @@ pub async fn start_batch(
                 detail: "no valid files in batch".into(),
             });
         }
+        // This month's remaining credits must cover the queue *whole*.
+        // Starting 12 files on 5 credits and stopping at 5 would leave the
+        // user with a half-run queue and no explanation until they read
+        // the items; refusing up front says what is actually true.
+        entitlement.check(sources.len() as u32)?;
         let engine = std::sync::Arc::new(BatchEngine {
             registry,
             jobs,
@@ -211,10 +243,19 @@ pub async fn start_batch(
         )?;
         // The event relay lives until every queue-side sender drops —
         // i.e. for this session's whole lifetime, across replacement.
+        let meter = entitlement.clone();
         std::thread::Builder::new()
             .name("fovea-batch-relay".into())
             .spawn(move || {
                 for event in rx {
+                    // One credit per image actually written. Failed and
+                    // cancelled items never reach this line as a spend,
+                    // so a queue that half-ran charged for half a batch.
+                    if matches!(event, BatchEvent::Completed { .. }) {
+                        if let Err(err) = meter.spend(1) {
+                            log::warn!("monthly meter could not be recorded: {}", err.code());
+                        }
+                    }
                     if on_event.send(event).is_err() {
                         break; // window gone; the queue drains to disk anyway
                     }
@@ -270,20 +311,42 @@ pub async fn cancel_batch_all(app: AppHandle) -> AppResult<()> {
 
 /// Re-queue failed and cancelled items (fresh runs). Returns the updated
 /// snapshot, or `None` when no session exists.
+///
+/// Stage 20: a retry is new processing, so it is metered like a new batch.
+/// The recipes already passed the plan gate at start (a retry cannot
+/// introduce a locked option), so only the month's remaining credits are
+/// re-checked here — and the queue's original relay still charges each
+/// item that completes, retry included.
 #[tauri::command]
 pub async fn retry_batch_failed(app: AppHandle) -> AppResult<Option<BatchSnapshot>> {
     let state = app.state::<BatchState>();
-    let slot = state
-        .session
-        .lock()
-        .map_err(|_| AppError::unexpected("batch state poisoned"))?;
-    Ok(match slot.as_ref() {
-        Some(session) => {
-            session.handle().retry_failed();
-            Some(session.handle().snapshot())
-        }
-        None => None,
-    })
+    let handle = {
+        let slot = state
+            .session
+            .lock()
+            .map_err(|_| AppError::unexpected("batch state poisoned"))?;
+        slot.as_ref().map(|session| session.handle().clone())
+    };
+    let Some(handle) = handle else {
+        return Ok(None);
+    };
+    let requeued = handle
+        .snapshot()
+        .items
+        .iter()
+        .filter(|item| {
+            matches!(
+                item.state,
+                BatchItemState::Failed | BatchItemState::Cancelled
+            )
+        })
+        .count();
+    if requeued > 0 {
+        let entitlement = license::entitlement(&crate::commands::license::app_data(&app)?);
+        entitlement.check(requeued as u32)?;
+    }
+    handle.retry_failed();
+    Ok(Some(handle.snapshot()))
 }
 
 /// The current queue snapshot — for late subscribers (UI re-entry after

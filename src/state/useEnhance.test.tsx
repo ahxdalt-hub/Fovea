@@ -10,7 +10,12 @@
 import { act, renderHook, waitFor } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { ReactNode } from 'react'
-import type { EnhanceEventDto, EnhanceResultDto, ImportedImageDto } from '../types/ipc'
+import type {
+  EnhanceEventDto,
+  EnhanceRecipe,
+  EnhanceResultDto,
+  ImportedImageDto,
+} from '../types/ipc'
 import type { AppAction, AppState } from './appReducer'
 
 const enhanceImage = vi.fn()
@@ -18,8 +23,8 @@ const cancelEnhancement = vi.fn(async (_jobId: string) => {})
 const notify = vi.fn()
 
 vi.mock('../ipc/bridge', () => ({
-  enhanceImage: (imageId: string, mode: string, scale: number, onEvent: unknown) =>
-    enhanceImage(imageId, mode, scale, onEvent as (e: EnhanceEventDto) => void),
+  enhanceImage: (imageId: string, recipe: EnhanceRecipe, onEvent: (e: EnhanceEventDto) => void) =>
+    enhanceImage(imageId, recipe, onEvent),
   cancelEnhancement: (jobId: string) => cancelEnhancement(jobId),
 }))
 
@@ -63,7 +68,7 @@ function renderEnhance() {
   let settle: ((r: EnhanceResultDto) => void) | null = null
   let emit: ((e: EnhanceEventDto) => void) | null = null
   enhanceImage.mockImplementation(
-    (_imageId: string, _mode: string, _scale: number, onEvent: (e: EnhanceEventDto) => void) => {
+    (_imageId: string, _recipe: EnhanceRecipe, onEvent: (e: EnhanceEventDto) => void) => {
       emit = onEvent
       return new Promise<EnhanceResultDto>((resolve) => {
         settle = resolve
@@ -89,7 +94,14 @@ function renderEnhance() {
     state: (): AppState => hook.result.current.app.state,
     dispatch: (action: AppAction) => act(() => hook.result.current.app.dispatch(action)),
     start: (imageId: string) => {
-      pending.push(hook.result.current.enhance.run(imageId, { mode: 'standard', scale: 4 }))
+      pending.push(
+        hook.result.current.enhance.run(imageId, {
+          mode: 'standard',
+          scale: 4,
+          filter: 'original',
+          intensity: 50,
+        }),
+      )
     },
     /** Let the command reach the (mocked) native call. */
     flush: async () => {

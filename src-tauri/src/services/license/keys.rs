@@ -33,3 +33,30 @@ pub fn public_keys_hex() -> Vec<String> {
         .collect();
     keys
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The dev pair is a fixture, not a skeleton key. In a release binary the
+    /// only verifiers are the keys packaging injected, so a key issued from the
+    /// committed dev seed — which every reader of this repository has — buys
+    /// nothing. Runs only under `cargo test --release`, which is exactly the
+    /// configuration that ships.
+    #[cfg(not(debug_assertions))]
+    #[test]
+    fn a_release_build_carries_only_the_injected_keys() {
+        const DEV_PUBKEY_HEX: &str =
+            "c79464553116722cdff402851971581d1ba15d271baf8c8bbcfe0d642ee21672";
+        const DEV_SEED_HEX: &str =
+            "5cc1a5fe1158e4687684994f933f77b426437b7c003badda8767c6c92d9749fd";
+        let keys = public_keys_hex();
+        assert!(!keys.is_empty(), "packaging injected no public key");
+        assert!(
+            !keys
+                .iter()
+                .any(|k| k == DEV_PUBKEY_HEX || k == DEV_SEED_HEX),
+            "a dev fixture key is a verifier in a release build"
+        );
+    }
+}
