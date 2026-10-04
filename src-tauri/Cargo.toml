@@ -1,8 +1,8 @@
 [package]
 name = "local-ai-image-upscaler"
-version = "0.1.0"
-description = "Pixora — professional local AI image enhancement for Windows. Your images never leave your machine."
-authors = ["Pixora"]
+version = "1.0.0"
+description = "Fovea — professional local AI image enhancement for Windows. Your images never leave your machine."
+authors = ["Fovea"]
 edition = "2024"
 rust-version = "1.85"
 
@@ -75,4 +75,8 @@ codegen-units = 1
 lto = true
 opt-level = 3
 strip = true
-panic = "abort"
+# Unwinding is load-bearing, not decorative: the batch worker contains a
+# panicking item with `catch_unwind` so one bad file cannot kill a running
+# queue (services/batch.rs). `panic = "abort"` would make that containment
+# a no-op and turn any panic into a silent process death.
+panic = "unwind"

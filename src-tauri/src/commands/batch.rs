@@ -34,6 +34,7 @@ use crate::services::batch::{
 use crate::services::export::{self, ExportFormat};
 use crate::services::history::Store as HistoryStore;
 use crate::services::import;
+use crate::services::inference::finish::Filter;
 use crate::services::inference::model::EnhanceMode;
 
 /// The queue session slot. `None` until the first batch starts.
@@ -50,10 +51,12 @@ pub struct BatchItemArg {
     pub name: String,
     pub scale: usize,
     pub mode: String,
+    pub filter: String,
+    pub intensity: u8,
 }
 
-/// Where and how results are written. `folder: ""` selects Pixora's
-/// default batch export folder (app-data `exports/batch/`).
+/// Where and how results are written. `folder: ""` selects Fovea's
+/// own batch folder (`Documents/Fovea/Batch`).
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct BatchConfigArg {
@@ -124,12 +127,21 @@ pub async fn start_batch(
     }
 
     let folder = if output.folder.is_empty() {
-        default_batch_export_dir(&app)?
+        crate::commands::export::default_batch_export_dir(&app)?
             .to_string_lossy()
             .into_owned()
     } else {
         output.folder.clone()
     };
+    // Remembered for the "open the batch folder" action: the reveal path
+    // is this side's own record, never one the client names.
+    crate::commands::export::remember(
+        &app,
+        crate::commands::export::ExportRecord {
+            folder: std::path::PathBuf::from(&folder),
+            file: None,
+        },
+    );
     let config = BatchOutputConfig {
         folder,
         format,
@@ -145,17 +157,22 @@ pub async fn start_batch(
                 EnhanceMode::from_key(&item.mode).ok_or_else(|| AppError::UnsupportedFormat {
                     detail: format!("unknown enhancement mode {:?}", item.mode),
                 })?;
+            let filter =
+                Filter::from_key(&item.filter).ok_or_else(|| AppError::UnsupportedFormat {
+                    detail: format!("unknown finishing filter {:?}", item.filter),
+                })?;
             if item.scale == 0 {
                 return Err(AppError::UnsupportedScale {
                     detail: "zero scale".into(),
                 });
             }
-            // Validate cheaply: existence + format + pixel/byte limits
-            // via `decode_validated` — no preview bytes built (a batch can
-            // be hundreds of files; the collection's canonical id is
-            // already this exact path, so re-deriving it is pointless).
+            // Validate cheaply: existence + format + pixel/byte limits,
+            // header-only (a batch can be hundreds of files, and decoding
+            // all of them before the first item runs is minutes of dead
+            // air). A file that passes the gate and then fails to decode
+            // reports that failure as its own batch item.
             let path = std::path::Path::new(&item.path);
-            match import::decode_validated(path) {
+            match import::validate_source(path) {
                 Ok(_) => sources.push(BatchSource {
                     image_id: item.path.clone(),
                     path: item.path,
@@ -163,6 +180,8 @@ pub async fn start_batch(
                     settings: batch::BatchSettings {
                         mode,
                         scale: item.scale,
+                        filter,
+                        intensity: item.intensity,
                     },
                 }),
                 Err(e) => {
@@ -193,7 +212,7 @@ pub async fn start_batch(
         // The event relay lives until every queue-side sender drops —
         // i.e. for this session's whole lifetime, across replacement.
         std::thread::Builder::new()
-            .name("pixora-batch-relay".into())
+            .name("fovea-batch-relay".into())
             .spawn(move || {
                 for event in rx {
                     if on_event.send(event).is_err() {
@@ -217,18 +236,6 @@ pub async fn start_batch(
     *slot = Some(session);
     drop(slot);
     Ok(snapshot)
-}
-
-/// Pixora's default batch export folder, created on demand.
-fn default_batch_export_dir(app: &AppHandle) -> AppResult<std::path::PathBuf> {
-    let dir = app
-        .path()
-        .app_data_dir()
-        .map_err(|e| AppError::unexpected(format!("app data dir: {e}")))?
-        .join("exports")
-        .join("batch");
-    std::fs::create_dir_all(&dir).map_err(AppError::from)?;
-    Ok(dir)
 }
 
 /// Cancel one item (mid-run or from the queue). False when the session

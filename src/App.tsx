@@ -1,5 +1,5 @@
 /**
- * Pixora application shell.
+ * Fovea application shell.
  *
  * Layout: TopBar (identity + global chrome) / NavRail + Workspace / StatusBar.
  * The workspace renders the active view; navigation is a pure state change
@@ -152,7 +152,7 @@ export function Shell() {
   }
 
   return (
-    <div className="pixora-shell">
+    <div className="fovea-shell">
       {dragOver && <DropOverlay />}
       <TopBar
         onOpenSettings={openSettings}
@@ -160,11 +160,11 @@ export function Shell() {
         onOpenAbout={() => setAboutOpen(true)}
         onSetTheme={setTheme}
       />
-      <div className="pixora-shell__body">
+      <div className="fovea-shell__body">
         <NavRail active={state.ui.view} onNavigate={navigate} />
         {/* key remounts the view subtree so entry motion replays per section */}
         <main
-          className="pixora-workspace"
+          className="fovea-workspace"
           key={state.coreStatus === 'ready' ? state.ui.view : 'core'}
         >
           {renderWorkspace()}

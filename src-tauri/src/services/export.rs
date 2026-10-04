@@ -7,7 +7,9 @@
 //! - JPEG export flattens alpha onto white (the universal backdrop —
 //!   JPEG has no transparency), then encodes at the requested quality.
 //! - WebP export keeps alpha and encodes lossy at the requested quality
-//!   via libwebp (`webp` crate).
+//!   via libwebp (`webp` crate). Each codec's dimension ceiling is refused
+//!   as a named `ExportLimit` before the encoder runs — libwebp's failure
+//!   mode is an error the convenience API turns into a panic.
 //! - File names never overwrite silently — a collision gains a numeric
 //!   suffix. The stem is sanitized so a strange file name can't escape the
 //!   destination folder.
@@ -24,7 +26,7 @@ use serde::Serialize;
 
 use crate::error::{AppError, AppResult};
 
-/// Export formats the UI may offer — the set Pixora can actually write.
+/// Export formats the UI may offer — the set Fovea can actually write.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ExportFormat {
     Png,
@@ -63,6 +65,10 @@ impl ExportFormat {
 pub fn normalize_quality(quality: u8) -> u8 {
     quality.clamp(1, 100)
 }
+
+/// libwebp's hard ceiling: no edge above this. Exceeding it is a format
+/// limit, not a machine failure, so it is refused before the encoder runs.
+const WEBP_MAX_EDGE: u32 = 16383;
 
 /// Result of one export — serialized to the UI (`ExportResultDto`).
 #[derive(Debug, Clone, Serialize)]
@@ -146,6 +152,13 @@ pub fn export_image(
 fn encode_lossy(img: &DynamicImage, format: ExportFormat, quality: u8) -> AppResult<Vec<u8>> {
     match format {
         ExportFormat::Jpeg => {
+            // Baseline JPEG's own ceiling (the encoder errors past it, but
+            // a named limit beats a generic "encode failed").
+            if img.width().max(img.height()) > 65535 {
+                return Err(AppError::ExportLimit {
+                    detail: "jpeg edge over 65535".into(),
+                });
+            }
             // JPEG has no alpha channel: composite onto white so
             // transparency reads as the same white any viewer would show.
             let rgb = flatten_on_white(img).to_rgb8();
@@ -156,13 +169,32 @@ fn encode_lossy(img: &DynamicImage, format: ExportFormat, quality: u8) -> AppRes
             Ok(out.into_inner())
         }
         ExportFormat::Webp => {
+            // libwebp refuses any edge over 16383 px, and the crate's
+            // convenience `encode()` answers that refusal by panicking on
+            // an internal unwrap. A 4× master from a 4100 px source used to
+            // kill the app mid-save. Name the ceiling here, and use the
+            // error-returning encoder for everything else.
+            let longest = img.width().max(img.height());
+            if longest > WEBP_MAX_EDGE {
+                return Err(AppError::ExportLimit {
+                    detail: format!("webp edge {longest} > {WEBP_MAX_EDGE}"),
+                });
+            }
             let q = quality as f32;
             let mem = if img.color().has_alpha() {
                 let rgba = img.to_rgba8();
-                webp::Encoder::from_rgba(rgba.as_raw(), rgba.width(), rgba.height()).encode(q)
+                webp::Encoder::from_rgba(rgba.as_raw(), rgba.width(), rgba.height())
+                    .encode_simple(false, q)
+                    .map_err(|e| AppError::InsufficientResources {
+                        detail: format!("webp encode: {e:?}"),
+                    })?
             } else {
                 let rgb = img.to_rgb8();
-                webp::Encoder::from_rgb(rgb.as_raw(), rgb.width(), rgb.height()).encode(q)
+                webp::Encoder::from_rgb(rgb.as_raw(), rgb.width(), rgb.height())
+                    .encode_simple(false, q)
+                    .map_err(|e| AppError::InsufficientResources {
+                        detail: format!("webp encode: {e:?}"),
+                    })?
             };
             Ok(mem.to_vec())
         }
@@ -199,7 +231,7 @@ fn collision_safe_path(dir: &Path, stem: &str, ext: &str) -> PathBuf {
     };
     let stem = sanitize(stem);
     let stem = stem.trim().trim_matches('.');
-    let stem = if stem.is_empty() { "pixora" } else { stem };
+    let stem = if stem.is_empty() { "fovea" } else { stem };
     let first = dir.join(format!("{stem}.{ext}"));
     if !first.exists() {
         return first;
@@ -228,7 +260,7 @@ mod tests {
     use image::{ImageFormat, Rgba, RgbaImage};
 
     fn scratch(tag: &str) -> PathBuf {
-        let dir = std::env::temp_dir().join(format!("pixora-export-{}-{tag}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("fovea-export-{}-{tag}", std::process::id()));
         let _ = fs::remove_dir_all(&dir);
         fs::create_dir_all(&dir).expect("scratch");
         dir
@@ -313,6 +345,20 @@ mod tests {
         assert!(back.color().has_alpha(), "alpha kept");
     }
 
+    /// libwebp's 16383 px edge ceiling has to be a named refusal, never the
+    /// crate's panic-on-error: a 4× master from a 4100 px source is an
+    /// ordinary phone-photo workflow.
+    #[test]
+    fn webp_refuses_an_over_ceiling_master_instead_of_panicking() {
+        let root = scratch("webpceil");
+        let master = master_png(&root, 17_000, 8, false);
+        let err = export_image(&master, &root, "wide", ExportFormat::Webp, 80)
+            .expect_err("over ceiling must fail");
+        assert_eq!(err.code(), "export_limit");
+        assert!(export_image(&master, &root, "wide", ExportFormat::Png, 80).is_ok());
+        assert!(export_image(&master, &root, "wide", ExportFormat::Jpeg, 80).is_ok());
+    }
+
     #[test]
     fn jpeg_export_flattens_alpha_on_white() {
         let root = scratch("flatten");
@@ -358,7 +404,7 @@ mod tests {
         assert!(result.file_path.starts_with(&root));
         assert!(!result.file_name.contains('\\'));
         let dots = export_image(&master, &root, "...", ExportFormat::Png, 90).expect("dots export");
-        assert!(dots.file_name.starts_with("pixora")); // empty-after-trim → safe fallback
+        assert!(dots.file_name.starts_with("fovea")); // empty-after-trim → safe fallback
     }
 
     #[test]

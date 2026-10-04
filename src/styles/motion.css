@@ -9,7 +9,7 @@
  */
 
 /* Panel/section entering the workspace. */
-@keyframes pixora-rise {
+@keyframes fovea-rise {
   from {
     opacity: 0;
     transform: translateY(6px);
@@ -21,7 +21,7 @@
 }
 
 /* Generic content fade (view switches, dialog backdrop). */
-@keyframes pixora-fade {
+@keyframes fovea-fade {
   from {
     opacity: 0;
   }
@@ -31,7 +31,7 @@
 }
 
 /* Dialog panel entry: fade + 2% scale settle. */
-@keyframes pixora-dialog-in {
+@keyframes fovea-dialog-in {
   from {
     opacity: 0;
     transform: translateY(8px) scale(0.985);
@@ -43,7 +43,7 @@
 }
 
 /* Dropdown menu entry: slight drop, fast. */
-@keyframes pixora-menu-in {
+@keyframes fovea-menu-in {
   from {
     opacity: 0;
     transform: translateY(-4px) scale(0.99);
@@ -55,7 +55,7 @@
 }
 
 /* Notification entry from the bottom-right. */
-@keyframes pixora-notification-in {
+@keyframes fovea-notification-in {
   from {
     opacity: 0;
     transform: translateY(10px);
@@ -67,7 +67,7 @@
 }
 
 /* Indeterminate progress: a 40%-wide bar sweeping the track. */
-@keyframes pixora-indeterminate {
+@keyframes fovea-indeterminate {
   from {
     transform: translateX(-100%);
   }
@@ -77,7 +77,7 @@
 }
 
 /* Tooltip reveal. */
-@keyframes pixora-tip-in {
+@keyframes fovea-tip-in {
   from {
     opacity: 0;
   }
@@ -87,9 +87,9 @@
 }
 
 .anim-rise {
-  animation: pixora-rise var(--duration-base) var(--ease-decelerate) both;
+  animation: fovea-rise var(--duration-base) var(--ease-decelerate) both;
 }
 
 .anim-fade {
-  animation: pixora-fade var(--duration-base) var(--ease-standard) both;
+  animation: fovea-fade var(--duration-base) var(--ease-standard) both;
 }

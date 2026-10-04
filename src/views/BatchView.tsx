@@ -11,7 +11,7 @@
  *
  * It deliberately stays *not* a management dashboard: a compact preset
  * strip, the queue list with per-item progress, and the terminal actions
- * (cancel, retry, dismiss). Output settings default to Pixora's own
+ * (cancel, retry, dismiss). Output settings default to Fovea's own
  * batch folder so the primary action never dead-ends on a dialog.
  */
 import { useCallback, useMemo, useState } from 'react'
@@ -21,10 +21,12 @@ import type {
   BatchItemStateDto,
   ExportFormatKey,
 } from '../types/ipc'
-import { pickExportFolder } from '../ipc/bridge'
+import { toAppError } from '../types/ipc'
+import { openExportFolder, pickExportFolder } from '../ipc/bridge'
 import { FORMATS } from '../lib/catalog'
 import { useAppState } from '../state/useAppState'
 import type { BatchApi } from '../state/useBatch'
+import { useNotify } from '../ui/notificationContext'
 import { Badge } from '../ui/Badge'
 import { Button, IconButton } from '../ui/Button'
 import { SegmentedField } from '../ui/Field'
@@ -83,6 +85,7 @@ function badgeTone(
 
 export function BatchView({ batchApi, onGoToEnhance }: BatchViewProps) {
   const { state } = useAppState()
+  const { notify } = useNotify()
   const native = isTauriRuntime()
   const images = state.images
   const batch = state.batch
@@ -101,9 +104,12 @@ export function BatchView({ batchApi, onGoToEnhance }: BatchViewProps) {
   const [mode, setMode] = useState<string>(state.settings.processing.defaultMode)
 
   // Output settings — default to the configured export choice (folder:
-  // "" = Pixora's own batch folder).
+  // "" = Fovea's own batch folder inside Documents, named by the native
+  // layer so this screen can show the real place the files land).
   const [folder, setFolder] = useState(state.settings.export.folder)
   const [format, setFormat] = useState<ExportFormatKey>(state.settings.export.format)
+  const foveaBatchFolder = state.systemInfo?.defaultBatchExportDir ?? ''
+  const shownFolder = folder || foveaBatchFolder
 
   const chooseFolder = useCallback(async () => {
     try {
@@ -113,6 +119,17 @@ export function BatchView({ batchApi, onGoToEnhance }: BatchViewProps) {
       // A canceled/failed picker keeps the default — not a data problem.
     }
   }, [])
+
+  // Reveal the folder the last run wrote to. The path is the one the native
+  // layer recorded, never one guessed here — and a refusal is reported.
+  const openFolder = useCallback(async () => {
+    try {
+      const path = await openExportFolder()
+      notify('success', `Opened ${path}`)
+    } catch (err) {
+      notify('warning', toAppError(err).message)
+    }
+  }, [notify])
 
   const runBatch = useCallback(() => {
     if (images.length === 0) return
@@ -129,7 +146,7 @@ export function BatchView({ batchApi, onGoToEnhance }: BatchViewProps) {
   // Empty collection → honest empty state, no fake table.
   if (images.length === 0 && !batch) {
     return (
-      <div className="pixora-view anim-fade">
+      <div className="fovea-view anim-fade">
         <ViewHeader />
         <EmptyState
           icon={<IconLayers size="lg" />}
@@ -161,7 +178,7 @@ export function BatchView({ batchApi, onGoToEnhance }: BatchViewProps) {
   const hasRetryable = items.some((i) => i.state === 'failed' || i.state === 'cancelled')
 
   return (
-    <div className="pixora-view anim-fade">
+    <div className="fovea-view anim-fade">
       <ViewHeader />
 
       <div className="pix-batch">
@@ -171,7 +188,7 @@ export function BatchView({ batchApi, onGoToEnhance }: BatchViewProps) {
             {scales.length > 1 && (
               <SegmentedField
                 label="Scale"
-                name="pixora-batch-scale"
+                name="fovea-batch-scale"
                 value={String(scale)}
                 onChange={(v) => setScale(Number(v))}
                 disabled={running}
@@ -181,7 +198,7 @@ export function BatchView({ batchApi, onGoToEnhance }: BatchViewProps) {
             {availableModes.size > 1 && (
               <SegmentedField
                 label="Mode"
-                name="pixora-batch-mode"
+                name="fovea-batch-mode"
                 value={mode}
                 onChange={setMode}
                 disabled={running}
@@ -190,7 +207,7 @@ export function BatchView({ batchApi, onGoToEnhance }: BatchViewProps) {
             )}
             <SegmentedField
               label="Format"
-              name="pixora-batch-format"
+              name="fovea-batch-format"
               value={format}
               onChange={(v) => setFormat(v as ExportFormatKey)}
               disabled={running}
@@ -202,8 +219,8 @@ export function BatchView({ batchApi, onGoToEnhance }: BatchViewProps) {
           <div className="pix-batch__output">
             <span className="pix-batch__output-label">Save to</span>
             <div className="pix-batch__folder">
-              <span className="pix-batch__path" title={folder || undefined}>
-                {folder || "Pixora's batch folder"}
+              <span className="pix-batch__path" title={shownFolder || undefined}>
+                {shownFolder || "Fovea's batch folder"}
               </span>
               <Button
                 variant="secondary"
@@ -214,6 +231,16 @@ export function BatchView({ batchApi, onGoToEnhance }: BatchViewProps) {
               >
                 Change…
               </Button>
+              {doneCount > 0 ? (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  disabled={!native}
+                  onClick={() => void openFolder()}
+                >
+                  Open folder
+                </Button>
+              ) : null}
             </div>
           </div>
 
@@ -298,11 +325,11 @@ export function BatchView({ batchApi, onGoToEnhance }: BatchViewProps) {
 
 function ViewHeader() {
   return (
-    <div className="pixora-view__header">
+    <div className="fovea-view__header">
       <div>
-        <h1 className="pixora-view__title">Batch</h1>
-        <p className="pixora-view__subtitle">
-          Enhance a set in one pass — Pixora works through them one at a time so your machine never
+        <h1 className="fovea-view__title">Batch</h1>
+        <p className="fovea-view__subtitle">
+          Enhance a set in one pass — Fovea works through them one at a time so your machine never
           runs out of room.
         </p>
       </div>

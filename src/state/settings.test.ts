@@ -18,9 +18,9 @@ import {
   writeSettings,
 } from './settings'
 
-const SETTINGS_KEY = 'pixora:settings'
-const LEGACY_THEME_KEY = 'pixora:theme'
-const LEGACY_ENHANCE_KEY = 'pixora:enhance-settings'
+const SETTINGS_KEY = 'fovea:settings'
+const LEGACY_THEME_KEY = 'fovea:theme'
+const LEGACY_ENHANCE_KEY = 'fovea:enhance-settings'
 
 beforeEach(() => {
   localStorage.clear()
@@ -46,7 +46,7 @@ describe('normalizeSettings', () => {
       export: { format: 'tiff', quality: 190, folder: 42 },
       performance: { speed: 'turbo' },
     })
-    expect(got.general.theme).toBe('system') // junk → default
+    expect(got.general.theme).toBe('light') // junk → default
     expect(got.general.rememberRecentFiles).toBe(true) // junk → default
     expect(got.general.recentFilesLimit).toBe(12) // clamped to the native cap
     expect(got.processing.defaultScale).toBe(4) // 3 is not a product scale
@@ -92,7 +92,7 @@ describe('persistence (the restart case)', () => {
       SETTINGS_KEY,
       JSON.stringify({ version: SETTINGS_VERSION, general: { theme: 'neon' } }),
     )
-    expect(readSettings().general.theme).toBe('system')
+    expect(readSettings().general.theme).toBe('light')
   })
 
   it('treats a corrupt file as no file at all', () => {
@@ -140,7 +140,7 @@ describe('legacy migration (Stages 01–06 keys)', () => {
     localStorage.setItem(LEGACY_THEME_KEY, 'blueprint')
     localStorage.setItem(LEGACY_ENHANCE_KEY, '{"mode":"laser","scale":9}')
     const got = readSettings()
-    expect(got.general.theme).toBe('system')
+    expect(got.general.theme).toBe('light')
     expect(got.processing.defaultMode).toBe('standard')
     expect(got.processing.defaultScale).toBe(4)
   })
@@ -185,7 +185,7 @@ describe('startup view', () => {
   })
 
   it('ignores a remembered value that names no real view', () => {
-    localStorage.setItem('pixora:last-view', 'settings')
+    localStorage.setItem('fovea:last-view', 'settings')
     expect(readStoredLastView()).toBe('enhance')
   })
 })

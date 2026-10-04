@@ -14,7 +14,7 @@ use std::io::Cursor;
 use std::path::Path;
 
 use base64::Engine as _;
-use image::{DynamicImage, ImageFormat, ImageReader};
+use image::{DynamicImage, ImageDecoder, ImageFormat, ImageReader};
 use serde::Serialize;
 
 use crate::error::{AppError, AppResult};
@@ -176,6 +176,27 @@ fn decode_validated_with_limits(
     max_pixels: u64,
     max_file_bytes: u64,
 ) -> AppResult<(DynamicImage, ImageFormatLabel, u64)> {
+    let (bytes, guessed, format, size) = gate_source(path, max_pixels, max_file_bytes)?;
+    // 6. Decode. Anything that got this far and still fails is genuinely
+    //    corrupt.
+    let decoded = decode_upright(&bytes, guessed, &display_name(path))?;
+    Ok((decoded, format, size))
+}
+
+/// Prove a path is an image Fovea can work with, *without* decoding a
+/// single pixel: extension, existence, on-disk size, content sniff (bytes
+/// must agree with the extension) and a header-only dimension check. The
+/// whole ladder up to the decode, in one place, so "what can be enhanced"
+/// has exactly one definition — and so a 500-file batch can be validated
+/// for the cost of reading headers instead of running 500 full decodes.
+///
+/// Returns the bytes (the caller may still need to decode them), the
+/// sniffed format, its label, and the on-disk size.
+fn gate_source(
+    path: &Path,
+    max_pixels: u64,
+    max_file_bytes: u64,
+) -> AppResult<(Vec<u8>, ImageFormat, ImageFormatLabel, u64)> {
     let name = display_name(path);
     if name.is_empty() || name.contains('\0') {
         return Err(AppError::FileMissing { detail: name });
@@ -259,15 +280,40 @@ fn decode_validated_with_limits(
             detail: format!("{name}: {pixels} pixels"),
         });
     }
+    Ok((bytes, guessed, format, meta.len()))
+}
 
-    // 6. Decode. Anything that got this far and still fails is genuinely
-    //    corrupt.
-    let decoded = image::load_from_memory_with_format(&bytes, guessed).map_err(|_| {
-        AppError::InvalidImage {
-            detail: format!("{name}: decode failed"),
-        }
+/// The pixel-free half of the ladder, public for the batch queue: a start
+/// can carry hundreds of files, and a full decode of each one before the
+/// first item runs is minutes of dead air. A file that passes this gate and
+/// then fails to actually decode reports its failure as its own batch item.
+pub fn validate_source(path: &Path) -> AppResult<()> {
+    gate_source(path, MAX_PIXELS, MAX_FILE_BYTES).map(|_| ())
+}
+
+/// Decode already-validated bytes and un-rotate them.
+///
+/// A phone camera writes the frame in sensor orientation plus an EXIF
+/// `Orientation` tag; Windows Explorer, the webview and every phone gallery
+/// show the rotated result. The `image` crate only honors that tag on
+/// request, so without this the preview, the enhanced master and the export
+/// all come out sideways while the compare view (raw bytes in an EXIF-aware
+/// webview) stands upright. Applied in one shared place, so import, viewing
+/// and the inference engine can never disagree about which way is up.
+fn decode_upright(bytes: &[u8], guessed: ImageFormat, name: &str) -> AppResult<DynamicImage> {
+    let mut reader = ImageReader::new(Cursor::new(bytes));
+    reader.set_format(guessed);
+    let mut decoder = reader.into_decoder().map_err(|_| AppError::InvalidImage {
+        detail: format!("{name}: decode failed"),
     })?;
-    Ok((decoded, format, meta.len()))
+    let orientation = decoder
+        .orientation()
+        .unwrap_or(image::metadata::Orientation::NoTransforms);
+    let mut decoded = DynamicImage::from_decoder(decoder).map_err(|_| AppError::InvalidImage {
+        detail: format!("{name}: decode failed"),
+    })?;
+    decoded.apply_orientation(orientation);
+    Ok(decoded)
 }
 
 /// Import one file with production limits. Public so the Stage 08 batch
@@ -392,6 +438,27 @@ fn load_image_view_with_limits(
     max_file_bytes: u64,
 ) -> AppResult<ImageView> {
     let name = display_name(path);
+    // Gate on the cheap facts before reading anything: the import ladder
+    // checks size on metadata, and this command — like the ladder — must
+    // never pull a 12 GB file into memory to discover it is over the cap.
+    // A directory has no bytes to read at all.
+    let meta = match std::fs::metadata(path) {
+        Ok(m) => m,
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => {
+            return Err(AppError::FileMissing { detail: name });
+        }
+        Err(err) => return Err(AppError::from(err)),
+    };
+    if meta.is_dir() {
+        return Err(AppError::UnsupportedFormat {
+            detail: "folder viewed".into(),
+        });
+    }
+    if meta.len() > max_file_bytes {
+        return Err(AppError::FileTooLarge {
+            detail: format!("{name}: {} bytes on disk", meta.len()),
+        });
+    }
     let bytes = match std::fs::read(path) {
         Ok(b) => b,
         Err(err) if err.kind() == std::io::ErrorKind::NotFound => {
@@ -399,11 +466,6 @@ fn load_image_view_with_limits(
         }
         Err(err) => return Err(AppError::from(err)),
     };
-    if bytes.len() as u64 > max_file_bytes {
-        return Err(AppError::FileTooLarge {
-            detail: format!("{name}: {} bytes on disk", bytes.len()),
-        });
-    }
 
     // Reuse the import ladder's sniff+decode: what the viewer can show is
     // exactly what import accepted, nothing looser.
@@ -441,11 +503,7 @@ fn load_image_view_with_limits(
             detail: format!("{name}: {pixels} pixels"),
         });
     }
-    let decoded = image::load_from_memory_with_format(&bytes, guessed).map_err(|_| {
-        AppError::InvalidImage {
-            detail: format!("{name}: decode failed"),
-        }
-    })?;
+    let decoded = decode_upright(&bytes, guessed, &name)?;
     let (width, height) = (decoded.width(), decoded.height());
     let longest = width.max(height);
 
@@ -507,7 +565,7 @@ mod tests {
 
     /// Write temp bytes with a given name and return the path.
     fn temp_file(name: &str, bytes: &[u8]) -> std::path::PathBuf {
-        let dir = std::env::temp_dir().join(format!("pixora-import-test-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("fovea-import-test-{}", std::process::id()));
         std::fs::create_dir_all(&dir).expect("temp dir");
         let path = dir.join(name);
         std::fs::write(&path, bytes).expect("write temp");
@@ -568,6 +626,43 @@ mod tests {
         assert_eq!(img.format, ImageFormatLabel::WebP);
     }
 
+    /// A hand-spliced APP1/EXIF segment declaring Orientation=6 — exactly
+    /// what a phone camera writes: 40×20 stored pixels, shown as 20×40.
+    fn exif_rotated_jpeg() -> Vec<u8> {
+        let mut tiff: Vec<u8> = Vec::new();
+        tiff.extend_from_slice(b"II");
+        tiff.extend_from_slice(&42u16.to_le_bytes()); // little-endian TIFF marker
+        tiff.extend_from_slice(&8u32.to_le_bytes()); // IFD0 at offset 8
+        tiff.extend_from_slice(&1u16.to_le_bytes()); // one entry
+        tiff.extend_from_slice(&0x0112u16.to_le_bytes()); // Orientation
+        tiff.extend_from_slice(&3u16.to_le_bytes()); // SHORT
+        tiff.extend_from_slice(&1u32.to_le_bytes()); // count
+        tiff.extend_from_slice(&6u16.to_le_bytes()); // value 6
+        tiff.extend_from_slice(&0u16.to_le_bytes()); // padding
+        tiff.extend_from_slice(&0u32.to_le_bytes()); // no IFD1
+        let mut payload = b"Exif\0\0".to_vec();
+        payload.extend_from_slice(&tiff);
+        let mut app1: Vec<u8> = vec![0xFF, 0xE1];
+        app1.extend_from_slice(&((payload.len() + 2) as u16).to_be_bytes());
+        app1.extend_from_slice(&payload);
+        let mut jpeg = jpeg_bytes(40, 20);
+        jpeg.splice(2..2, app1); // APP1 belongs right after SOI
+        jpeg
+    }
+
+    #[test]
+    fn exif_orientation_is_applied_before_anything_sees_the_pixels() {
+        let path = temp_file("phone.jpg", &exif_rotated_jpeg());
+        let img = import_one(&path).expect("import");
+        assert_eq!((img.width, img.height), (20, 40), "import is upright");
+        let view = load_image_view(&path, VIEW_MAX_EDGE).expect("view");
+        assert_eq!((view.width, view.height), (20, 40), "viewer agrees");
+        // The engine's own decode is this same ladder, so the master and the
+        // export come out upright too — never sideways against the preview.
+        let (decoded, _size) = decode_validated(&path).expect("engine decode");
+        assert_eq!((decoded.width(), decoded.height()), (20, 40));
+    }
+
     #[test]
     fn rejects_unsupported_extension() {
         let path = temp_file("notes.txt", b"just text");
@@ -609,7 +704,7 @@ mod tests {
     #[test]
     fn reports_missing_file() {
         let path = std::env::temp_dir().join(format!(
-            "pixora-definitely-missing-{}.png",
+            "fovea-definitely-missing-{}.png",
             std::process::id()
         ));
         let err = import_one(&path).expect_err("must fail");
@@ -720,7 +815,7 @@ mod tests {
     #[test]
     fn view_reports_missing_file() {
         let path =
-            std::env::temp_dir().join(format!("pixora-view-missing-{}.png", std::process::id()));
+            std::env::temp_dir().join(format!("fovea-view-missing-{}.png", std::process::id()));
         let err = load_image_view(&path, VIEW_MAX_EDGE).expect_err("must fail");
         assert_eq!(err.code(), "file_missing");
     }

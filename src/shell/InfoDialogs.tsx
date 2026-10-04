@@ -19,84 +19,84 @@ export function ShortcutsDialog({ open, onClose }: { open: boolean; onClose: () 
       title="Keyboard shortcuts"
       description="Everything reachable without leaving the keyboard."
     >
-      <dl className="pixora-shortcuts">
-        <div className="pixora-shortcuts__row">
+      <dl className="fovea-shortcuts">
+        <div className="fovea-shortcuts__row">
           <dt>Import images</dt>
           <dd>
             <kbd>Ctrl</kbd>
-            <span className="pixora-shortcuts__plus">+</span>
+            <span className="fovea-shortcuts__plus">+</span>
             <kbd>O</kbd>
           </dd>
         </div>
-        <div className="pixora-shortcuts__row">
+        <div className="fovea-shortcuts__row">
           <dt>Switch to Enhance</dt>
           <dd>
             <kbd>1</kbd>
           </dd>
         </div>
-        <div className="pixora-shortcuts__row">
+        <div className="fovea-shortcuts__row">
           <dt>Switch to Batch</dt>
           <dd>
             <kbd>2</kbd>
           </dd>
         </div>
-        <div className="pixora-shortcuts__row">
+        <div className="fovea-shortcuts__row">
           <dt>Switch to History</dt>
           <dd>
             <kbd>3</kbd>
           </dd>
         </div>
-        <div className="pixora-shortcuts__row">
+        <div className="fovea-shortcuts__row">
           <dt>Open settings</dt>
           <dd>
             <kbd>Ctrl</kbd>
-            <span className="pixora-shortcuts__plus">+</span>
+            <span className="fovea-shortcuts__plus">+</span>
             <kbd>,</kbd>
           </dd>
         </div>
-        <div className="pixora-shortcuts__row">
+        <div className="fovea-shortcuts__row">
           <dt>Keyboard shortcuts</dt>
           <dd>
             <kbd>F1</kbd>
           </dd>
         </div>
-        <div className="pixora-shortcuts__row">
+        <div className="fovea-shortcuts__row">
           <dt>Close dialog / exit compare</dt>
           <dd>
             <kbd>Esc</kbd>
           </dd>
         </div>
-        <div className="pixora-shortcuts__group">
+        <div className="fovea-shortcuts__group">
           <dt className="u-caps-label">Image viewer</dt>
           <dd />
         </div>
-        <div className="pixora-shortcuts__row">
+        <div className="fovea-shortcuts__row">
           <dt>Zoom in / out</dt>
           <dd>
             <kbd>+</kbd>
-            <span className="pixora-shortcuts__plus">/</span>
+            <span className="fovea-shortcuts__plus">/</span>
             <kbd>-</kbd>
           </dd>
         </div>
-        <div className="pixora-shortcuts__row">
+        <div className="fovea-shortcuts__row">
           <dt>Fit to workspace</dt>
           <dd>
             <kbd>0</kbd>
           </dd>
         </div>
-        <div className="pixora-shortcuts__row">
+        <div className="fovea-shortcuts__row">
           <dt>Actual size</dt>
           <dd>
             <kbd>1</kbd>
           </dd>
         </div>
-        <div className="pixora-shortcuts__row">
+        <div className="fovea-shortcuts__row">
           <dt>Compare original / enhanced</dt>
           <dd>
             <kbd>C</kbd>
           </dd>
         </div>
-        <div className="pixora-shortcuts__row">
+        <div className="fovea-shortcuts__row">
           <dt>Full screen</dt>
           <dd>
             <kbd>F</kbd>
@@ -110,19 +110,19 @@ export function ShortcutsDialog({ open, onClose }: { open: boolean; onClose: () 
 export function AboutDialog({ open, onClose }: { open: boolean; onClose: () => void }) {
   const { state } = useAppState()
   return (
-    <Dialog open={open} onClose={onClose} title="About Pixora">
-      <div className="pixora-about">
+    <Dialog open={open} onClose={onClose} title="About Fovea">
+      <div className="fovea-about">
         <BrandMark size={48} />
-        <div className="pixora-about__text">
-          <div className="pixora-about__name">
-            <span className="pixora-about__title">Pixora</span>
+        <div className="fovea-about__text">
+          <div className="fovea-about__name">
+            <span className="fovea-about__title">Fovea</span>
             {state.config && <span className="u-tabular">v{state.config.version}</span>}
           </div>
           <p>
             Professional image enhancement that runs entirely on your computer. Your photos are
             never uploaded.
           </p>
-          <div className="pixora-about__meta">
+          <div className="fovea-about__meta">
             <Badge tone="accent">Tauri · Rust · React</Badge>
             {state.config?.debug && <Badge tone="warning">Debug build</Badge>}
           </div>

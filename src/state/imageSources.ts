@@ -30,13 +30,29 @@ interface Entry {
 
 const cache = new Map<string, Entry>()
 
+/** Memory bound. Collection pruning (`pruneSources`) only drops images the
+ * user removed, so a large import would otherwise pin every display view
+ * (~2600 px of pixels each) for the whole session. Eviction is cheap: the
+ * cost is one native re-read when that image is opened again. */
+const MAX_CACHED_SOURCES = 24
+
 function entry(id: string): Entry {
-  let e = cache.get(id)
-  if (!e) {
-    e = {}
-    cache.set(id, e)
+  const existing = cache.get(id)
+  if (existing) {
+    // Map iteration order is insertion order: re-inserting marks this id
+    // as the freshest, so eviction below always drops the stalest entry.
+    cache.delete(id)
+    cache.set(id, existing)
+    return existing
   }
-  return e
+  const created: Entry = {}
+  cache.set(id, created)
+  while (cache.size > MAX_CACHED_SOURCES) {
+    const oldest = cache.keys().next()
+    if (oldest.done) break
+    cache.delete(oldest.value)
+  }
+  return created
 }
 
 /** Cached source without triggering a load. */

@@ -23,11 +23,11 @@
   background: var(--bg-surface);
   box-shadow: var(--shadow-lg);
   pointer-events: auto;
-  animation: pixora-notification-in var(--duration-base) var(--ease-decelerate) both;
+  animation: fovea-notification-in var(--duration-base) var(--ease-decelerate) both;
 }
 
 /* Exit: a short settle in the entry's direction — same language, reversed. */
-@keyframes pixora-notification-out {
+@keyframes fovea-notification-out {
   to {
     opacity: 0;
     transform: translateY(6px);
@@ -35,7 +35,7 @@
 }
 
 .pix-notification--leaving {
-  animation: pixora-notification-out var(--duration-fast) var(--ease-standard) both;
+  animation: fovea-notification-out var(--duration-fast) var(--ease-standard) both;
 }
 
 .pix-notification--info {

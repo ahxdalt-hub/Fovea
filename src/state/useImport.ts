@@ -47,7 +47,14 @@ export function useImport(): ImportApi {
 
   const runImport = useCallback(
     async (paths: string[]) => {
-      if (busy.current || paths.length === 0) return
+      if (paths.length === 0) return
+      // Native drag & drop has no busy state of its own: without this word
+      // a second drop during a large import simply does nothing, and the
+      // user has no way to know their files were even seen.
+      if (busy.current) {
+        notify('info', 'Still checking the files you dropped earlier — try again in a moment')
+        return
+      }
       busy.current = true
       dispatch({ type: 'import/start' })
       dispatch({ type: 'ui/navigate', view: 'enhance' })

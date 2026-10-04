@@ -29,5 +29,5 @@
 .pix-xfade__current--enter {
   position: absolute;
   inset: 0;
-  animation: pixora-fade var(--duration-base) var(--ease-standard) both;
+  animation: fovea-fade var(--duration-base) var(--ease-standard) both;
 }

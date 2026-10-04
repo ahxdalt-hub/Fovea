@@ -274,6 +274,61 @@ describe('EnhanceControls (Stage 06)', () => {
     expect(screen.getByRole('button', { name: /enhance 4×/i })).toBeDisabled()
   })
 
+  it('attributes a job that belongs to another image', async () => {
+    // A job keeps running when the user selects a different picture. The
+    // strip must say whose work it is and must not offer Compare/Export —
+    // those act on the *selected* image, not the job's.
+    function OtherImageJob() {
+      const { dispatch } = useAppState()
+      useEffect(() => {
+        dispatch({
+          type: 'images/add',
+          images: [
+            {
+              id: 'b',
+              name: 'sunset.png',
+              format: 'PNG',
+              width: 800,
+              height: 600,
+              sizeBytes: 1000,
+              previewDataUrl: 'data:,p',
+            },
+          ],
+        })
+        dispatch({ type: 'enhance/start', imageId: 'b' })
+        dispatch({ type: 'enhance/event', event: { phase: 'completed' } })
+        dispatch({
+          type: 'enhancements/set',
+          enhancement: {
+            imageId: 'b',
+            dataUrl: 'data:,r',
+            width: 3200,
+            height: 2400,
+            label: '4× · Standard',
+          },
+        })
+      }, [dispatch])
+      return (
+        <EnhanceControls
+          enhanceApi={{ run: async () => {}, cancel: async () => {}, dismiss: () => {} }}
+          selectedId="a"
+          onExport={() => {}}
+          onCompare={() => {}}
+        />
+      )
+    }
+    render(
+      <AppStateProvider>
+        <NotificationProvider>
+          <OtherImageJob />
+        </NotificationProvider>
+      </AppStateProvider>,
+    )
+    expect(await screen.findByText(/sunset\.png is enhanced/i)).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /^compare$/i })).toBeNull()
+    expect(screen.queryByRole('button', { name: /^export$/i })).toBeNull()
+  })
+
   it('persists the user’s choices across a remount', () => {
     const first = renderHarness(readyStatus)
     fireEvent.click(screen.getByRole('radio', { name: '2×' }))

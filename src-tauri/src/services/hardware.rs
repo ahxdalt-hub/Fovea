@@ -49,7 +49,7 @@ pub struct GpuInfo {
     pub directx12: bool,
 }
 
-/// Everything Pixora knows about the machine it runs on. The full snapshot
+/// Everything Fovea knows about the machine it runs on. The full snapshot
 /// is what Settings → Diagnostics displays and what the engine budgets
 /// derive from; it is collected once per process and cached.
 #[derive(Debug, Clone, Serialize)]
@@ -128,7 +128,7 @@ pub fn detect() -> &'static HardwareInfo {
 
 /// The tile/band memory budgets the engine sizes work against.
 ///
-/// These are deliberately conservative *models* of Pixora's own buffers —
+/// These are deliberately conservative *models* of Fovea's own buffers —
 /// the runtime's arena, the image decoder, and every other app on the
 /// machine are invisible here, so only a fraction of any pool is claimed:
 /// a quarter of the applicable pool for the inference tile, a quarter of
@@ -182,7 +182,7 @@ fn budgets_for(hw: &HardwareInfo, consider_gpu: bool) -> MemoryBudgets {
     }
     MemoryBudgets {
         max_tile_bytes: tile_pool.clamp(64 * MIB, 512 * MIB),
-        // The band buffer is Pixora's own RAM; half-a-gig is plenty —
+        // The band buffer is Fovea's own RAM; half-a-gig is plenty —
         // a 4096-wide source at 4× with 256 px tiles needs ~470 MB.
         max_band_bytes: (ram / 4).clamp(32 * MIB, 512 * MIB),
     }
@@ -413,7 +413,7 @@ fn process_memory_now() -> Option<ProcessMemory> {
 }
 
 // ── Non-Windows fallbacks ────────────────────────────────────────────
-// Pixora targets Windows; these keep the crate building (and its tests
+// Fovea targets Windows; these keep the crate building (and its tests
 // running) elsewhere, reporting honest unknowns instead of lies.
 
 #[cfg(not(windows))]

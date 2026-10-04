@@ -6,7 +6,7 @@
 //!   tooling (`examples/issue_license.rs` takes it as an argument or env
 //!   var; release packaging injects the matching public key).
 //! - Production public keys are injected at build time by `build.rs` from
-//!   the `PIXORA_LICENSE_PUBKEYS` env var (comma-separated hex).
+//!   the `FOVEA_LICENSE_PUBKEYS` env var (comma-separated hex).
 //! - The dev key is compiled in only for debug builds. A release binary
 //!   therefore cannot accept a key issued with the (committed) dev seed —
 //!   the dev pair is a test fixture, not a skeleton key.
@@ -25,8 +25,11 @@ pub const DEV_PUBKEY_HEX: &str = "c79464553116722cdff402851971581d1ba15d271baf8c
 /// against, in order. More than one key = painless key rotation: ship the
 /// new key, keep the old one until every field install has re-activated.
 pub fn public_keys_hex() -> Vec<String> {
-    let mut keys: Vec<String> = INJECTED.iter().map(|k| (*k).to_string()).collect();
+    let keys: Vec<String> = INJECTED.iter().map(|k| (*k).to_string()).collect();
     #[cfg(debug_assertions)]
-    keys.push(DEV_PUBKEY_HEX.to_string());
+    let keys = keys
+        .into_iter()
+        .chain(std::iter::once(DEV_PUBKEY_HEX.to_string()))
+        .collect();
     keys
 }

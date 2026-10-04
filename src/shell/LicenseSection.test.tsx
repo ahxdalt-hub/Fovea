@@ -65,7 +65,7 @@ describe('License section', () => {
   it('shows the full activation record when a license is active', async () => {
     getLicenseStatus.mockResolvedValue(active)
     render(<LicenseSection />)
-    expect(await screen.findByText('Pixora Pro')).toBeInTheDocument()
+    expect(await screen.findByText('Fovea Pro')).toBeInTheDocument()
     expect(screen.getByText('Licensed to')).toBeInTheDocument()
     expect(screen.getByText('ada@example.com')).toBeInTheDocument()
     expect(screen.getByText('PL-2026-000001')).toBeInTheDocument()
@@ -81,26 +81,26 @@ describe('License section', () => {
     const activate = screen.getByRole('button', { name: 'Activate' })
     expect(activate).toBeDisabled()
 
-    fireEvent.change(box, { target: { value: '  PIXORA1.abc.def  ' } })
+    fireEvent.change(box, { target: { value: '  FOVEA1.abc.def  ' } })
     expect(activate).toBeEnabled()
 
     activateLicense.mockResolvedValue(asResult(active))
     fireEvent.click(activate)
     expect(await screen.findByRole('status')).toHaveTextContent(
-      'License activated: Pixora Pro for ada@example.com.',
+      'License activated: Fovea Pro for ada@example.com.',
     )
-    expect(activateLicense).toHaveBeenCalledWith('  PIXORA1.abc.def  ')
+    expect(activateLicense).toHaveBeenCalledWith('  FOVEA1.abc.def  ')
     // The pasted key is cleared once it worked.
     expect((box as HTMLTextAreaElement).value).toBe('')
-    expect(await screen.findByText('Pixora Pro')).toBeInTheDocument()
+    expect(await screen.findByText('Fovea Pro')).toBeInTheDocument()
   })
 
   it('a repeated key says so honestly instead of pretending it is new', async () => {
     getLicenseStatus.mockResolvedValue(active)
     render(<LicenseSection />)
-    await screen.findByText('Pixora Pro')
+    await screen.findByText('Fovea Pro')
     const box = screen.getByLabelText('License key')
-    fireEvent.change(box, { target: { value: 'PIXORA1.abc.def' } })
+    fireEvent.change(box, { target: { value: 'FOVEA1.abc.def' } })
     activateLicense.mockResolvedValue(asResult(active, true))
     fireEvent.click(screen.getByRole('button', { name: 'Activate' }))
     expect(await screen.findByRole('status')).toHaveTextContent(/already active/i)
@@ -110,11 +110,11 @@ describe('License section', () => {
     getLicenseStatus.mockResolvedValue(unactivated)
     render(<LicenseSection />)
     const box = await screen.findByLabelText('License key')
-    fireEvent.change(box, { target: { value: 'PIXORA1.nonsense.nonsense' } })
+    fireEvent.change(box, { target: { value: 'FOVEA1.nonsense.nonsense' } })
     activateLicense.mockRejectedValue({
       code: 'license_invalid',
       message:
-        "That doesn't read as a Pixora license key. Copy it again from your purchase email and try once more.",
+        "That doesn't read as a Fovea license key. Copy it again from your purchase email and try once more.",
     })
     fireEvent.click(screen.getByRole('button', { name: 'Activate' }))
     expect(await screen.findByRole('alert')).toHaveTextContent(
@@ -123,7 +123,7 @@ describe('License section', () => {
     // The state stays honest: still unactivated, and the box keeps the
     // key so the user can fix the paste.
     expect(screen.getByText(/running unactivated/i)).toBeInTheDocument()
-    expect((box as HTMLTextAreaElement).value).toBe('PIXORA1.nonsense.nonsense')
+    expect((box as HTMLTextAreaElement).value).toBe('FOVEA1.nonsense.nonsense')
 
     // Recovery: the good key now activates.
     activateLicense.mockResolvedValue(asResult(active))
@@ -160,7 +160,7 @@ describe('License section', () => {
   it('deactivation runs through the bridge and lands back unactivated', async () => {
     getLicenseStatus.mockResolvedValue(active)
     render(<LicenseSection />)
-    await screen.findByText('Pixora Pro')
+    await screen.findByText('Fovea Pro')
     deactivateLicense.mockResolvedValue(unactivated)
     fireEvent.click(screen.getByRole('button', { name: 'Deactivate' }))
     expect(await screen.findByText(/running unactivated/i)).toBeInTheDocument()

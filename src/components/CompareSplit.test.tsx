@@ -1,5 +1,5 @@
 /**
- * The compare slider is one of Pixora's signature experiences — these
+ * The compare slider is one of Fovea's signature experiences — these
  * tests pin its interaction contract (drag, keyboard, labels) and its
  * honest pending state when no enhanced result exists yet.
  */

@@ -6,7 +6,7 @@ import type { CheckoutRequest, CheckoutResult, PaymentProvider } from '../commer
  * as an intent to continue to delivery, and the browser is handed to the
  * download + activation page on this same site.
  *
- * This is the honest launch state: Pixora can be downloaded and its
+ * This is the honest launch state: Fovea can be downloaded and its
  * enhancement used immediately (nothing is gated), and a license key is
  * issued vendor-side and delivered by the chosen channel. A real processor
  * replaces this with a `redirect` to its hosted checkout — see the sibling

@@ -15,7 +15,7 @@
  * dashboard. A moved or deleted file is shown honestly and its open
  * action disabled — the row stays as history — rather than being silently
  * dropped or offering a click that would fail. Clearing the journal is
- * confirmed, because wiping history is destructive and Pixora never does
+ * confirmed, because wiping history is destructive and Fovea never does
  * it silently.
  */
 import { useEffect, useState } from 'react'
@@ -82,11 +82,11 @@ export function HistoryView({ onGoToEnhance, onReopen }: HistoryViewProps) {
   const entries = state.history?.entries ?? []
 
   return (
-    <div className="pixora-view anim-fade">
-      <div className="pixora-view__header">
+    <div className="fovea-view anim-fade">
+      <div className="fovea-view__header">
         <div>
-          <h1 className="pixora-view__title">History</h1>
-          <p className="pixora-view__subtitle">
+          <h1 className="fovea-view__title">History</h1>
+          <p className="fovea-view__subtitle">
             Everything you have enhanced, kept on this machine.
           </p>
         </div>
@@ -114,7 +114,7 @@ export function HistoryView({ onGoToEnhance, onReopen }: HistoryViewProps) {
               <>
                 Once you start enhancing images, this becomes your private journal — reopen a past
                 source, see where its result was saved, or re-run it with new settings. Everything
-                here is local: Pixora stores paths and measurements, never copies of your images.
+                here is local: Fovea stores paths and measurements, never copies of your images.
               </>
             }
             actions={
@@ -142,7 +142,7 @@ export function HistoryView({ onGoToEnhance, onReopen }: HistoryViewProps) {
         onClose={() => setConfirmClear(false)}
         title="Clear history?"
         size="sm"
-        description="This removes the journal and recent list. Your enhanced files stay exactly where they are — Pixora only deletes records, never your work."
+        description="This removes the journal and recent list. Your enhanced files stay exactly where they are — Fovea only deletes records, never your work."
         footer={
           <>
             <span className="pix-history__confirm-spacer" aria-hidden="true" />

@@ -6,8 +6,8 @@
 //! size, and the process's peak working set.
 //!
 //!   GPU (default):   cargo run --release --example stage07_bench -- <out-dir>
-//!   CPU path:        PIXORA_FORCE_CPU=1 cargo run --release --example stage07_bench -- <out-dir> [sizes…]
-//!   Tight tiles:     PIXORA_TILE=64 …  (reproduces low-VRAM conditions)
+//!   CPU path:        FOVEA_FORCE_CPU=1 cargo run --release --example stage07_bench -- <out-dir> [sizes…]
+//!   Tight tiles:     FOVEA_TILE=64 …  (reproduces low-VRAM conditions)
 //!
 //! Sizes: `small` (512×384), `typical` (1920×1440), `hires` (4032×3024 ≈
 //! 12 MP — a modern phone camera), `large` (5300×3000 ≈ 16 MP, just under
@@ -23,6 +23,7 @@ use std::time::Instant;
 use image::{DynamicImage, ImageFormat, RgbImage};
 use upscaler_lib::services::hardware;
 use upscaler_lib::services::inference::backend::{CancelToken, OnnxBackend};
+use upscaler_lib::services::inference::finish::{DEFAULT_INTENSITY, Filter};
 use upscaler_lib::services::inference::model::{EnhanceMode, ModelRegistry};
 use upscaler_lib::services::inference::service::{self, EngineConfig, EnhanceEvent, JobRegistry};
 
@@ -65,7 +66,7 @@ fn fixture(w: u32, h: u32) -> RgbImage {
 }
 
 fn write_fixture(dir: &Path, key: &str, w: u32, h: u32) -> PathBuf {
-    let path = dir.join(format!("pixora-{key}.jpg"));
+    let path = dir.join(format!("fovea-{key}.jpg"));
     if !path.exists() {
         let mut out = Cursor::new(Vec::new());
         DynamicImage::ImageRgb8(fixture(w, h))
@@ -104,6 +105,8 @@ fn run_case(dir: &Path, models: &Path, out: &Path, key: &str, w: u32, h: u32) ->
         &src.to_string_lossy(),
         EnhanceMode::Standard,
         4,
+        Filter::Original,
+        DEFAULT_INTENSITY,
         &registry,
         &EngineConfig::default(),
         out,
@@ -153,14 +156,14 @@ fn main() {
     let dir = args
         .next()
         .map(PathBuf::from)
-        .unwrap_or_else(|| std::env::temp_dir().join("pixora-bench"));
+        .unwrap_or_else(|| std::env::temp_dir().join("fovea-bench"));
     std::fs::create_dir_all(&dir).expect("bench dir");
     let selected: Vec<String> = args.collect();
     let models = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("models");
 
     let hw = hardware::detect();
     let budgets = hardware::memory_budgets(hw);
-    println!("=== Pixora Stage 07 benchmark ===");
+    println!("=== Fovea Stage 07 benchmark ===");
     println!(
         "cpu    : {} ({} phys / {} log)",
         hw.cpu_name, hw.physical_cores, hw.logical_processors

@@ -20,6 +20,12 @@ export interface SystemInfoDto {
   appDataDir: string
   /** Where the native log file lives (Stage 10 diagnostics). */
   logsDir: string
+  /** Fovea's own export folder — `Documents/Fovea`. Empty when this
+   * machine would not hand one over; the UI then keeps its generic label. */
+  defaultExportDir: string
+  /** The batch sibling — `Documents/Fovea/Batch`. Same empty-means-generic
+   * contract as `defaultExportDir`. */
+  defaultBatchExportDir: string
 }
 
 /**
@@ -193,11 +199,42 @@ export interface ImageEnhancementDto {
  * post-pass), or it would not exist in the UI. */
 export type EnhanceModeKey = 'standard' | 'natural' | 'detail'
 
+/** Finishing filters — keys match Rust `Filter::key()` exactly. A filter is
+ * the *look* applied on top of any mode (pure pixel math on the model's
+ * output, so it needs no model of its own). `'original'` is the off-switch:
+ * no filter pass runs at all. */
+export type FilterKey =
+  | 'original'
+  | 'natural'
+  | 'vivid'
+  | 'warm'
+  | 'cool'
+  | 'cinematic'
+  | 'soft'
+  | 'sharp'
+  | 'mono'
+  | 'product'
+  | 'portrait'
+
+/** Filter strength as a 0-100 amount. The engine is the only place that
+ * interprets it — the UI passes the number through unchanged. */
+export type FilterIntensity = number
+
+/** One enhancement run, as the client describes it (mirrors the
+ * `enhance_image` args): what the model does, how far it scales, and the
+ * finishing look applied to the result. */
+export interface EnhanceRecipe {
+  mode: EnhanceModeKey
+  scale: number
+  filter: FilterKey
+  intensity: FilterIntensity
+}
+
 /** Serialized `EnhanceResult` from Rust (the `enhance_image` reply). */
 export interface EnhanceResultDto {
   /** The imported image's canonical id this result belongs to. */
   imageId: string
-  /** Pixora's committed output file path (export uses it server-side). */
+  /** Fovea's committed output file path (export uses it server-side). */
   filePath: string
   width: number
   height: number
@@ -295,6 +332,18 @@ export interface ModeStatusDto {
   available: boolean
 }
 
+/** One finishing filter, per `FilterStatus` in Rust. Labels and hints come
+ * from native so the strip, the batch preset and Settings can never call
+ * the same look two different names. */
+export interface FilterStatusDto {
+  key: FilterKey
+  label: string
+  description: string
+  /** Filters are pixel math, so this is true for every one — it exists so
+   * the UI renders modes and filters through the same shape. */
+  available: boolean
+}
+
 /** Serialized `InferenceStatus` from Rust — engine readiness. */
 export interface InferenceStatusDto {
   /** "DirectML GPU" | "CPU" — informational only; the UI never branches. */
@@ -306,6 +355,8 @@ export interface InferenceStatusDto {
   scales: number[]
   /** Every mode the product knows about, with per-mode availability. */
   modes: ModeStatusDto[]
+  /** Every finishing filter the product offers, in native words. */
+  filters: FilterStatusDto[]
   /** Where the user can drop model files (display only). */
   modelsDirDisplay: string
 }
@@ -334,6 +385,15 @@ export function isInferenceStatus(value: unknown): value is InferenceStatusDto {
         m !== null &&
         typeof (m as ModeStatusDto).key === 'string' &&
         typeof (m as ModeStatusDto).available === 'boolean',
+    ) &&
+    Array.isArray(v.filters) &&
+    v.filters.every(
+      (f) =>
+        typeof f === 'object' &&
+        f !== null &&
+        typeof (f as FilterStatusDto).key === 'string' &&
+        typeof (f as FilterStatusDto).label === 'string' &&
+        typeof (f as FilterStatusDto).available === 'boolean',
     ) &&
     typeof v.modelsDirDisplay === 'string'
   )
@@ -409,6 +469,8 @@ export interface BatchItemDto {
   output: BatchOutputDto | null
   mode: string
   scale: number
+  filter: string
+  intensity: number
   /** True once a cancel is requested but the terminal state hasn't landed. */
   cancelling: boolean
 }
@@ -514,10 +576,12 @@ export interface BatchItemPayload {
   name: string
   scale: number
   mode: EnhanceModeKey
+  filter: FilterKey
+  intensity: FilterIntensity
 }
 
 /** Where/how a batch writes results (request arg, mirrors `BatchConfigArg`).
- * `folder: ""` selects Pixora's default batch export folder. */
+ * `folder: ""` selects Fovea's default batch export folder. */
 export interface BatchConfigPayload {
   folder: string
   format: ExportFormatKey

@@ -1,10 +1,10 @@
 //! The license key: a compact, human-pasteable, *cryptographically signed*
 //! statement about a purchase.
 //!
-//! Format: `PIXORA1.<base64url(payload JSON)>.<base64url(ed25519 sig)>`
+//! Format: `FOVEA1.<base64url(payload JSON)>.<base64url(ed25519 sig)>`
 //!
 //! Why offline-capable signatures rather than a server round-trip:
-//! Pixora's engine makes zero network calls, and the licensing layer must
+//! Fovea's engine makes zero network calls, and the licensing layer must
 //! not become the reason it suddenly needs one. A signed key gives the
 //! strongest property a local-first app can have — the app trusts the
 //! vendor's signature, not anything the user (or a tampered local file,
@@ -23,12 +23,12 @@ use serde::{Deserialize, Serialize};
 use super::keys;
 
 /// The only key format this build understands. A future format bump adds
-/// `PIXORA2` handling beside this one, never a silent reinterpretation.
-const KEY_PREFIX: &str = "PIXORA1.";
+/// `FOVEA2` handling beside this one, never a silent reinterpretation.
+const KEY_PREFIX: &str = "FOVEA1.";
 
 /// Product identifier embedded in every key — a key issued for a
-/// different product is not a Pixora license, whatever it says.
-pub const PRODUCT_ID: &str = "pixora";
+/// different product is not a Fovea license, whatever it says.
+pub const PRODUCT_ID: &str = "fovea";
 
 const MAX_PAYLOAD_BYTES: usize = 4096;
 /// Clock tolerance for a freshly issued key (issuing machine slightly
@@ -87,7 +87,7 @@ pub enum KeyRejection {
     /// the vendor's problem to investigate, never the user's to parse,
     /// and enumerating it would tell a forger which layer failed.
     Malformed,
-    /// A key for something other than Pixora.
+    /// A key for something other than Fovea.
     WrongProduct,
     /// Signed correctly but for another machine.
     WrongMachine,
@@ -176,29 +176,42 @@ pub fn sign_key(payload: &LicensePayload, seed_bytes: &[u8]) -> Result<String, S
     ))
 }
 
-fn extract_signed_bytes(key: &str) -> Result<Vec<u8>, KeyRejection> {
+/// `FOVEA1.<payload>.<signature>` — exactly two non-empty segments. A key
+/// with a third segment is malformed even if a valid signature happens to
+/// sit at either end of it.
+fn segments(key: &str) -> Result<(String, String), KeyRejection> {
     let trimmed: String = key.chars().filter(|c| !c.is_whitespace()).collect();
     let body = trimmed
         .strip_prefix(KEY_PREFIX)
         .ok_or(KeyRejection::Malformed)?;
-    let (payload_part, _) = body.split_once('.').ok_or(KeyRejection::Malformed)?;
+    let (payload, signature) = body.split_once('.').ok_or(KeyRejection::Malformed)?;
+    if payload.is_empty()
+        || signature.is_empty()
+        || signature.contains('.')
+        || signature.contains('-')
+            && !signature
+                .chars()
+                .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-')
+    {
+        return Err(KeyRejection::Malformed);
+    }
+    Ok((payload.to_string(), signature.to_string()))
+}
+
+fn extract_signed_bytes(key: &str) -> Result<Vec<u8>, KeyRejection> {
+    let (payload_part, _) = segments(key)?;
     let engine = base64::engine::general_purpose::URL_SAFE_NO_PAD;
     let bytes = engine
         .decode(payload_part)
         .map_err(|_| KeyRejection::Malformed)?;
-    // Reject a second '.' inside what should be one segment.
-    if payload_part.contains('.') || std::str::from_utf8(&bytes).is_err() {
+    if std::str::from_utf8(&bytes).is_err() {
         return Err(KeyRejection::Malformed);
     }
     Ok(bytes)
 }
 
 fn extract_signature(key: &str) -> Result<Signature, KeyRejection> {
-    let trimmed: String = key.chars().filter(|c| !c.is_whitespace()).collect();
-    let body = trimmed
-        .strip_prefix(KEY_PREFIX)
-        .ok_or(KeyRejection::Malformed)?;
-    let (_, sig_part) = body.rsplit_once('.').ok_or(KeyRejection::Malformed)?;
+    let (_, sig_part) = segments(key)?;
     let engine = base64::engine::general_purpose::URL_SAFE_NO_PAD;
     let bytes = engine
         .decode(sig_part)

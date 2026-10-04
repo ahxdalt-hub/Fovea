@@ -7,7 +7,7 @@
  * neutralized globally under reduced motion.
  */
 
-.pixora-drop-overlay {
+.fovea-drop-overlay {
   position: absolute;
   inset: 0;
   z-index: var(--z-dropzone);
@@ -15,10 +15,10 @@
   place-items: center;
   background: var(--overlay);
   pointer-events: none;
-  animation: pixora-drop-in var(--duration-fast) var(--ease-decelerate) both;
+  animation: fovea-drop-in var(--duration-fast) var(--ease-decelerate) both;
 }
 
-@keyframes pixora-drop-in {
+@keyframes fovea-drop-in {
   from {
     opacity: 0;
     transform: scale(1.015);
@@ -29,14 +29,14 @@
   }
 }
 
-.pixora-drop-overlay__frame {
+.fovea-drop-overlay__frame {
   position: absolute;
   inset: var(--space-3);
   border: 2px dashed var(--accent);
   border-radius: var(--radius-lg);
 }
 
-.pixora-drop-overlay__hint {
+.fovea-drop-overlay__hint {
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -47,14 +47,14 @@
   box-shadow: var(--shadow-lg);
 }
 
-.pixora-drop-overlay__title {
+.fovea-drop-overlay__title {
   font-family: var(--font-display);
   font-size: var(--text-lg);
   font-weight: 600;
   color: var(--text-primary);
 }
 
-.pixora-drop-overlay__detail {
+.fovea-drop-overlay__detail {
   font-size: var(--text-sm);
   color: var(--text-secondary);
 }

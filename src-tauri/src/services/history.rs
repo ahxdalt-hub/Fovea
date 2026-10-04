@@ -4,7 +4,7 @@
 //! copy of the work*. History entries store paths and measurements —
 //! filename, true original/output dimensions, scale, mode, outcome,
 //! timestamp, output location — and never image bytes. The originals stay
-//! wherever the user put them; the outputs stay in Pixora's output/export
+//! wherever the user put them; the outputs stay in Fovea's output/export
 //! folders exactly as the engine/export services wrote them.
 //!
 //! Storage is a single JSON file in the app-data dir (`history.json`),
@@ -28,7 +28,7 @@ use std::sync::{Arc, Mutex};
 use serde::{Deserialize, Serialize};
 
 /// Journal cap. Hundreds of rows is already a workflow story; beyond that
-/// the journal is an archive, and Pixora is not an archive product.
+/// the journal is an archive, and Fovea is not an archive product.
 pub const MAX_ENTRIES: usize = 200;
 /// Recent-files cap: a glanceable list, not a file manager.
 pub const MAX_RECENTS: usize = 12;
@@ -57,7 +57,7 @@ pub struct HistoryEntry {
     /// Journal-local id (timestamp + sequence).
     pub id: String,
     /// The source file's canonical path — the same id the collection and
-    /// the engine use. The file itself is never copied into Pixora.
+    /// the engine use. The file itself is never copied into Fovea.
     pub source_path: String,
     /// Display name only (basename of the source).
     pub file_name: String,
@@ -142,6 +142,8 @@ const STORE_VERSION: u32 = 1;
 pub struct Store {
     path: PathBuf,
     inner: Mutex<Persisted>,
+    /// Serializes the file write itself (see [`Store::save`]).
+    save_lock: Mutex<()>,
 }
 
 impl Store {
@@ -154,6 +156,7 @@ impl Store {
         Arc::new(Store {
             path,
             inner: Mutex::new(persisted),
+            save_lock: Mutex::new(()),
         })
     }
 
@@ -247,9 +250,16 @@ impl Store {
         self.save();
     }
 
-    /// Atomic persistence: serialize under the lock, write temp + rename
-    /// outside it. A failed write is logged, never fatal — the in-memory
-    /// journal stays correct for this session and the next change retries.
+    /// Atomic persistence: serialize under the state lock, then write a
+    /// temp file and rename under the *save* lock. A failed write is
+    /// logged, never fatal — the in-memory journal stays correct for this
+    /// session and the next change retries.
+    ///
+    /// The save lock is not decoration: the batch worker and the UI thread
+    /// both record runs, and two writers sharing one `history.json.part`
+    /// interleave their bytes and then rename the mixture over the journal.
+    /// The next launch would read a corrupt file and quarantine it — losing
+    /// the whole history because of a race nobody asked for.
     fn save(&self) {
         let json = {
             let guard = lock(&self.inner);
@@ -267,6 +277,7 @@ impl Store {
                 return;
             }
         };
+        let _saving = lock(&self.save_lock);
         let tmp = self.path.with_extension("json.part");
         let write = std::fs::write(&tmp, &json).and_then(|()| {
             #[cfg(windows)]
@@ -342,7 +353,7 @@ fn next_id() -> String {
     )
 }
 
-fn lock(inner: &Mutex<Persisted>) -> std::sync::MutexGuard<'_, Persisted> {
+fn lock<T>(inner: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
     inner.lock().unwrap_or_else(|e| e.into_inner())
 }
 
@@ -351,7 +362,7 @@ mod tests {
     use super::*;
 
     fn scratch(tag: &str) -> PathBuf {
-        let dir = std::env::temp_dir().join(format!("pixora-history-{}-{tag}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("fovea-history-{}-{tag}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).expect("scratch dir");
         dir

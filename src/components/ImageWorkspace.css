@@ -6,7 +6,7 @@
  * the shell's surface/overlay tokens — no new colors, no hard-coded
  * geometry beyond control sizes.
  *
- * Motion: chrome entries replay via pixora-rise/fade; fullscreen chrome
+ * Motion: chrome entries replay via fovea-rise/fade; fullscreen chrome
  * fades out on pointer idle so inspection is never crowded. Zoom/pan are
  * GPU compositing of the inline transform (no transition — direct
  * manipulation must track the pointer exactly).
@@ -100,7 +100,7 @@
   backdrop-filter: blur(8px);
   box-shadow: var(--shadow-sm);
   font-size: var(--text-xs);
-  animation: pixora-fade var(--duration-base) var(--ease-standard) both;
+  animation: fovea-fade var(--duration-base) var(--ease-standard) both;
 }
 
 .pix-ws__name {
@@ -153,7 +153,7 @@
   bottom: var(--space-4);
   left: 50%;
   translate: -50% 0;
-  animation: pixora-rise var(--duration-base) var(--ease-decelerate) both;
+  animation: fovea-rise var(--duration-base) var(--ease-decelerate) both;
 }
 
 .pix-ws__toolbar {
@@ -212,7 +212,7 @@
   background: color-mix(in srgb, var(--bg-surface) 92%, transparent);
   backdrop-filter: blur(10px);
   box-shadow: var(--shadow-md);
-  animation: pixora-rise var(--duration-base) var(--ease-decelerate) both;
+  animation: fovea-rise var(--duration-base) var(--ease-decelerate) both;
 }
 
 .pix-ws__fsreadout {

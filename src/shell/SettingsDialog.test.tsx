@@ -55,6 +55,8 @@ const systemInfo: SystemInfoDto = {
   arch: 'x86_64',
   appDataDir: 'C:/Users/test/AppData',
   logsDir: 'C:/Users/test/AppData/logs',
+  defaultExportDir: 'C:/Users/test/Documents/Fovea',
+  defaultBatchExportDir: 'C:/Users/test/Documents/Fovea/Batch',
 }
 
 const inference: InferenceStatusDto = {
@@ -79,9 +81,9 @@ function Harness({ onClose = () => {} }: { onClose?: () => void }) {
     dispatch({
       type: 'core/ready',
       config: {
-        productName: 'Pixora',
+        productName: 'Fovea',
         version: '1.2.3',
-        identifier: 'com.pixora.desktop',
+        identifier: 'com.fovea.desktop',
         debug: false,
       },
       systemInfo,
@@ -184,8 +186,11 @@ describe('Settings dialog', () => {
     await waitFor(() => expect(storedSettings().export.folder).toBe('D:/Photo Exports'))
     expect(screen.getByText('D:/Photo Exports')).toBeInTheDocument()
 
-    fireEvent.click(screen.getByRole('button', { name: /Use Pixora's/i }))
+    fireEvent.click(screen.getByRole('button', { name: /Use Fovea's/i }))
     expect(storedSettings().export.folder).toBe('')
+    // Resetting to Fovea's own folder shows the real path the native layer
+    // reported — never a vague label while an answer is on hand.
+    expect(screen.getByText('C:/Users/test/Documents/Fovea')).toBeInTheDocument()
   })
 
   it('the full-machine power mode mirrors to native', () => {
@@ -205,7 +210,7 @@ describe('Settings dialog', () => {
     expect(screen.getByText(/Test CPU 9000/)).toBeInTheDocument()
     expect(screen.getByText(/Test GPU Ultra/)).toBeInTheDocument()
     // The version row: label and value share the row.
-    expect(screen.getByText('Pixora version')).toBeInTheDocument()
+    expect(screen.getByText('Fovea version')).toBeInTheDocument()
     expect(screen.getByText('1.2.3')).toBeInTheDocument()
     // Models: honest per-mode readiness, straight from native status.
     expect(screen.getAllByText('Ready')).toHaveLength(2)

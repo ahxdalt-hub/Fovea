@@ -1,8 +1,20 @@
-import { BeforeAfter } from '@/components/BeforeAfter';
-import { Cta } from '@/components/Cta';
-import { Reveal } from '@/components/Reveal';
-import { Logo } from '@/components/Logo';
-import { faqs, features, howItWorks, site, tiers, trustDetails } from '@/lib/site';
+import { BeforeAfter } from '@/components/BeforeAfter'
+import { Cta } from '@/components/Cta'
+import { Reveal } from '@/components/Reveal'
+import { Logo } from '@/components/Logo'
+import {
+  benchmarkNote,
+  benchmarks,
+  faqs,
+  features,
+  howItWorks,
+  limits,
+  planRows,
+  site,
+  tiers,
+  trustDetails,
+  type PlanValue,
+} from '@/lib/site'
 
 /** Small centered eyebrow label above a heading. */
 function Eyebrow({ children, tone = 'accent' }: { children: string; tone?: 'accent' | 'steel' }) {
@@ -14,7 +26,7 @@ function Eyebrow({ children, tone = 'accent' }: { children: string; tone?: 'acce
     >
       {children}
     </p>
-  );
+  )
 }
 
 function Check({ light = false }: { light?: boolean }) {
@@ -35,12 +47,93 @@ function Check({ light = false }: { light?: boolean }) {
         strokeLinejoin="round"
       />
     </svg>
-  );
+  )
+}
+
+function Cross() {
+  return (
+    <svg
+      width="18"
+      height="18"
+      viewBox="0 0 24 24"
+      fill="none"
+      aria-hidden="true"
+      className="mt-0.5 shrink-0 text-ink-3"
+    >
+      <path
+        d="M6 6l12 12M18 6 6 18"
+        stroke="currentColor"
+        strokeWidth="2.2"
+        strokeLinecap="round"
+      />
+    </svg>
+  )
+}
+
+/** A plan-matrix cell: yes, no, or the honest words that replace either. */
+function PlanCell({ value, label }: { value: PlanValue; label: string }) {
+  if (value === true)
+    return (
+      <span
+        className="inline-flex items-center gap-1 text-accent"
+        aria-label={`${label}: included`}
+      >
+        <Check />
+        <span className="sr-only">Included</span>
+      </span>
+    )
+  if (value === false)
+    return (
+      <span className="inline-flex items-center gap-1" aria-label={`${label}: not included`}>
+        <Cross />
+        <span className="sr-only">Not included</span>
+      </span>
+    )
+  return <span className="text-[0.9rem] text-ink-2">{value}</span>
+}
+
+/** Search-facing structured data: the product, its plans, and the FAQ. */
+const jsonLd = {
+  '@context': 'https://schema.org',
+  '@graph': [
+    {
+      '@type': 'SoftwareApplication',
+      name: site.name,
+      applicationCategory: 'MultimediaApplication',
+      operatingSystem: 'Windows 10, Windows 11 (64-bit)',
+      url: site.url,
+      description: site.description,
+      featureList: [
+        'Local AI image enhancement',
+        '2× and 4× upscaling',
+        'Batch processing up to 500 images',
+        'PNG, JPEG and WebP export',
+        'DirectML GPU acceleration with CPU fallback',
+        'Before/after comparison',
+        'Fully offline — images are never uploaded',
+      ],
+      offers: tiers.map((t) => ({
+        '@type': 'Offer',
+        name: t.name,
+        price: t.price.replace('$', ''),
+        priceCurrency: 'USD',
+      })),
+    },
+    {
+      '@type': 'FAQPage',
+      mainEntity: faqs.map((f) => ({
+        '@type': 'Question',
+        name: f.q,
+        acceptedAnswer: { '@type': 'Answer', text: f.a },
+      })),
+    },
+  ],
 }
 
 export default function Home() {
   return (
     <>
+      {' '}
       {/* 1 ─ HERO ───────────────────────────────────────────────────────── */}
       <section id="top" className="relative overflow-hidden bg-canvas text-white">
         <div
@@ -58,13 +151,13 @@ export default function Home() {
               Enhance and upscale images on your own computer.
             </h1>
             <p className="mt-6 max-w-xl text-lg leading-relaxed text-steel-light">
-              Pixora rebuilds detail in your photos with a real AI model that runs entirely on your
-              machine. No uploads, no cloud, no subscription server — just bigger, sharper images you
-              can trust.
+              Fovea rebuilds detail in your photos with a real AI model that runs entirely on your
+              machine. No uploads, no cloud, no subscription server — just bigger, sharper images
+              you can trust.
             </p>
             <div className="mt-9 flex flex-wrap items-center gap-4">
               <Cta href="/download?tier=evaluate" variant="light">
-                Download Pixora
+                Download Fovea
               </Cta>
               <a
                 href="#showcase"
@@ -79,21 +172,20 @@ export default function Home() {
             </p>
           </div>
 
-          {/* Hero uses a genuine before/after pair produced by Pixora. */}
+          {/* Hero uses a genuine before/after pair produced by Fovea. */}
           <Reveal>
             <BeforeAfter
               before="/images/coast-before.jpg"
               after="/images/coast-after.jpg"
-              beforeAlt="Original photograph, the small input given to Pixora"
-              afterAlt="The same photograph enhanced and upscaled 4× by Pixora"
+              beforeAlt="Original photograph, the small input given to Fovea"
+              afterAlt="The same photograph enhanced and upscaled 4× by Fovea"
             />
             <p className="mt-4 text-center text-sm text-steel-light">
-              Drag to compare — the “after” side is the real 4× output from Pixora’s model.
+              Drag to compare — the “after” side is the real 4× output from Fovea’s model.
             </p>
           </Reveal>
         </div>
       </section>
-
       {/* 2 ─ PROBLEM ────────────────────────────────────────────────────── */}
       <section id="problem" className="bg-app py-24">
         <div className="container-page">
@@ -128,24 +220,23 @@ export default function Home() {
           </div>
         </div>
       </section>
-
       {/* 3 ─ SOLUTION ───────────────────────────────────────────────────── */}
       <section className="bg-surface py-24">
         <div className="container-page grid gap-14 lg:grid-cols-2 lg:items-center">
           <Reveal>
-            <Eyebrow>The Pixora way</Eyebrow>
+            <Eyebrow>The Fovea way</Eyebrow>
             <h2 className="font-display text-3xl font-semibold leading-tight sm:text-4xl">
               A real AI model, doing real reconstruction — locally.
             </h2>
             <p className="mt-6 text-lg leading-relaxed text-ink-2">
-              Pixora bundles a proven enhancement model (Real-ESRGAN) inside the app. It doesn’t
+              Fovea bundles a proven enhancement model (Real-ESRGAN) inside the app. It doesn’t
               stretch pixels; it rebuilds them, recovering edges, texture and detail that a plain
               resize can only smear. And because the model lives on your computer, that work happens
               without a single byte leaving your machine.
             </p>
             <ul className="mt-8 space-y-3 text-[1.02rem]">
               {[
-                'Genuine 2× and 4× upscaling, not a stretched preview',
+                'Real 2× and 4× output, generated by the model',
                 'Three distinct modes — Standard, Natural, Detail',
                 'Runs on your GPU through DirectML, or the CPU',
                 'No account, no server, no upload step',
@@ -161,7 +252,7 @@ export default function Home() {
             <div className="rounded-card border border-line bg-app p-8 shadow-soft">
               <div className="flex items-center gap-3">
                 <Logo size={44} />
-                <div className="font-display text-2xl font-semibold">Pixora</div>
+                <div className="font-display text-2xl font-semibold">Fovea</div>
               </div>
               <div className="mt-6 grid grid-cols-3 gap-3 text-center">
                 {[
@@ -183,7 +274,6 @@ export default function Home() {
           </Reveal>
         </div>
       </section>
-
       {/* 4 ─ SHOWCASE / BEFORE-AFTER ────────────────────────────────────── */}
       <section id="showcase" className="bg-canvas py-24 text-white">
         <div className="container-page">
@@ -193,7 +283,7 @@ export default function Home() {
               Judge it with your own eyes.
             </h2>
             <p className="mt-4 text-lg text-steel-light">
-              These are genuine Pixora outputs — a small photo on the left, the same image after a
+              These are genuine Fovea outputs — a small photo on the left, the same image after a
               real 4× enhancement run on the right. Drag each slider.
             </p>
           </Reveal>
@@ -203,8 +293,8 @@ export default function Home() {
               <BeforeAfter
                 before="/images/face-before.jpg"
                 after="/images/face-after.jpg"
-                beforeAlt="Original portrait, the small input given to Pixora"
-                afterAlt="The portrait enhanced and upscaled 4× by Pixora in Natural mode"
+                beforeAlt="Original portrait, the small input given to Fovea"
+                afterAlt="The portrait enhanced and upscaled 4× by Fovea in Natural mode"
                 aspect="3 / 2"
               />
             </Reveal>
@@ -213,8 +303,8 @@ export default function Home() {
                 <BeforeAfter
                   before="/images/coast-before.jpg"
                   after="/images/coast-after.jpg"
-                  beforeAlt="Original coastal landscape, the small input given to Pixora"
-                  afterAlt="The coastal landscape enhanced and upscaled 4× by Pixora in Detail mode"
+                  beforeAlt="Original coastal landscape, the small input given to Fovea"
+                  afterAlt="The coastal landscape enhanced and upscaled 4× by Fovea in Detail mode"
                   aspect="3 / 2"
                 />
               </Reveal>
@@ -222,8 +312,8 @@ export default function Home() {
                 <BeforeAfter
                   before="/images/foliage-before.jpg"
                   after="/images/foliage-after.jpg"
-                  beforeAlt="Original foliage, the small input given to Pixora"
-                  afterAlt="The foliage enhanced and upscaled 4× by Pixora in Standard mode"
+                  beforeAlt="Original foliage, the small input given to Fovea"
+                  afterAlt="The foliage enhanced and upscaled 4× by Fovea in Standard mode"
                   aspect="3 / 2"
                 />
               </Reveal>
@@ -231,7 +321,6 @@ export default function Home() {
           </div>
         </div>
       </section>
-
       {/* 5 ─ PRIVACY / LOCAL ────────────────────────────────────────────── */}
       <section id="privacy" className="bg-surface py-24">
         <div className="container-page grid gap-14 lg:grid-cols-[1.1fr_1fr] lg:items-center">
@@ -242,8 +331,8 @@ export default function Home() {
             </h2>
             <p className="mt-6 text-lg leading-relaxed text-ink-2">
               This isn’t a policy promise — it’s how the software is built. There is no upload path,
-              no analytics beacon, and no account. Once Pixora is installed it works entirely offline;
-              even license activation is verified on your machine.
+              no analytics beacon, and no account. Once Fovea is installed it works entirely
+              offline; even license activation is verified on your machine.
             </p>
             <div className="mt-8 grid gap-4 sm:grid-cols-3">
               {[
@@ -276,7 +365,6 @@ export default function Home() {
           </Reveal>
         </div>
       </section>
-
       {/* 6 ─ HOW IT WORKS ───────────────────────────────────────────────── */}
       <section className="bg-app py-24">
         <div className="container-page">
@@ -299,7 +387,6 @@ export default function Home() {
           </ol>
         </div>
       </section>
-
       {/* 7 ─ FEATURES ───────────────────────────────────────────────────── */}
       <section id="features" className="bg-surface py-24">
         <div className="container-page">
@@ -326,8 +413,76 @@ export default function Home() {
           </div>
         </div>
       </section>
+      {/* 8 ─ FREE vs PRO vs STUDIO ──────────────────────────────────────── */}
+      <section id="plans" className="bg-app py-24">
+        <div className="container-page">
+          <Reveal className="mx-auto max-w-3xl text-center">
+            <Eyebrow>Free, Pro and Studio</Eyebrow>
+            <h2 className="font-display text-3xl font-semibold leading-tight sm:text-4xl">
+              Same engine in every column. Here is the honest difference.
+            </h2>
+            <p className="mt-4 text-lg leading-relaxed text-ink-2">
+              Fovea does not meter you and does not lock a mode behind a key. A license covers
+              commercial use and more machines — it is a signed record of your right to use the app,
+              not a switch inside the image pipeline.
+            </p>
+          </Reveal>
 
-      {/* 8 ─ WHO IT'S FOR ───────────────────────────────────────────────── */}
+          <Reveal className="mt-12 overflow-x-auto rounded-card border border-line bg-surface shadow-soft">
+            <table className="w-full min-w-[720px] border-collapse text-left">
+              <caption className="sr-only">
+                What Fovea Free, Fovea Pro and Fovea Studio each include
+              </caption>
+              <thead>
+                <tr className="border-b border-line">
+                  <th
+                    scope="col"
+                    className="px-6 py-5 text-sm font-semibold uppercase tracking-wide text-ink-3"
+                  >
+                    Capability
+                  </th>
+                  {(['free', 'pro', 'studio'] as const).map((col) => (
+                    <th
+                      key={col}
+                      scope="col"
+                      className="px-6 py-5 text-center font-display text-lg font-semibold"
+                    >
+                      {col === 'free' ? 'Free' : col === 'pro' ? 'Pro' : 'Studio'}
+                      <span className="mt-1 block text-xs font-normal normal-case tracking-normal text-ink-3">
+                        {col === 'free' ? '$0' : col === 'pro' ? '$49 one-time' : '$129 one-time'}
+                      </span>
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {planRows.map((row) => (
+                  <tr key={row.label} className="border-b border-line last:border-0">
+                    <th scope="row" className="px-6 py-4 text-left align-top font-normal">
+                      <span className="block font-semibold text-ink">{row.label}</span>
+                      <span className="mt-1 block text-sm leading-relaxed text-ink-3">
+                        {row.note}
+                      </span>
+                    </th>
+                    {(['free', 'pro', 'studio'] as const).map((col) => (
+                      <td key={col} className="px-6 py-4 text-center align-middle">
+                        <PlanCell value={row[col]} label={row.label} />
+                      </td>
+                    ))}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </Reveal>
+
+          <p className="mx-auto mt-8 max-w-3xl text-center text-[0.95rem] leading-relaxed text-ink-2">
+            If you only enhance your own photos, the free build is the complete product and we would
+            rather you knew that before paying. Buy a license when client work, a business, or more
+            than one machine needs to be covered.
+          </p>
+        </div>
+      </section>
+      {/* 9 ─ WHO IT'S FOR ───────────────────────────────────────────────── */}
       <section className="bg-canvas py-24 text-white">
         <div className="container-page">
           <Reveal className="mx-auto max-w-2xl text-center">
@@ -365,8 +520,7 @@ export default function Home() {
           </div>
         </div>
       </section>
-
-      {/* 9 ─ PERFORMANCE / HARDWARE ─────────────────────────────────────── */}
+      {/* 10 ─ PERFORMANCE / HARDWARE ────────────────────────────────────── */}
       <section id="hardware" className="bg-app py-24">
         <div className="container-page grid gap-14 lg:grid-cols-2 lg:items-center">
           <Reveal>
@@ -375,10 +529,14 @@ export default function Home() {
               Uses the hardware you already have.
             </h2>
             <p className="mt-6 text-lg leading-relaxed text-ink-2">
-              Pixora accelerates enhancement with any DirectX 12 graphics card through DirectML —
+              Fovea accelerates enhancement with any DirectX 12 graphics card through DirectML —
               that covers AMD, Intel and NVIDIA on Windows, with no CUDA required. No dedicated GPU?
-              It falls back to your processor automatically and still delivers the same quality, just
-              more patiently.
+              It falls back to your processor automatically and still delivers the same quality,
+              just more patiently.
+            </p>
+            <p className="mt-4 leading-relaxed text-ink-2">
+              Tile size is planned from the memory actually free when a job starts, so an image
+              bigger than your graphics memory costs you time rather than crashing the app.
             </p>
           </Reveal>
           <Reveal delay={120}>
@@ -387,7 +545,7 @@ export default function Home() {
                 { k: 'GPU path', v: 'DirectML — AMD, Intel, NVIDIA (DirectX 12)' },
                 { k: 'No CUDA needed', v: 'Runs without NVIDIA-specific tooling' },
                 { k: 'CPU fallback', v: 'Automatic — a missing GPU never breaks a run' },
-                { k: 'Tiling', v: 'Adaptive, to fit memory on large images' },
+                { k: 'Tiling', v: 'Adaptive, planned from your free RAM and VRAM' },
                 { k: 'Network', v: 'None at run time' },
               ].map((row, i) => (
                 <div
@@ -405,9 +563,83 @@ export default function Home() {
             </dl>
           </Reveal>
         </div>
-      </section>
 
-      {/* 10 ─ TRUST DETAILS ────────────────────────────────────────────── */}
+        <div className="container-page mt-20">
+          <Reveal className="max-w-3xl">
+            <Eyebrow>Measured, not estimated</Eyebrow>
+            <h3 className="font-display text-2xl font-semibold leading-tight sm:text-3xl">
+              Real end-to-end times on one test laptop.
+            </h3>
+            <p className="mt-4 leading-relaxed text-ink-2">
+              Each row is a complete run — decode, model inference, encode, write — at 4×, measured
+              on an RTX 3050 Laptop (6 GB) with a Ryzen 5 5600. Your results will differ with your
+              hardware.
+            </p>
+          </Reveal>
+          <Reveal className="mt-8 overflow-x-auto rounded-card border border-line bg-surface shadow-soft">
+            <table className="w-full min-w-[760px] border-collapse text-left">
+              <caption className="sr-only">
+                Measured Fovea enhancement times, throughput and peak memory by source size
+              </caption>
+              <thead>
+                <tr className="border-b border-line">
+                  {['Source size', 'Engine', 'Tile', 'Time', 'Throughput', 'Peak memory'].map(
+                    (h) => (
+                      <th
+                        key={h}
+                        scope="col"
+                        className="px-5 py-4 text-sm font-semibold uppercase tracking-wide text-ink-3"
+                      >
+                        {h}
+                      </th>
+                    ),
+                  )}
+                </tr>
+              </thead>
+              <tbody>
+                {benchmarks.map((b) => (
+                  <tr key={`${b.size}-${b.engine}`} className="border-b border-line last:border-0">
+                    <th scope="row" className="px-5 py-3 text-left font-semibold text-ink">
+                      {b.size}
+                    </th>
+                    <td className="px-5 py-3 text-[0.92rem] text-ink-2">{b.engine}</td>
+                    <td className="px-5 py-3 font-display tabular-nums">{b.tile}</td>
+                    <td className="px-5 py-3 font-display tabular-nums">{b.time}</td>
+                    <td className="px-5 py-3 font-display tabular-nums">{b.rate}</td>
+                    <td className="px-5 py-3 font-display tabular-nums">{b.peak}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </Reveal>
+          <p className="mt-5 max-w-3xl text-[0.92rem] leading-relaxed text-ink-3">
+            {benchmarkNote}
+          </p>
+        </div>
+
+        <div className="container-page mt-20">
+          <Reveal className="max-w-3xl">
+            <Eyebrow tone="steel">The limits, up front</Eyebrow>
+            <h3 className="font-display text-2xl font-semibold leading-tight sm:text-3xl">
+              Nothing hidden until you hit it.
+            </h3>
+          </Reveal>
+          <dl className="mt-10 grid gap-x-10 gap-y-8 sm:grid-cols-2 lg:grid-cols-4">
+            {limits.map((l, i) => (
+              <Reveal key={l.k} delay={(i % 4) * 70}>
+                <div className="border-t border-line pt-5">
+                  <dt className="text-sm font-semibold uppercase tracking-wide text-ink-3">
+                    {l.k}
+                  </dt>
+                  <dd className="mt-1 font-display text-lg font-semibold text-ink">{l.v}</dd>
+                  <p className="mt-2 text-[0.9rem] leading-relaxed text-ink-2">{l.d}</p>
+                </div>
+              </Reveal>
+            ))}
+          </dl>
+        </div>
+      </section>
+      {/* 11 ─ TRUST DETAILS ────────────────────────────────────────────── */}
       <section className="bg-surface py-20">
         <div className="container-page">
           <Reveal className="max-w-2xl">
@@ -431,8 +663,7 @@ export default function Home() {
           </dl>
         </div>
       </section>
-
-      {/* 11 ─ PRICING ──────────────────────────────────────────────────── */}
+      {/* 12 ─ PRICING ──────────────────────────────────────────────────── */}
       <section id="pricing" className="bg-surface py-24">
         <div className="container-page">
           <Reveal className="mx-auto max-w-2xl text-center">
@@ -441,8 +672,8 @@ export default function Home() {
               One-time price. Yours to keep.
             </h2>
             <p className="mt-4 text-lg text-ink-2">
-              Enhancement itself is free to run, so try Pixora on your own photos first. A license
-              covers machines and commercial use — never locks away a feature.
+              The app is free to run and never metered, so try it on your own photos first. A
+              license covers machines and commercial use — it never locks away a feature.
             </p>
           </Reveal>
           <div className="mt-14 grid gap-6 lg:grid-cols-3">
@@ -504,13 +735,12 @@ export default function Home() {
             ))}
           </div>
           <p className="mt-8 text-center text-sm text-ink-3">
-            Prices shown are introductory and may change. Licensing is offline and per-machine; see
-            the FAQ for how activation works.
+            Prices shown are introductory and may change. Licensing is offline and verified on your
+            machine; see the FAQ for how activation and machine coverage work.
           </p>
         </div>
       </section>
-
-      {/* 11 ─ FAQ ───────────────────────────────────────────────────────── */}
+      {/* 13 ─ FAQ ───────────────────────────────────────────────────────── */}
       <section id="faq" className="bg-app py-24">
         <div className="container-page max-w-3xl">
           <Reveal className="text-center">
@@ -532,7 +762,12 @@ export default function Home() {
                     aria-hidden="true"
                     className="shrink-0 text-ink-3 transition-transform duration-200 group-open:rotate-45"
                   >
-                    <path d="M12 5v14M5 12h14" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+                    <path
+                      d="M12 5v14M5 12h14"
+                      stroke="currentColor"
+                      strokeWidth="2"
+                      strokeLinecap="round"
+                    />
                   </svg>
                 </summary>
                 <p className="pb-5 leading-relaxed text-ink-2">{f.a}</p>
@@ -541,32 +776,35 @@ export default function Home() {
           </div>
         </div>
       </section>
-
-      {/* 12 ─ FINAL CTA ─────────────────────────────────────────────────── */}
+      {/* 14 ─ FINAL CTA ─────────────────────────────────────────────────── */}
       <section className="bg-canvas py-24 text-white">
         <div className="container-page">
           <Reveal className="mx-auto max-w-2xl text-center">
             <h2 className="font-display text-3xl font-semibold leading-tight sm:text-5xl">
-              See what Pixora does to your own photos.
+              See what Fovea does to your own photos.
             </h2>
             <p className="mt-5 text-lg text-steel-light">
-              Download, run it offline, and compare the results yourself. Enhancement is free to try —
-              add a license when you’re ready.
+              Download it, run it offline, and compare the results yourself. The app is free to use
+              — add a license when client work or more than one machine needs covering.
             </p>
             <div className="mt-9 flex flex-wrap justify-center gap-4">
               <Cta href="/download?tier=evaluate" variant="light">
-                Download Pixora
+                Download Fovea
               </Cta>
               <a
-                href="#showcase"
+                href="#plans"
                 className="inline-flex items-center rounded-pill px-6 py-3 text-[0.95rem] font-semibold text-white/90 ring-1 ring-white/25 transition hover:bg-white/10"
               >
-                Look at the results again
+                See what a license covers
               </a>
             </div>
           </Reveal>
         </div>
       </section>
+      <script
+        type="application/ld+json"
+        dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }}
+      />
     </>
-  );
+  )
 }

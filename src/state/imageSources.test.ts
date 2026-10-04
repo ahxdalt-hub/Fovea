@@ -55,6 +55,20 @@ describe('source cache discipline', () => {
     expect(vi.mocked(loadImageView).mock.calls.length).toBe(calls)
   })
 
+  it('bounds the working set: a large import evicts its own stalest entries', async () => {
+    const ids = Array.from({ length: 30 }, (_, i) => `img${i}.png`)
+    for (const id of ids) await loadImageSource(id, 'view', a)
+    const { loadImageView } = await import('../ipc/bridge')
+    const calls = vi.mocked(loadImageView).mock.calls.length
+    // The freshest loads stay cached…
+    await loadImageSource(ids[29]!, 'view', a)
+    expect(vi.mocked(loadImageView).mock.calls.length).toBe(calls)
+    // …and the stalest are gone: memory is bounded by design, not by how
+    // many files the user happened to drop.
+    await loadImageSource(ids[0]!, 'view', a)
+    expect(vi.mocked(loadImageView).mock.calls.length).toBe(calls + 1)
+  })
+
   it('invalidateSources forces a refetch for the given ids only', async () => {
     await loadImageSource('fresh.png', 'view', a)
     await loadImageSource('stale.png', 'view', a)

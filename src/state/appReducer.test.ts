@@ -14,6 +14,8 @@ const systemInfo: SystemInfoDto = {
   arch: 'x86_64',
   appDataDir: 'C:/Fake/AppData',
   logsDir: 'C:/Fake/Logs',
+  defaultExportDir: 'C:/Fake/Documents/Fovea',
+  defaultBatchExportDir: 'C:/Fake/Documents/Fovea/Batch',
 }
 
 const failure: AppErrorPayload = { code: 'unexpected_error', message: 'nope' }
@@ -283,6 +285,22 @@ describe('appReducer — enhance job (Stage 05)', () => {
     s = appReducer(s, { type: 'enhance/event', event: { phase: 'completed' } })
     expect(s.enhanceJob?.phase).toBe('completed')
     expect(s.enhanceJob?.done).toBe(1)
+  })
+
+  it('a terminal job never reports a success', () => {
+    let c = appReducer(initialState, start)
+    c = appReducer(c, { type: 'enhance/event', event: { phase: 'cancelled' } })
+    c = appReducer(c, { type: 'enhance/event', event: { phase: 'completing' } })
+    c = appReducer(c, { type: 'enhance/event', event: { phase: 'completed' } })
+    expect(c.enhanceJob?.phase).toBe('cancelled')
+
+    let f = appReducer(initialState, start)
+    f = appReducer(f, {
+      type: 'enhance/event',
+      event: { phase: 'failed', code: 'out_of_memory', message: 'not enough memory' },
+    })
+    f = appReducer(f, { type: 'enhance/event', event: { phase: 'completed' } })
+    expect(f.enhanceJob?.phase).toBe('failed')
   })
 
   it('failed stores the user-safe error; cancelled is distinct', () => {

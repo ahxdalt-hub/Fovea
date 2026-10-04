@@ -13,11 +13,11 @@ import './DropOverlay.css'
 
 export function DropOverlay() {
   return (
-    <div className="pixora-drop-overlay anim-fade" role="status" aria-label="Drop files to import">
-      <div className="pixora-drop-overlay__frame" aria-hidden="true" />
-      <div className="pixora-drop-overlay__hint">
-        <span className="pixora-drop-overlay__title">Drop images to import</span>
-        <span className="pixora-drop-overlay__detail">JPG · PNG · WebP — checked locally</span>
+    <div className="fovea-drop-overlay anim-fade" role="status" aria-label="Drop files to import">
+      <div className="fovea-drop-overlay__frame" aria-hidden="true" />
+      <div className="fovea-drop-overlay__hint">
+        <span className="fovea-drop-overlay__title">Drop images to import</span>
+        <span className="fovea-drop-overlay__detail">JPG · PNG · WebP — checked locally</span>
       </div>
     </div>
   )

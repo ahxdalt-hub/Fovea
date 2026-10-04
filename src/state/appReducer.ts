@@ -22,7 +22,7 @@ import type {
   InferenceStatusDto,
   SystemInfoDto,
 } from '../types/ipc'
-import { DEFAULT_SETTINGS, readSettings, resolveStartupView, type PixoraSettings } from './settings'
+import { DEFAULT_SETTINGS, readSettings, resolveStartupView, type FoveaSettings } from './settings'
 
 /** Native connection lifecycle. */
 export type CoreStatus = 'connecting' | 'ready' | 'error'
@@ -115,7 +115,7 @@ export interface AppState {
    * defaults, export defaults, performance). The Enhance strip reads
    * `processing` and writes back through it, so the workspace choice and
    * the Settings page are one value, not two. */
-  settings: PixoraSettings
+  settings: FoveaSettings
   /** Stage 06: the last export's result per image id — proof the file
    * landed, shown in the completion state without a second source. */
   exports: Record<string, ExportResultDto>
@@ -147,7 +147,7 @@ export type AppAction =
   | { type: 'ui/navigate'; view: ViewId }
   | { type: 'ui/retryCore' }
   | { type: 'ui/settings'; open: boolean }
-  | { type: 'settings/set'; settings: PixoraSettings }
+  | { type: 'settings/set'; settings: FoveaSettings }
   | { type: 'import/start' }
   | { type: 'import/end' }
   | { type: 'images/add'; images: ImportedImageDto[] }
@@ -319,8 +319,14 @@ export function appReducer(state: AppState, action: AppAction): AppState {
             enhanceJob: { ...job, phase: 'processing', done: e.done, total: e.total },
           }
         case 'completing':
+          if (job.phase === 'failed' || job.phase === 'cancelled') return state
           return { ...state, enhanceJob: { ...job, phase: 'completing' } }
         case 'completed':
+          // A cancelled or failed job is already settled: a `completed`
+          // that arrives late (the cancel landed mid-commit) must not
+          // turn "Cancelled — nothing was written" into a success the
+          // user never got. Terminal phases also keep their counts.
+          if (job.phase === 'failed' || job.phase === 'cancelled') return state
           return {
             ...state,
             enhanceJob: {

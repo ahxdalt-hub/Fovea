@@ -1,6 +1,6 @@
 {
   "$schema": "node_modules/wrangler/config-schema.json",
-  "name": "pixora-website",
+  "name": "fovea-website",
   "main": ".open-next/worker.js",
   "account_id": "263638586a79f58c60922fe09323935b",
   "compatibility_date": "2026-01-01",
@@ -13,11 +13,18 @@
   // Server-side only — never exposed to the browser. Defaults: manual
   // checkout (no payment secret), no installer URL yet, so /download shows
   // the honest "not published" state. Flip these when the launch is ready.
+  //
+  // SECRETS are not vars — set them once per environment:
+  //   wrangler secret put SUPABASE_SERVICE_ROLE_KEY
+  //   wrangler secret put FOVEA_STRIPE_SECRET_KEY
+  //   wrangler secret put FOVEA_STRIPE_WEBHOOK_SECRET
+  // (OpenNext exposes vars + secrets to the worker as process.env.)
   "vars": {
-    "PIXORA_PAYMENT_PROVIDER": "manual"
+    "FOVEA_PAYMENT_PROVIDER": "manual",
+    "SUPABASE_URL": "https://ulpwhvfqhfbrjbjbvivz.supabase.co"
   }
 ,
   "routes": [
-    { "pattern": "pixora.caelmont.in", "custom_domain": true, "zone_id": "92a841adaa6883716e87795e513d2cf1" }
+    { "pattern": "fovea.caelmont.in", "custom_domain": true, "zone_id": "92a841adaa6883716e87795e513d2cf1" }
   ]
 }

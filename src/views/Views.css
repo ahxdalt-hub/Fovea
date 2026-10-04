@@ -1,6 +1,6 @@
 /* View chrome: headers, the Enhance workflow strip, spacing rules. */
 
-.pixora-view {
+.fovea-view {
   display: flex;
   flex-direction: column;
   height: 100%;
@@ -8,7 +8,7 @@
   overflow: hidden;
 }
 
-.pixora-view__header {
+.fovea-view__header {
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -16,7 +16,7 @@
   padding: var(--space-5) var(--space-6) 0;
 }
 
-.pixora-view__title {
+.fovea-view__title {
   margin: 0;
   font-family: var(--font-display);
   font-size: var(--text-xl);
@@ -24,7 +24,7 @@
   letter-spacing: -0.015em;
 }
 
-.pixora-view__subtitle {
+.fovea-view__subtitle {
   margin: 2px 0 0;
   font-size: var(--text-sm);
   color: var(--text-secondary);
@@ -32,24 +32,24 @@
 
 /* ── Enhance workflow strip ───────────────────────────────── */
 
-.pixora-view--enhance {
+.fovea-view--enhance {
   padding: var(--space-5) var(--space-6) var(--space-4);
   gap: 0;
 }
 
-.pixora-view--enhance .pix-state--empty {
+.fovea-view--enhance .pix-state--empty {
   flex: 1;
   min-height: 0;
 }
 
-.pixora-workflow {
+.fovea-workflow {
   display: flex;
   align-items: center;
   gap: var(--space-3);
   margin-bottom: var(--space-2);
 }
 
-.pixora-workflow__step {
+.fovea-workflow__step {
   position: relative;
   display: flex;
   align-items: center;
@@ -62,7 +62,7 @@
   background: var(--bg-surface);
 }
 
-.pixora-workflow__chevron {
+.fovea-workflow__chevron {
   position: absolute;
   top: 50%;
   left: -12px; /* centers the 10px glyph in the 12px gap between step cards */
@@ -74,7 +74,7 @@
   rotate: 45deg;
 }
 
-.pixora-workflow__n {
+.fovea-workflow__n {
   display: grid;
   place-items: center;
   width: 22px;
@@ -87,18 +87,18 @@
   font-weight: 700;
 }
 
-.pixora-workflow__text {
+.fovea-workflow__text {
   display: flex;
   flex-direction: column;
   min-width: 0;
 }
 
-.pixora-workflow__title {
+.fovea-workflow__title {
   font-size: var(--text-sm);
   font-weight: 600;
 }
 
-.pixora-workflow__detail {
+.fovea-workflow__detail {
   font-size: var(--text-xs);
   color: var(--text-tertiary);
   white-space: nowrap;
@@ -107,7 +107,7 @@
 }
 
 /* Footnote under the empty workspace. */
-.pixora-view__footnote {
+.fovea-view__footnote {
   display: flex;
   align-items: center;
   justify-content: center;
@@ -119,7 +119,7 @@
 
 /* ── Imported collection (Stage 03) ───────────────────────── */
 
-.pixora-collection {
+.fovea-collection {
   display: flex;
   flex-direction: column;
   flex: 1;
@@ -128,14 +128,14 @@
   padding-top: var(--space-3);
 }
 
-.pixora-collection__bar {
+.fovea-collection__bar {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: var(--space-4);
 }
 
-.pixora-collection__heading {
+.fovea-collection__heading {
   display: flex;
   align-items: baseline;
   gap: var(--space-3);
@@ -145,20 +145,20 @@
   font-weight: 600;
 }
 
-.pixora-collection__count {
+.fovea-collection__count {
   font-family: var(--font-ui);
   font-size: var(--text-sm);
   font-weight: 400;
   color: var(--text-tertiary);
 }
 
-.pixora-collection__actions {
+.fovea-collection__actions {
   display: flex;
   align-items: center;
   gap: var(--space-2);
 }
 
-.pixora-collection__busy {
+.fovea-collection__busy {
   display: inline-flex;
   align-items: center;
   gap: var(--space-2);
@@ -166,7 +166,7 @@
   color: var(--text-secondary);
 }
 
-.pixora-collection__body {
+.fovea-collection__body {
   display: grid;
   grid-template-columns: 132px 1fr;
   gap: var(--space-4);
@@ -176,7 +176,7 @@
 
 /* Thumbnail rail */
 
-.pixora-thumbs {
+.fovea-thumbs {
   list-style: none;
   margin: 0;
   padding: 0;
@@ -187,11 +187,11 @@
   min-height: 0;
 }
 
-.pixora-thumbs > li {
+.fovea-thumbs > li {
   position: relative;
 }
 
-.pixora-thumb {
+.fovea-thumb {
   display: flex;
   flex-direction: column;
   width: 100%;
@@ -207,30 +207,30 @@
     box-shadow var(--duration-instant) var(--ease-standard);
 }
 
-.pixora-thumb:hover {
+.fovea-thumb:hover {
   border-color: var(--border-strong);
   box-shadow: var(--shadow-sm);
 }
 
-.pixora-thumb--active {
+.fovea-thumb--active {
   border-color: var(--accent);
   background: var(--accent-soft);
 }
 
 /* Checkerboard under previews with alpha, so transparency is visible. */
-.pixora-thumb__img {
+.fovea-thumb__img {
   border-radius: var(--radius-sm);
   background: repeating-conic-gradient(var(--bg-sunken) 0% 25%, var(--bg-raised) 0% 50%) 0 0 / 16px
     16px;
 }
 
-.pixora-thumb__img {
+.fovea-thumb__img {
   width: 100%;
   height: 84px;
   object-fit: contain;
 }
 
-.pixora-thumb__name {
+.fovea-thumb__name {
   margin-top: var(--space-1);
   font-size: var(--text-xs);
   color: var(--text-secondary);
@@ -239,7 +239,7 @@
   text-overflow: ellipsis;
 }
 
-.pixora-thumb__remove {
+.fovea-thumb__remove {
   position: absolute;
   top: 4px;
   right: 4px;
@@ -253,8 +253,8 @@
   transition: opacity var(--duration-instant) var(--ease-standard);
 }
 
-.pixora-thumbs > li:hover .pixora-thumb__remove,
-.pixora-thumb__remove:focus-visible {
+.fovea-thumbs > li:hover .fovea-thumb__remove,
+.fovea-thumb__remove:focus-visible {
   opacity: 1;
 }
 
@@ -368,7 +368,7 @@
   background: var(--bg-surface);
   /* Queue items arrive one at a time as work is admitted — each row
      rises once on mount; progress ticks re-render, never remount. */
-  animation: pixora-rise var(--duration-base) var(--ease-decelerate) both;
+  animation: fovea-rise var(--duration-base) var(--ease-decelerate) both;
 }
 
 .pix-batch__row--failed {

@@ -5,11 +5,19 @@
 /* Two columns: a quiet category rail left, one focused section right.
    The fixed height stops the dialog resizing as sections (of different
    lengths) swap — movement stays inside the panel. */
+/* Shape language for this dialog, one radius per level:
+   --radius-lg is the shell, --radius-md is a card or a nav item,
+   --radius-sm is a control. Cards carry the hairline; content inside a
+   card is separated by dividers, never by a second border. */
 .pix-settings {
   display: grid;
-  grid-template-columns: 168px 1fr;
+  grid-template-columns: 184px minmax(0, 1fr);
   gap: var(--space-5);
-  min-height: 400px;
+  /* A truly fixed height: sections of very different lengths (Diagnostics
+     vs Performance) swap inside a stable shell, so the dialog itself never
+     grows or shrinks and no control reflows between visits. */
+  height: min(520px, calc(100vh - 240px));
+  min-height: 360px;
 }
 
 .pix-settings__nav {
@@ -18,22 +26,27 @@
   gap: var(--space-1);
   padding-right: var(--space-4);
   border-right: 1px solid var(--border-subtle);
+  min-height: 0;
+  overflow-y: auto;
 }
 
+/* The transparent border is reserved: hover and active change colour only,
+   so no nav item shifts by a pixel when another one is selected. */
 .pix-settings__nav-item {
   display: flex;
   flex-direction: column;
   align-items: flex-start;
-  gap: 1px;
+  gap: 2px;
   padding: var(--space-2) var(--space-3);
-  border: none;
-  border-radius: var(--radius-sm);
+  border: 1px solid transparent;
+  border-radius: var(--radius-md);
   background: transparent;
   text-align: left;
   color: var(--text-secondary);
   cursor: default;
   transition:
     background var(--duration-fast) var(--ease-standard),
+    border-color var(--duration-fast) var(--ease-standard),
     color var(--duration-fast) var(--ease-standard);
 }
 
@@ -44,7 +57,12 @@
 
 .pix-settings__nav-item--active {
   background: var(--accent-soft);
+  border-color: color-mix(in srgb, var(--accent) 26%, transparent);
   color: var(--text-primary);
+}
+
+.pix-settings__nav-item--active .pix-settings__nav-label {
+  color: var(--accent);
 }
 
 .pix-settings__nav-item:focus-visible {
@@ -55,10 +73,12 @@
 .pix-settings__nav-label {
   font-size: var(--text-sm);
   font-weight: 600;
+  line-height: var(--leading-tight);
 }
 
 .pix-settings__nav-blurb {
   font-size: var(--text-xs);
+  line-height: var(--leading-tight);
   color: var(--text-tertiary);
 }
 
@@ -66,14 +86,23 @@
   display: flex;
   flex-direction: column;
   min-width: 0;
+  /* The panel is pinned to the shell's height; without this the section
+     content would stretch the shell instead of scrolling inside it. */
+  min-height: 0;
 }
 
 .pix-settings__content {
   display: flex;
   flex-direction: column;
-  gap: var(--space-5);
+  gap: var(--space-4);
+  min-height: 0;
   overflow-y: auto;
-  padding-right: var(--space-1);
+  /* Reserve the scrollbar's width on every section, so sections short
+     enough not to scroll don't reflow the controls of the next one. */
+  scrollbar-gutter: stable;
+  padding-right: var(--space-2);
+  /* Room for the last card's hairline to clear the scroll edge. */
+  padding-bottom: var(--space-2);
 }
 
 .pix-settings__section-head {
@@ -87,17 +116,18 @@
   font-family: var(--font-display);
   font-size: var(--text-base);
   font-weight: 600;
+  letter-spacing: -0.01em;
   color: var(--text-primary);
 }
 
 .pix-settings__section-blurb {
   margin: 0;
   font-size: var(--text-sm);
+  line-height: var(--leading-normal);
   color: var(--text-secondary);
 }
 
-/* Sub-group: several controls that belong to one idea (recents + its
-   limit), read as a unit. */
+/* Card: the settings that belong to one idea, read as a unit. */
 .pix-settings__group {
   display: flex;
   flex-direction: column;
@@ -106,6 +136,40 @@
   border: 1px solid var(--border-subtle);
   border-radius: var(--radius-md);
   background: var(--bg-raised);
+}
+
+/* One setting inside a card. The divider sits in the gap, so the space
+   above and below the hairline is the same everywhere. */
+.pix-settings__item + .pix-settings__item {
+  border-top: 1px solid var(--border-subtle);
+  padding-top: var(--space-4);
+}
+
+/* Every control in the list takes the card's full measure: options share
+   the track equally, so two-option and four-option strips end on the
+   same edge. */
+.pix-settings__item .pix-segmented__track {
+  width: 100%;
+}
+
+.pix-settings__item .pix-segmented__option {
+  flex: 1 1 0;
+  justify-content: center;
+}
+
+/* Explainers hold one readable measure instead of running to the edge. */
+.pix-settings__item .pix-field__message,
+.pix-settings__item .pix-toggle__copy,
+.pix-settings__note,
+.pix-settings__footnote {
+  max-width: 62ch;
+  line-height: var(--leading-normal);
+}
+
+/* A card's sub-heading sits tight against the block it names, so the gap
+   reads as heading→content rather than two items in a list. */
+.pix-settings__group > .u-caps-label {
+  margin-bottom: calc(-1 * var(--space-2));
 }
 
 /* A control owned by the toggle above it, visually nested one step in. */
@@ -120,14 +184,20 @@
   opacity: 0.55;
 }
 
-/* One-line explainer that is about the app's behavior, not one field. */
+/* One-line explainer about the app's behavior, not one field. Sits under
+   the card it describes; the card's border is already the separator. */
 .pix-settings__footnote {
   margin: 0;
-  padding-top: var(--space-4);
-  border-top: 1px solid var(--border-subtle);
   font-size: var(--text-xs);
-  line-height: var(--leading-normal);
   color: var(--text-tertiary);
+}
+
+/* Label with its live value on the same line, held to the edge. */
+.pix-settings__label-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-3);
 }
 
 .pix-settings__folder {
@@ -138,22 +208,35 @@
 }
 
 .pix-settings__path {
+  display: inline-block;
+  max-width: 100%;
   font-family: var(--font-mono);
   font-size: var(--text-xs);
   color: var(--text-secondary);
   background: var(--bg-sunken);
-  padding: 1px var(--space-2);
+  border: 1px solid var(--border-subtle);
   border-radius: var(--radius-sm);
+  padding: var(--space-1) var(--space-2);
   user-select: text;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+/* As a folder readout it is a control, not a chip: match the button
+   beside it and center the text in that height. */
+.pix-settings__folder > .pix-settings__path {
+  display: flex;
+  align-items: center;
   flex: 1;
   min-width: 0;
+  min-height: var(--control-height-sm);
+  padding: 0 var(--space-2);
 }
 
 .pix-settings__logs {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
   gap: var(--space-3);
@@ -167,51 +250,50 @@
   color: var(--text-secondary);
 }
 
-/* Sub-headings inside a long section use the shared .u-caps-label token
-   (base.css). */
-
+/* Inside a card, an inset block of read-only facts: fill carries the
+   shape, so no second border sits one step inside the card's own. */
 .pix-settings__diag {
   display: flex;
   flex-direction: column;
-  gap: var(--space-2);
-  padding: var(--space-3);
-  border: 1px solid var(--border-subtle);
+  gap: var(--space-3);
+  padding: var(--space-4);
   border-radius: var(--radius-sm);
   background: var(--bg-sunken);
 }
 
+/* Label column fixed, value column shared: every value in a block starts
+   on the same line and long paths wrap inside their own column. */
 .pix-settings__row {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
+  display: grid;
+  grid-template-columns: minmax(0, 132px) minmax(0, 1fr);
   gap: var(--space-4);
+  align-items: baseline;
 }
 
 .pix-settings__label {
   font-size: var(--text-xs);
-  color: var(--text-tertiary);
+  font-weight: 600;
+  letter-spacing: var(--tracking-caps);
   text-transform: uppercase;
-  letter-spacing: 0.04em;
-  flex-shrink: 0;
+  color: var(--text-tertiary);
 }
 
 .pix-settings__value {
   font-size: var(--text-sm);
   color: var(--text-primary);
-  text-align: right;
   overflow-wrap: anywhere;
 }
 
 /* ── Shortcuts list ───────────────────────────────────────── */
 
-.pixora-shortcuts {
+.fovea-shortcuts {
   display: flex;
   flex-direction: column;
   gap: var(--space-1);
   margin: 0;
 }
 
-.pixora-shortcuts__row {
+.fovea-shortcuts__row {
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -219,40 +301,40 @@
   padding: var(--space-2) var(--space-1);
 }
 
-.pixora-shortcuts__row + .pixora-shortcuts__row {
+.fovea-shortcuts__row + .fovea-shortcuts__row {
   border-top: 1px solid var(--border-subtle);
 }
 
-.pixora-shortcuts__group {
+.fovea-shortcuts__group {
   padding: var(--space-4) var(--space-1) var(--space-1);
 }
 
-.pixora-shortcuts__group dd {
+.fovea-shortcuts__group dd {
   margin: 0;
 }
 
-.pixora-shortcuts__row + .pixora-shortcuts__group {
+.fovea-shortcuts__row + .fovea-shortcuts__group {
   border-top: 1px solid var(--border-subtle);
 }
 
-.pixora-shortcuts__row dt {
+.fovea-shortcuts__row dt {
   font-size: var(--text-sm);
   color: var(--text-primary);
 }
 
-.pixora-shortcuts__row dd {
+.fovea-shortcuts__row dd {
   margin: 0;
   display: inline-flex;
   align-items: center;
   gap: 4px;
 }
 
-.pixora-shortcuts__plus {
+.fovea-shortcuts__plus {
   color: var(--text-tertiary);
   font-size: var(--text-xs);
 }
 
-.pixora-shortcuts kbd {
+.fovea-shortcuts kbd {
   min-width: 22px;
   padding: 1px 6px;
   border: 1px solid var(--border-strong);
@@ -268,25 +350,25 @@
 
 /* ── About ────────────────────────────────────────────────── */
 
-.pixora-about {
+.fovea-about {
   display: flex;
   gap: var(--space-4);
   align-items: flex-start;
 }
 
-.pixora-about__text {
+.fovea-about__text {
   display: flex;
   flex-direction: column;
   gap: var(--space-2);
 }
 
-.pixora-about__text p {
+.fovea-about__text p {
   margin: 0;
   font-size: var(--text-sm);
   color: var(--text-secondary);
 }
 
-.pixora-about__name {
+.fovea-about__name {
   display: flex;
   align-items: baseline;
   justify-content: space-between;
@@ -294,18 +376,18 @@
   color: var(--text-primary);
 }
 
-.pixora-about__title {
+.fovea-about__title {
   font-family: var(--font-display);
   font-size: var(--text-lg);
   font-weight: 600;
 }
 
-.pixora-about__name .u-tabular {
+.fovea-about__name .u-tabular {
   font-size: var(--text-sm);
   color: var(--text-tertiary);
 }
 
-.pixora-about__meta {
+.fovea-about__meta {
   display: flex;
   gap: var(--space-2);
   margin-top: var(--space-1);
@@ -317,17 +399,21 @@
   display: flex;
   align-items: center;
   gap: var(--space-3);
+  min-width: 0;
 }
 
 .pix-license__key {
   font-family: var(--font-mono);
   font-size: var(--text-sm);
+  line-height: var(--leading-normal);
   resize: vertical;
   min-height: 64px;
+  padding: var(--space-2) var(--space-3);
 }
 
+/* Belongs to the key field above it, not a new block in the card. */
 .pix-license__actions {
   display: flex;
   gap: var(--space-2);
-  margin-top: var(--space-2);
+  margin-top: calc(-1 * var(--space-2));
 }

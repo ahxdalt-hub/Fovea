@@ -112,9 +112,9 @@ describe('EnhanceView collection', () => {
 
 describe('useImport funnel', () => {
   const config = {
-    productName: 'Pixora',
+    productName: 'Fovea',
     version: '0.3.0',
-    identifier: 'com.pixora.desktop',
+    identifier: 'com.fovea.desktop',
     debug: true,
   }
   const systemInfo = { osFamily: 'windows', arch: 'x86_64', appDataDir: 'C:/x' }

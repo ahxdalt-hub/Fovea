@@ -26,6 +26,7 @@
 use image::RgbImage;
 
 use super::backend::{Backend, CancelToken, EngineError};
+use super::finish::{self, Finish};
 
 /// Receives finished output rows, top to bottom, exactly `out_w * 3`
 /// bytes each. Implementations stream to disk; nothing here accumulates
@@ -34,24 +35,9 @@ pub trait RowWriter {
     fn write_row(&mut self, rgb: &[u8]) -> Result<(), EngineError>;
 }
 
-/// Which real post-processing pass runs over each model output tile before
-/// compositing. Each variant is a measurable pixel operation — never a
-/// relabeling of the same pixels (Stage 06 rule). `Sharpen` is an unsharp
-/// mask (output + amount × (output − 3×3 blur)) applied inside the padded
-/// tile, so the bleed context gives every edge real neighbors and no seam
-/// is possible.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum PostPass {
-    /// Model output as-is (Standard / Natural).
-    None,
-    /// Unsharp detail pass on top of the model output (Detail).
-    Sharpen,
-}
-
-/// How strongly the Detail pass amplifies local contrast. 0.5 is a
-/// visible-but-natural crispness step; tested to leave flat areas untouched
-/// and strengthen edges.
-pub const SHARPEN_AMOUNT: f32 = 0.5;
+// Which finishing passes run over each model output tile before it is
+// composited lives in `super::finish` — the engine only *applies* them, one
+// tile at a time, and never decides which look the product offers.
 
 /// Tile-grid geometry for one job.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -134,7 +120,7 @@ pub fn tile_output_bytes(tile: usize, pad: usize, scale: usize) -> usize {
 }
 
 /// Approximate composited-band bytes for one band: `src_w · scale` wide,
-/// `tile · scale` tall, u8 RGB. This buffer is Pixora's own (not the
+/// `tile · scale` tall, u8 RGB. This buffer is Fovea's own (not the
 /// runtime's), allocated once per band and freed after streaming.
 pub fn band_bytes(src_w: usize, tile: usize, scale: usize) -> usize {
     src_w * scale * tile * scale * 3
@@ -171,13 +157,13 @@ pub fn adaptive_tile(
 
 /// Run the whole pipeline. `progress(done, total)` is called after every
 /// completed tile with *measured* counts (tiles finished / tiles planned)
-/// — never an invented estimate. `post` selects the real post-processing
-/// pass applied to each tile's f32 output before compositing.
+/// — never an invented estimate. `passes` selects the real post-processing
+/// and filter passes applied to each tile's f32 output before compositing.
 pub fn run<B: Backend, W: RowWriter>(
     backend: &mut B,
     src: &RgbImage,
     plan: &Plan,
-    post: PostPass,
+    passes: &Finish,
     sink: &mut W,
     cancel: &CancelToken,
     mut progress: impl FnMut(u32, u32),
@@ -246,9 +232,8 @@ pub fn run<B: Backend, W: RowWriter>(
                     out.width, out.height
                 )));
             }
-            if post == PostPass::Sharpen {
-                unsharp_tile(&mut out.data, ew * scale, eh * scale);
-            }
+            // Mode pass + filter, over the whole padded tile (see `finish`).
+            finish::apply(&mut out.data, out.width, out.height, passes);
 
             // ── Postprocess + composite the interior (pad cropped) ───────
             let ow = out.width;
@@ -322,40 +307,6 @@ fn resample_box_row(band: &[u8], model_w: usize, out_row: usize, f: usize, dst: 
         for c in 0..3 {
             dst[o + c] = ((acc[c] as f32) * inv + 0.5) as u8;
         }
-    }
-}
-
-/// Unsharp mask on one tile's planar f32 output: out + A·(out − blur₃ₓ₃).
-/// Operates over the *whole padded tile*, so interior pixels near the pad
-/// boundary get their real (bleed) neighborhood — the pass is seam-free by
-/// construction, and the pad is cropped on composite anyway. Flat regions
-/// stay exactly flat (out − blur = 0); edges gain contrast.
-fn unsharp_tile(data: &mut [f32], width: usize, height: usize) {
-    let plane = width * height;
-    let mut blurred = vec![0f32; data.len()];
-    for c in 0..3 {
-        let base = c * plane;
-        for y in 0..height {
-            let y0 = y.saturating_sub(1);
-            let y1 = (y + 2).min(height);
-            for x in 0..width {
-                let x0 = x.saturating_sub(1);
-                let x1 = (x + 2).min(width);
-                let mut sum = 0f32;
-                let mut n = 0u32;
-                for yy in y0..y1 {
-                    let row = base + yy * width;
-                    for xx in x0..x1 {
-                        sum += data[row + xx];
-                        n += 1;
-                    }
-                }
-                blurred[base + y * width + x] = sum / n as f32;
-            }
-        }
-    }
-    for (i, v) in data.iter_mut().enumerate() {
-        *v += SHARPEN_AMOUNT * (*v - blurred[i]);
     }
 }
 
@@ -497,7 +448,7 @@ mod tests {
             &mut backend,
             src,
             &plan,
-            PostPass::None,
+            &Finish::identity(),
             &mut sink,
             &CancelToken::new(),
             |d, t| progress.push((d, t)),
@@ -551,54 +502,67 @@ mod tests {
         assert_exact_upscale_target(&gradient(48, 32), 2, 2, 256, 8);
     }
 
-    /// A flat region must stay exactly flat under the Detail pass, while a
-    /// hard edge gains contrast on both sides (the unsharp signature).
+    /// The engine's own contract: whatever [`Finish`] says must actually be
+    /// applied to the tile output before compositing. Identity leaves every
+    /// pixel exactly as the fake backend returned it (covered by the
+    /// round-trip tests above); a real filter must change pixels without
+    /// changing geometry by one row or column.
     #[test]
-    fn sharpen_postpass_preserves_flats_and_strengthens_edges() {
-        // Constant 0.5 field with a vertical black/white split mid-image.
-        let mut chw = vec![0.5f32; 3 * 32 * 16];
-        for c in 0..3 {
-            for y in 0..16 {
-                for x in 0..32 {
-                    chw[c * 32 * 16 + y * 32 + x] = if x < 16 { 0.0 } else { 1.0 };
-                }
-            }
-        }
-        // A flat corner patch inside the white half for the flat check.
-        for c in 0..3 {
-            for y in 8..14 {
-                for x in 26..30 {
-                    chw[c * 32 * 16 + y * 32 + x] = 0.5;
-                }
-            }
-        }
-        let mut out = chw.clone();
-        unsharp_tile(&mut out, 32, 16);
-        // Flats unchanged (every checked pixel's 3×3 window lies wholly
-        // inside the flat patch, so blur == value == out).
-        for c in 0..3 {
-            for y in 9..12 {
-                for x in 27..29 {
-                    let i = c * 32 * 16 + y * 32 + x;
-                    assert!((out[i] - 0.5).abs() < 1e-3, "flat pixel moved");
-                }
-            }
-        }
-        // Edge columns pushed apart on channel 0 (plane stride 32*16): the
-        // black side got darker and the white side brighter (toward the
-        // boundary).
-        let row = 8usize;
-        let dark_left = out[row * 32 + 15];
-        let dark_far = out[row * 32 + 5];
-        let bright_right = out[row * 32 + 16];
-        let bright_far = out[row * 32 + 25];
-        assert!(dark_left < dark_far, "black side should darken toward edge");
+    fn finish_passes_reach_the_composite_and_never_move_geometry() {
+        let src = gradient(70, 50);
+        let plan = Plan::with_target(70, 50, 2, 2, 32, 8);
+        let run_with = |passes: Finish| {
+            let mut sink = CollectSink {
+                out_w: plan.out_w(),
+                rows: Vec::new(),
+            };
+            let mut backend = FakeUpscaler::new(2);
+            run(
+                &mut backend,
+                &src,
+                &plan,
+                &passes,
+                &mut sink,
+                &CancelToken::new(),
+                |_, _| {},
+            )
+            .expect("pipeline must succeed");
+            sink.rows
+        };
+        let clean = run_with(Finish::identity());
+        let vivid = run_with(Finish {
+            filter: finish::Filter::Vivid,
+            intensity: 100,
+            ..Finish::identity()
+        });
+        assert_eq!(clean.len(), vivid.len(), "same rows");
         assert!(
-            bright_right > bright_far,
-            "white side should brighten toward edge"
+            clean
+                .iter()
+                .zip(&vivid)
+                .all(|(a, b)| a.len() == b.len() && a.len() == plan.out_w() * 3),
+            "same width"
         );
-        // Clamping in to_u8 keeps the composite in [0,255].
-        assert!(to_u8(-0.2) == 0 && to_u8(1.4) == 255);
+        // A 1.6× saturation push on a per-position gradient cannot leave
+        // every pixel where it was — if it did, the pass is not wired in.
+        let changed = clean
+            .iter()
+            .zip(&vivid)
+            .flat_map(|(a, b)| a.iter().zip(b))
+            .filter(|(x, y)| x != y)
+            .count();
+        assert!(
+            changed > 1000,
+            "filter must move pixels (changed {changed})"
+        );
+        // The Detail mode's pass still lands where it always did.
+        let detail = run_with(Finish::sharpen());
+        assert_ne!(clean, detail, "Sharpen post-pass must reach output");
+    }
+
+    #[test]
+    fn to_u8_clamps_model_ringing_instead_of_wrapping() {
+        assert!(to_u8(-0.2) == 0 && to_u8(1.4) == 255 && to_u8(0.5) == 128);
     }
 
     /// A backend that cancels the job right after its first successful
@@ -648,7 +612,7 @@ mod tests {
             &mut backend,
             &src,
             &plan,
-            PostPass::None,
+            &Finish::identity(),
             &mut sink,
             &cancel,
             |d, _t| progress_log.push(d),
@@ -676,7 +640,7 @@ mod tests {
             &mut backend,
             &src,
             &plan,
-            PostPass::None,
+            &Finish::identity(),
             &mut sink,
             &cancel,
             |_, _| {},
@@ -703,7 +667,7 @@ mod tests {
             &mut backend,
             &src,
             &plan,
-            PostPass::None,
+            &Finish::identity(),
             &mut sink,
             &CancelToken::new(),
             |_, _| {},

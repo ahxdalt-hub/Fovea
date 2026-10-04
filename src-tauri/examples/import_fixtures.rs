@@ -20,7 +20,7 @@ fn main() {
     let dir = std::env::args()
         .nth(1)
         .map(std::path::PathBuf::from)
-        .unwrap_or_else(|| std::env::temp_dir().join("pixora-fixtures"));
+        .unwrap_or_else(|| std::env::temp_dir().join("fovea-fixtures"));
     std::fs::create_dir_all(&dir).expect("fixtures dir");
 
     // A soft vertical gradient so previews/thumbnails look like a photo.

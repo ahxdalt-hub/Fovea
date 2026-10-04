@@ -115,7 +115,7 @@ pub trait Backend: Send {
 /// ONNX Runtime backend (`ort`) with DirectML preference and CPU fallback.
 ///
 /// Telemetry is disabled at environment init — ONNX Runtime ships ETW
-/// telemetry enabled by default on Windows, and Pixora's privacy promise
+/// telemetry enabled by default on Windows, and Fovea's privacy promise
 /// requires it off.
 pub struct OnnxBackend {
     session: ort::session::Session,

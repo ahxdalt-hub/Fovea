@@ -23,6 +23,7 @@ use crate::services::history::{
     EntryKind, EntryStatus, HistoryEntry, Store as HistoryStore, now_ms,
 };
 use crate::services::inference::backend::{CancelToken, OnnxBackend};
+use crate::services::inference::finish::Filter;
 use crate::services::inference::model::{EnhanceMode, ModelRegistry};
 use crate::services::inference::service::{
     self, EngineConfig, EnhanceEvent, EnhanceResult, InferenceStatus, JobRegistry,
@@ -51,12 +52,21 @@ pub struct EngineState {
 /// genuinely different processing behavior, `scale` (2 | 4) the product
 /// upscale factor. Both are validated at the boundary; an unknown mode is
 /// refused, never guessed into a default behavior.
+///
+/// Stage 19 args: `filter` names the finishing look ("original" | … |
+/// "portrait") and `intensity` its strength (0-100, clamped). A filter is
+/// pure pixel math on the model's own output, so it never needs a model —
+/// but an unknown filter key is still refused rather than silently
+/// downgraded to "original", because a look the user asked for and did not
+/// get is a bug, not a fallback.
 #[tauri::command]
 pub async fn enhance_image(
     app: AppHandle,
     image_id: String,
     mode: String,
     scale: usize,
+    filter: String,
+    intensity: u8,
     on_event: Channel<EnhanceEvent>,
 ) -> AppResult<EnhanceResult> {
     if image_id.is_empty() {
@@ -66,6 +76,9 @@ pub async fn enhance_image(
     }
     let mode = EnhanceMode::from_key(&mode).ok_or_else(|| AppError::UnsupportedFormat {
         detail: format!("unknown enhancement mode {mode:?}"),
+    })?;
+    let filter = Filter::from_key(&filter).ok_or_else(|| AppError::UnsupportedFormat {
+        detail: format!("unknown finishing filter {filter:?}"),
     })?;
     if scale == 0 {
         return Err(AppError::UnsupportedScale {
@@ -106,6 +119,8 @@ pub async fn enhance_image(
             &image_id,
             mode,
             scale,
+            filter,
+            intensity,
             &registry,
             &config,
             &out_dir,
@@ -132,9 +147,18 @@ pub async fn enhance_image(
             match &inner {
                 Ok(result) => {
                     // Remember the committed file so export can use it
-                    // without the client ever naming a path.
-                    if let Ok(mut map) = state.outputs.lock() {
-                        map.insert(result.image_id.clone(), result.file_path.clone());
+                    // without the client ever naming a path — and drop the
+                    // master this run replaced. The compare view only ever
+                    // shows the latest result per image, so the superseded
+                    // PNG is dead weight; a 4× master is tens to hundreds
+                    // of MB and app data is not a scratch disk.
+                    let previous = state.outputs.lock().ok().and_then(|mut map| {
+                        map.insert(result.image_id.clone(), result.file_path.clone())
+                    });
+                    if let Some(old) = previous.filter(|p| *p != result.file_path) {
+                        if let Err(err) = std::fs::remove_file(&old) {
+                            log::warn!("superseded master cleanup failed: {err}");
+                        }
                     }
                     history.record(HistoryEntry {
                         id: String::new(),

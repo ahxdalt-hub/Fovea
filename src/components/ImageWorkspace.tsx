@@ -1,5 +1,5 @@
 /**
- * ImageWorkspace — Pixora's central viewing surface (Stage 04).
+ * ImageWorkspace — Fovea's central viewing surface (Stage 04).
  *
  * The image owns the screen; everything else is calm overlay:
  * an info chip (top-left), a compact toolbar (bottom-center), and

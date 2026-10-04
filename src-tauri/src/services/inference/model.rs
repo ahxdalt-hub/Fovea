@@ -121,7 +121,7 @@ impl EnhanceMode {
 /// - `realesr-general-wdn-x4v3` — the WDN denoising variant of the same
 ///   architecture: same graph, different trained weights; upstream
 ///   recommends it for noisy/compressed photos (officially *blended* with
-///   the general model — Pixora exposes the two pure behaviors instead of
+///   the general model — Fovea exposes the two pure behaviors instead of
 ///   a fake blend knob).
 pub const MODELS: &[ModelSpec] = &[
     ModelSpec {
@@ -189,7 +189,7 @@ pub struct ModelStatus {
 /// Resolves model files across ordered search directories.
 ///
 /// Built once at app setup (see `lib.rs`) with:
-/// 1. `PIXORA_MODELS_DIR` env override (dev/QA),
+/// 1. `FOVEA_MODELS_DIR` env override (dev/QA),
 /// 2. the bundled resource `models/` directory,
 /// 3. the dev manifest `src-tauri/models` (debug builds only),
 /// 4. `<app_data>/models` (user-installable drop location).
@@ -424,7 +424,7 @@ mod tests {
     }
 
     fn temp_dir(tag: &str) -> PathBuf {
-        let dir = std::env::temp_dir().join(format!("pixora-model-{}-{tag}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("fovea-model-{}-{tag}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).expect("temp dir");
         dir

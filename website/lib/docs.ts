@@ -1,30 +1,30 @@
 /**
  * Product documentation content — concise, task-shaped, and limited to what
- * the desktop app actually does today (verified against the Stage 06–13
- * surfaces). Each step is an action the user can take in the shipped app.
+ * the desktop app actually does today. Each step is an action the user can
+ * take in the shipped app; nothing here describes a planned feature.
  */
 
-export type DocStep = string;
+export type DocStep = string
 export type DocSection = {
-  id: string;
-  title: string;
-  intro: string;
-  steps?: DocStep[];
-  note?: string;
-};
+  id: string
+  title: string
+  intro: string
+  steps?: DocStep[]
+  note?: string
+}
 
 export const docs: DocSection[] = [
   {
     id: 'install',
     title: 'Installation',
     intro:
-      'Pixora is a normal Windows setup. You do not need Node, Rust, Git, Python, CUDA or a terminal.',
+      'Fovea is a normal Windows setup. You do not need Node, Rust, Git, Python, CUDA or a terminal.',
     steps: [
       'Run the downloaded installer (`.exe`) and follow the two prompts.',
-      'Launch Pixora from the Start menu or its desktop shortcut.',
+      'Launch Fovea from the Start menu or its desktop shortcut.',
       'The AI model is already inside the app — there is nothing separate to install.',
     ],
-    note: 'Pixora works on Windows 10 and 11, 64-bit.',
+    note: 'Fovea works on Windows 10 and 11, 64-bit.',
   },
   {
     id: 'activation',
@@ -34,7 +34,7 @@ export const docs: DocSection[] = [
     steps: [
       'Open Settings — click the gear in the top bar, or press Ctrl + ,.',
       'Select the License section.',
-      'Paste your license key (it begins with PIXORA1.) into the License key box.',
+      'Paste your license key (it begins with FOVEA1.) into the License key box.',
       'Press Activate. The key is verified on your machine; no connection is needed.',
     ],
     note: 'Keys tolerate stray spaces and line breaks. To move machines, deactivate here first, then activate on the new one if your key is machine-bound.',
@@ -66,10 +66,13 @@ export const docs: DocSection[] = [
     title: 'Batch processing',
     intro: 'Run several images through the same settings without doing each one by hand.',
     steps: [
-      'Select the images to include.',
-      'Set the scale and mode once.',
-      'Run the batch, then review each item’s outcome in the results.',
+      'Import the images you want to include, then switch to Batch.',
+      'Set the scale and mode once — every item in the run uses them.',
+      'Start the queue and watch each item move through Waiting, Processing, Completed or Failed.',
+      'Cancel one item or the whole queue; retry what failed when it settles.',
+      'Open the output folder to review the results.',
     ],
+    note: 'A run holds to 500 images and processes one at a time so items never compete for memory. If a name is already taken in the output folder, Fovea adds a suffix instead of overwriting.',
   },
   {
     id: 'export',
@@ -80,13 +83,48 @@ export const docs: DocSection[] = [
       'Choose PNG, JPEG or WebP. PNG is lossless; JPEG and WebP offer a quality setting.',
       'Pick the destination folder and confirm.',
     ],
-    note: 'Each file is written atomically, so it never lands half-saved. If a name is taken, Pixora adds a suffix instead of overwriting your work.',
+    note: 'Each file is written atomically, so it never lands half-saved. If a name is taken, Fovea adds a suffix instead of overwriting your work.',
   },
-];
+  {
+    id: 'compare',
+    title: 'Comparing and navigating',
+    intro: 'Judge the result honestly before you spend time exporting it.',
+    steps: [
+      'Press C (or use the compare control) to split original and result down the same line.',
+      'Drag the divider, or click it and use the arrow keys; Home and End jump to either side.',
+      'Zoom with the mouse wheel or + and −; the point under your cursor stays put.',
+      'Press 0 to fit the image to the window, 1 for actual size, F for fullscreen.',
+    ],
+    note: 'The slider handle and its labels stay the same size on screen at every zoom, so a 4× view is as easy to drag as a fitted one.',
+  },
+  {
+    id: 'history',
+    title: 'History and recent files',
+    intro: 'A local journal of what Fovea has done, so you can find a result again later.',
+    steps: [
+      'Open History to see past runs: source name, dimensions, scale and mode, and where the output went.',
+      'An entry whose file has since been moved or deleted is marked rather than silently dropped.',
+      'Clear the journal from the same screen when you want a clean list.',
+    ],
+    note: 'Clearing history removes Fovea’s records only — your image files are untouched. The journal is a plain file in Fovea’s app folder on your disk and is never uploaded.',
+  },
+  {
+    id: 'settings',
+    title: 'Settings',
+    intro: 'Everything configurable is on one screen, opened with the gear or Ctrl + ,.',
+    steps: [
+      'General — theme (System, Light, Dark), which view Fovea opens on, and whether recent files are remembered.',
+      'Processing — your default scale and mode, and an engine preference of Auto or CPU-only.',
+      'Export — default format, quality, and the folder results go to.',
+      'Diagnostics — your CPU, memory and graphics adapters, the tile and band ceilings Fovea planned, model availability, and paths to the app data, models and log folders.',
+    ],
+    note: 'Settings are stored on your machine. Diagnostics shows the same numbers Fovea uses to plan a run, so you can see why an image is being tiled the way it is.',
+  },
+]
 
 export const troubleshooting: { q: string; a: string }[] = [
   {
-    q: 'Activation says the key isn’t a Pixora license.',
+    q: 'Activation says the key isn’t a Fovea license.',
     a: 'The key was probably edited or truncated in copying. Select the whole key from your order confirmation and paste it again; spaces and line breaks are fine.',
   },
   {
@@ -99,14 +137,26 @@ export const troubleshooting: { q: string; a: string }[] = [
   },
   {
     q: 'A clock warning appears.',
-    a: 'Pixora remembers the latest time it has seen. Correct the date and time in Windows settings; once the clock is right the warning clears on its own.',
+    a: 'Fovea remembers the latest time it has seen. Correct the date and time in Windows settings; once the clock is right the warning clears on its own.',
   },
   {
     q: 'Enhancement is slow.',
-    a: 'Large images and 4× take longer, especially on the CPU. If you have a DirectX 12 GPU, Pixora uses it automatically; otherwise the processor path is simply slower, not worse.',
+    a: 'Large images and 4× take longer, especially on the CPU. If you have a DirectX 12 GPU, Fovea uses it automatically; otherwise the processor path is simply slower, not worse. Settings → Diagnostics shows which device and which tile size Fovea planned.',
+  },
+  {
+    q: 'Fovea refuses a file that looks fine.',
+    a: 'Sources are capped at 200 MB and 64 megapixels, and a single enhancement at 256 megapixels of output (about 16 MP at 4×). The limit is checked before decoding so an enormous file cannot exhaust your memory; crop or downsize the source and try again.',
+  },
+  {
+    q: 'A WebP export failed on a very wide image.',
+    a: 'WebP allows 16,383 px on its longest edge. Export that result as PNG or JPEG instead — PNG keeps every pixel and is byte-identical to Fovea’s working master.',
+  },
+  {
+    q: 'Can I use the free version for paid client work?',
+    a: 'Not as licensed use. The free build is the complete app with no feature or usage limits, but the commercial right to use it for client and business work is what a Pro or Studio license grants. Activation never changes what the software can do.',
   },
   {
     q: 'Where did my processed images go?',
-    a: 'Working results stay in Pixora’s private app folder until you export. On export you choose the exact folder, and the finished file is written there.',
+    a: 'Working results stay in Fovea’s private app folder until you export. On export you choose the exact folder, and the finished file is written there.',
   },
-];
+]

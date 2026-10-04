@@ -1,0 +1,23 @@
+Fovea — End User License Agreement
+
+Fovea is a commercial product. This software is licensed, not sold, to you
+for use on your own machine. You may install and use it under the terms of
+the license that accompanied your purchase. Your images are processed
+entirely on your own computer and are never uploaded by Fovea.
+
+Third-party components
+----------------------
+Fovea bundles and depends on open-source components. Their notices are
+retained with the application:
+
+  - ONNX Runtime (Microsoft) — MIT license. Included as a statically-linked
+    runtime; DirectML is used for GPU acceleration on any DirectX 12 adapter.
+  - Real-ESRGAN models (`realesr-general-x4v3`, `realesr-general-wdn-x4v3`)
+    — BSD 3-Clause. The full license text ships alongside the models in the
+    application's `models` resources directory
+    (`realesrgan-BSD-3-Clause.txt`).
+  - Rust crates and npm packages under their respective licenses (MIT /
+    Apache-2.0 / BSD / ISC), see `src-tauri/Cargo.toml` and `package.json`.
+
+No grant is made to redistribute the Fovea application binary, its icons, or
+its brand apart from this license.

@@ -23,7 +23,7 @@ pub fn get_history(store: State<'_, Arc<HistoryStore>>) -> AppResult<history::Hi
 }
 
 /// Wipe the journal and the recent list (user-initiated, confirmed in
-/// the UI). Processed files on disk are never touched — Pixora deletes
+/// the UI). Processed files on disk are never touched — Fovea deletes
 /// records, never records' subject matter.
 #[tauri::command]
 pub fn clear_history(store: State<'_, Arc<HistoryStore>>) -> AppResult<()> {

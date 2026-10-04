@@ -7,29 +7,29 @@
  * the shell should recede behind content.
  */
 
-.pixora-shell {
+.fovea-shell {
   position: relative; /* containing block for the drop overlay */
   display: grid;
   grid-template-rows: var(--topbar-height) 1fr var(--statusbar-height);
   height: 100%;
 }
 
-.pixora-shell__body {
+.fovea-shell__body {
   display: grid;
   grid-template-columns: var(--rail-width) 1fr;
   min-height: 0;
 }
 
-.pixora-workspace {
+.fovea-workspace {
   min-height: 0;
   overflow: hidden;
   background: var(--bg-app);
-  animation: pixora-fade var(--duration-fast) var(--ease-standard) both;
+  animation: fovea-fade var(--duration-fast) var(--ease-standard) both;
 }
 
 /* ── Top bar ──────────────────────────────────────────────── */
 
-.pixora-topbar {
+.fovea-topbar {
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -39,26 +39,26 @@
   background: var(--bg-surface);
 }
 
-.pixora-topbar__brand {
+.fovea-topbar__brand {
   display: flex;
   align-items: center;
   gap: var(--space-3);
 }
 
-.pixora-topbar__wordmark {
+.fovea-topbar__wordmark {
   font-family: var(--font-display);
   font-size: var(--text-base);
   font-weight: 600;
   letter-spacing: 0.02em;
 }
 
-.pixora-topbar__trailing {
+.fovea-topbar__trailing {
   display: flex;
   align-items: center;
   gap: var(--space-2);
 }
 
-.pixora-topbar__divider {
+.fovea-topbar__divider {
   width: 1px;
   height: 20px;
   background: var(--border-subtle);
@@ -67,7 +67,7 @@
 
 /* ── Navigation rail ──────────────────────────────────────── */
 
-.pixora-navrail {
+.fovea-navrail {
   display: flex;
   flex-direction: column;
   justify-content: space-between;
@@ -76,7 +76,7 @@
   padding: var(--space-3) var(--space-2);
 }
 
-.pixora-navrail__list {
+.fovea-navrail__list {
   list-style: none;
   margin: 0;
   padding: 0;
@@ -85,7 +85,7 @@
   gap: var(--space-1);
 }
 
-.pixora-navrail__item {
+.fovea-navrail__item {
   position: relative;
   display: flex;
   flex-direction: column;
@@ -102,17 +102,17 @@
     color var(--duration-fast) var(--ease-standard);
 }
 
-.pixora-navrail__item:hover {
+.fovea-navrail__item:hover {
   background: var(--bg-sunken);
   color: var(--text-primary);
 }
 
-.pixora-navrail__item--active {
+.fovea-navrail__item--active {
   background: var(--accent-soft);
   color: var(--accent);
 }
 
-.pixora-navrail__item--active::before {
+.fovea-navrail__item--active::before {
   content: '';
   position: absolute;
   left: -8px;
@@ -123,14 +123,14 @@
   background: var(--accent);
 }
 
-.pixora-navrail__label {
+.fovea-navrail__label {
   font-size: var(--text-xs);
   font-weight: 600;
   letter-spacing: 0.01em;
 }
 
 /* Shortcut hint appears only on hover/focus — quiet by default. */
-.pixora-navrail__key {
+.fovea-navrail__key {
   position: absolute;
   top: 6px;
   right: 8px;
@@ -142,14 +142,14 @@
   transition: opacity var(--duration-fast) var(--ease-standard);
 }
 
-.pixora-navrail__item:hover .pixora-navrail__key,
-.pixora-navrail__item:focus-visible .pixora-navrail__key {
+.fovea-navrail__item:hover .fovea-navrail__key,
+.fovea-navrail__item:focus-visible .fovea-navrail__key {
   opacity: 1;
 }
 
 /* ── Status bar ───────────────────────────────────────────── */
 
-.pixora-statusbar {
+.fovea-statusbar {
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -161,24 +161,24 @@
   color: var(--text-secondary);
 }
 
-.pixora-statusbar__privacy {
+.fovea-statusbar__privacy {
   display: inline-flex;
   align-items: center;
   gap: var(--space-2);
   color: var(--text-tertiary);
 }
 
-.pixora-statusbar__privacy svg {
+.fovea-statusbar__privacy svg {
   color: var(--success);
 }
 
-.pixora-statusbar__trailing {
+.fovea-statusbar__trailing {
   display: flex;
   align-items: center;
   gap: var(--space-3);
 }
 
-.pixora-statusbar__meta {
+.fovea-statusbar__meta {
   color: var(--text-tertiary);
   font-family: var(--font-mono);
   font-size: 11px;

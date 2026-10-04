@@ -1,5 +1,5 @@
 /**
- * Settings (Stage 10) — Pixora's preferences, organized the way users
+ * Settings (Stage 10) — Fovea's preferences, organized the way users
  * think about the app, not the way the code stores them.
  *
  * Structure: a left category rail (General · Processing · Export ·
@@ -45,7 +45,7 @@ const CATEGORIES: Array<{ id: Category; label: string; blurb: string }> = [
   { id: 'general', label: 'General', blurb: 'Appearance and startup' },
   { id: 'processing', label: 'Processing', blurb: 'How images get enhanced' },
   { id: 'export', label: 'Export', blurb: 'Format, quality and where files go' },
-  { id: 'performance', label: 'Performance', blurb: 'How hard Pixora uses your machine' },
+  { id: 'performance', label: 'Performance', blurb: 'How hard Fovea uses your machine' },
   { id: 'license', label: 'License', blurb: 'Activation and commercial record' },
   { id: 'diagnostics', label: 'Diagnostics', blurb: 'Version, hardware and logs' },
 ]
@@ -106,6 +106,9 @@ function SettingsBody({ onClose }: { onClose: () => void }) {
   const native = isTauriRuntime()
   const hw = diagnostics?.hardware
   const inference = state.inference
+  /** The folder the native layer actually writes to: the user's chosen one,
+   * else Fovea's own inside Documents ("" until the app hands that over). */
+  const shownFolder = settings.export.folder || state.systemInfo?.defaultExportDir || ''
 
   const changeFolder = async () => {
     try {
@@ -154,38 +157,43 @@ function SettingsBody({ onClose }: { onClose: () => void }) {
           <div className="pix-settings__content anim-fade">
             {category === 'general' && (
               <>
-                <SectionHeader title="General" blurb="How Pixora looks and how it opens." />
-                <SegmentedField
-                  label="Appearance"
-                  value={settings.general.theme}
-                  onChange={(value) =>
-                    update('general', { theme: value as typeof settings.general.theme })
-                  }
-                  options={[
-                    { value: 'system', label: 'System', icon: <IconMonitor size="sm" /> },
-                    { value: 'light', label: 'Light', icon: <IconSun size="sm" /> },
-                    { value: 'dark', label: 'Dark', icon: <IconMoon size="sm" /> },
-                  ]}
-                  hint="System follows Windows' light or dark setting."
-                />
-                <SelectField
-                  label="On startup"
-                  value={settings.general.startupView}
-                  onChange={(event) =>
-                    update('general', {
-                      startupView: event.target.value as typeof settings.general.startupView,
-                    })
-                  }
-                >
-                  <option value="last">Open the last thing I was doing</option>
-                  <option value="enhance">Open the Enhance workspace</option>
-                  <option value="batch">Open Batch</option>
-                  <option value="history">Open History</option>
-                </SelectField>
+                <SectionHeader title="General" blurb="How Fovea looks and how it opens." />
+                <div className="pix-settings__group">
+                  <SegmentedField
+                    className="pix-settings__item"
+                    label="Appearance"
+                    value={settings.general.theme}
+                    onChange={(value) =>
+                      update('general', { theme: value as typeof settings.general.theme })
+                    }
+                    options={[
+                      { value: 'system', label: 'System', icon: <IconMonitor size="sm" /> },
+                      { value: 'light', label: 'Light', icon: <IconSun size="sm" /> },
+                      { value: 'dark', label: 'Dark', icon: <IconMoon size="sm" /> },
+                    ]}
+                    hint="System follows Windows' light or dark setting."
+                  />
+                  <SelectField
+                    className="pix-settings__item"
+                    label="On startup"
+                    value={settings.general.startupView}
+                    onChange={(event) =>
+                      update('general', {
+                        startupView: event.target.value as typeof settings.general.startupView,
+                      })
+                    }
+                    hint="The view a fresh window opens on."
+                  >
+                    <option value="last">Open the last thing I was doing</option>
+                    <option value="enhance">Open the Enhance workspace</option>
+                    <option value="batch">Open Batch</option>
+                    <option value="history">Open History</option>
+                  </SelectField>
+                </div>
                 <div className="pix-settings__group">
                   <ToggleField
                     label="Remember recent files"
-                    description="Pixora keeps a short list of files you have worked on — names and locations only, never copies — so a fresh window can offer to pick up where you left off."
+                    description="Fovea keeps a short list of files you have worked on — names and locations only, never copies — so a fresh window can offer to pick up where you left off."
                     checked={settings.general.rememberRecentFiles}
                     onChange={(checked) => update('general', { rememberRecentFiles: checked })}
                   />
@@ -216,45 +224,50 @@ function SettingsBody({ onClose }: { onClose: () => void }) {
                   title="Processing"
                   blurb="What the Enhance strip starts with. Change it there anytime — your last choice returns here automatically."
                 />
-                <SegmentedField
-                  label="Default scale"
-                  value={String(settings.processing.defaultScale)}
-                  onChange={(value) => update('processing', { defaultScale: Number(value) })}
-                  options={[
-                    { value: '2', label: '2×' },
-                    { value: '4', label: '4×' },
-                  ]}
-                  hint="How much larger the result gets. 4× suits prints; 2× is often plenty for screens."
-                />
-                <SegmentedField
-                  label="Default enhancement"
-                  value={settings.processing.defaultMode}
-                  onChange={(value) =>
-                    update('processing', { defaultMode: value as EnhanceModeKey })
-                  }
-                  options={modeOptions}
-                  hint={modeHint}
-                />
-                <SegmentedField
-                  label="Pixora should use"
-                  value={settings.processing.enginePath}
-                  onChange={(value) =>
-                    update('processing', {
-                      enginePath: value as typeof settings.processing.enginePath,
-                    })
-                  }
-                  options={[
-                    { value: 'auto', label: 'Graphics card when it helps' },
-                    { value: 'cpu', label: 'The processor' },
-                  ]}
-                  hint={
-                    settings.processing.enginePath === 'auto'
-                      ? 'Recommended. If a graphics card can genuinely speed things up on this machine, Pixora uses it; otherwise it quietly works on the processor instead. Nothing ever fails over a missing GPU.'
-                      : 'Slower on most machines. Useful if graphics drivers behave oddly — enhancement keeps working, just without acceleration.'
-                  }
-                />
+                <div className="pix-settings__group">
+                  <SegmentedField
+                    className="pix-settings__item"
+                    label="Default scale"
+                    value={String(settings.processing.defaultScale)}
+                    onChange={(value) => update('processing', { defaultScale: Number(value) })}
+                    options={[
+                      { value: '2', label: '2×' },
+                      { value: '4', label: '4×' },
+                    ]}
+                    hint="How much larger the result gets. 4× suits prints; 2× is often plenty for screens."
+                  />
+                  <SegmentedField
+                    className="pix-settings__item"
+                    label="Default enhancement"
+                    value={settings.processing.defaultMode}
+                    onChange={(value) =>
+                      update('processing', { defaultMode: value as EnhanceModeKey })
+                    }
+                    options={modeOptions}
+                    hint={modeHint}
+                  />
+                  <SegmentedField
+                    className="pix-settings__item"
+                    label="Fovea should use"
+                    value={settings.processing.enginePath}
+                    onChange={(value) =>
+                      update('processing', {
+                        enginePath: value as typeof settings.processing.enginePath,
+                      })
+                    }
+                    options={[
+                      { value: 'auto', label: 'Graphics card when it helps' },
+                      { value: 'cpu', label: 'The processor' },
+                    ]}
+                    hint={
+                      settings.processing.enginePath === 'auto'
+                        ? 'Recommended. If a graphics card can genuinely speed things up on this machine, Fovea uses it; otherwise it quietly works on the processor instead. Nothing ever fails over a missing GPU.'
+                        : 'Slower on most machines. Useful if graphics drivers behave oddly — enhancement keeps working, just without acceleration.'
+                    }
+                  />
+                </div>
                 <p className="pix-settings__footnote">
-                  Memory and tiling are never a setting: Pixora measures what your machine has spare
+                  Memory and tiling are never a setting: Fovea measures what your machine has spare
                   and sizes each run to fit, shrinking automatically under pressure.
                 </p>
               </>
@@ -266,68 +279,77 @@ function SettingsBody({ onClose }: { onClose: () => void }) {
                   title="Export"
                   blurb="The starting point every Export dialog and batch run begins from."
                 />
-                <SegmentedField
-                  label="Default format"
-                  value={settings.export.format}
-                  onChange={(value) => update('export', { format: value as ExportFormatKey })}
-                  options={FORMATS.map((f) => ({ value: f.value, label: f.label }))}
-                  hint={FORMATS.find((f) => f.value === settings.export.format)?.hint}
-                />
-                <div
-                  className={`pix-field${settings.export.format === 'png' ? ' pix-settings__dimmed' : ''}`}
-                >
-                  <label className="pix-field__label" htmlFor="pixora-settings-quality">
-                    Quality for JPEG and WebP{' '}
-                    <span className="u-tabular">{settings.export.quality}</span>
-                  </label>
-                  <input
-                    id="pixora-settings-quality"
-                    className="pix-range"
-                    type="range"
-                    min={1}
-                    max={100}
-                    step={1}
-                    value={settings.export.quality}
-                    onChange={(event) => update('export', { quality: Number(event.target.value) })}
+                <div className="pix-settings__group">
+                  <SegmentedField
+                    className="pix-settings__item"
+                    label="Default format"
+                    value={settings.export.format}
+                    onChange={(value) => update('export', { format: value as ExportFormatKey })}
+                    options={FORMATS.map((f) => ({ value: f.value, label: f.label }))}
+                    hint={FORMATS.find((f) => f.value === settings.export.format)?.hint}
                   />
-                  <p className="pix-field__message">
-                    Higher keeps more detail and grows the file. 90 is a good print-quality default.
-                    PNG ignores quality — its export keeps every pixel.
-                  </p>
-                </div>
-                <div className="pix-field">
-                  <span className="pix-field__label">Default folder</span>
-                  <div className="pix-settings__folder">
-                    <span
-                      className="pix-settings__path"
-                      title={settings.export.folder || undefined}
+                  <div
+                    className={`pix-field pix-settings__item${
+                      settings.export.format === 'png' ? ' pix-settings__dimmed' : ''
+                    }`}
+                  >
+                    <label
+                      className="pix-field__label pix-settings__label-row"
+                      htmlFor="fovea-settings-quality"
                     >
-                      {settings.export.folder || "Pixora's export folder"}
-                    </span>
-                    <Button
-                      variant="secondary"
-                      size="sm"
-                      iconStart={<IconFolder size="sm" />}
-                      disabled={!native}
-                      onClick={() => void changeFolder()}
-                    >
-                      Change…
-                    </Button>
-                    {settings.export.folder && (
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => update('export', { folder: '' })}
-                      >
-                        Use Pixora's
-                      </Button>
-                    )}
+                      <span>Quality for JPEG and WebP</span>
+                      <span className="u-tabular">{settings.export.quality}</span>
+                    </label>
+                    <input
+                      id="fovea-settings-quality"
+                      className="pix-range"
+                      type="range"
+                      min={1}
+                      max={100}
+                      step={1}
+                      value={settings.export.quality}
+                      onChange={(event) =>
+                        update('export', { quality: Number(event.target.value) })
+                      }
+                    />
+                    <p className="pix-field__message">
+                      Higher keeps more detail and grows the file. 90 is a good print-quality
+                      default. PNG ignores quality — its export keeps every pixel.
+                    </p>
                   </div>
-                  <p className="pix-field__message">
-                    {native
-                      ? 'Exports and batches start here; you can still choose a different folder each time.'
-                      : 'The folder picker needs the desktop app.'}
-                  </p>
+                  <div className="pix-field pix-settings__item">
+                    <span className="pix-field__label">Default folder</span>
+                    <div className="pix-settings__folder">
+                      <span className="pix-settings__path" title={shownFolder || undefined}>
+                        {shownFolder || "Fovea's export folder"}
+                      </span>
+                      <Button
+                        variant="secondary"
+                        size="sm"
+                        iconStart={<IconFolder size="sm" />}
+                        disabled={!native}
+                        onClick={() => void changeFolder()}
+                      >
+                        Change…
+                      </Button>
+                      {settings.export.folder && (
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => update('export', { folder: '' })}
+                        >
+                          Use Fovea's
+                        </Button>
+                      )}
+                    </div>
+                    <p className="pix-field__message">
+                      {!native
+                        ? 'The folder picker needs the desktop app.'
+                        : settings.export.folder
+                          ? 'You picked this folder. Single exports start here; a batch writes to a Batch folder beside it.'
+                          : 'Fovea makes this folder in your Documents when it starts. An export lands here and File Explorer opens on the file — a batch uses its Batch folder.'}
+                    </p>
+                  </div>
                 </div>
               </>
             )}
@@ -338,22 +360,25 @@ function SettingsBody({ onClose }: { onClose: () => void }) {
                   title="Performance"
                   blurb="One honest trade-off: use the whole machine, or leave it responsive."
                 />
-                <SegmentedField
-                  label="Processing power"
-                  value={settings.performance.speed}
-                  onChange={(value) =>
-                    update('performance', { speed: value as typeof settings.performance.speed })
-                  }
-                  options={[
-                    { value: 'balanced', label: 'Keep things responsive' },
-                    { value: 'maximum', label: 'Use the full machine' },
-                  ]}
-                  hint={
-                    settings.performance.speed === 'balanced'
-                      ? 'Recommended. Enhancement shares the machine with everything else you do — browsing, email, the window itself stays smooth. Usually the same speed, too.'
-                      : 'A long run may use every processor the machine has. Slightly faster on an otherwise idle computer; expect the rest of Windows to feel busier while it works.'
-                  }
-                />
+                <div className="pix-settings__group">
+                  <SegmentedField
+                    className="pix-settings__item"
+                    label="Processing power"
+                    value={settings.performance.speed}
+                    onChange={(value) =>
+                      update('performance', { speed: value as typeof settings.performance.speed })
+                    }
+                    options={[
+                      { value: 'balanced', label: 'Keep things responsive' },
+                      { value: 'maximum', label: 'Use the full machine' },
+                    ]}
+                    hint={
+                      settings.performance.speed === 'balanced'
+                        ? 'Recommended. Enhancement shares the machine with everything else you do — browsing, email, the window itself stays smooth. Usually the same speed, too.'
+                        : 'A long run may use every processor the machine has. Slightly faster on an otherwise idle computer; expect the rest of Windows to feel busier while it works.'
+                    }
+                  />
+                </div>
                 <p className="pix-settings__footnote">
                   That is the whole performance page on purpose. Tile sizes, buffer ceilings and
                   thread counts are derived from your hardware every run — the numbers live under
@@ -371,13 +396,19 @@ function SettingsBody({ onClose }: { onClose: () => void }) {
                   title="Diagnostics"
                   blurb="Read-only facts about this installation and machine, for troubleshooting."
                 />
-                {state.config && <DiagRow label="Pixora version" value={state.config.version} />}
-                {state.systemInfo && (
-                  <DiagRow
-                    label="Running on"
-                    value={`${state.systemInfo.osFamily} · ${state.systemInfo.arch}`}
-                  />
-                )}
+
+                <div className="pix-settings__group">
+                  <span className="u-caps-label">Installation</span>
+                  <div className="pix-settings__diag">
+                    {state.config && <DiagRow label="Fovea version" value={state.config.version} />}
+                    {state.systemInfo && (
+                      <DiagRow
+                        label="Running on"
+                        value={`${state.systemInfo.osFamily} · ${state.systemInfo.arch}`}
+                      />
+                    )}
+                  </div>
+                </div>
 
                 <div className="pix-settings__group">
                   <span className="u-caps-label">Enhancement engine</span>
@@ -419,13 +450,13 @@ function SettingsBody({ onClose }: { onClose: () => void }) {
                         value={`Tiles ≤ ${formatBytes(diagnostics.maxTileBytes)} · bands ≤ ${formatBytes(diagnostics.maxBandBytes)} (${diagnostics.memoryLimit})`}
                       />
                       <p className="pix-settings__note">
-                        These are the ceilings Pixora derived from this machine — it never asks your
+                        These are the ceilings Fovea derived from this machine — it never asks your
                         permission to shrink them, only reports when it had to.
                       </p>
                     </div>
                   ) : failed ? (
                     <p className="pix-settings__note">
-                      Engine diagnostics are unavailable right now. Restart Pixora if this persists.
+                      Engine diagnostics are unavailable right now. Restart Fovea if this persists.
                     </p>
                   ) : (
                     <p className="pix-settings__note">Reading hardware information…</p>
@@ -481,7 +512,7 @@ function SettingsBody({ onClose }: { onClose: () => void }) {
                     </div>
                   )}
                   <p className="pix-settings__note">
-                    Pixora's log files record what the app did — never your images, and never a copy
+                    Fovea's log files record what the app did — never your images, and never a copy
                     of them.
                   </p>
                 </div>

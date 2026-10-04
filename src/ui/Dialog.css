@@ -17,31 +17,31 @@
   border-radius: var(--radius-lg);
   background: var(--bg-surface);
   box-shadow: var(--shadow-lg);
-  animation: pixora-dialog-in var(--duration-base) var(--ease-decelerate) both;
+  animation: fovea-dialog-in var(--duration-base) var(--ease-decelerate) both;
   outline: none;
 }
 
 /* Exit: a shorter fade/settle so dismissal reads as intentional. The
    backdrop fades with it; unmount happens after Dialog's EXIT_MS. */
-@keyframes pixora-dialog-out {
+@keyframes fovea-dialog-out {
   to {
     opacity: 0;
     transform: translateY(4px) scale(0.99);
   }
 }
 
-@keyframes pixora-fade-out {
+@keyframes fovea-fade-out {
   to {
     opacity: 0;
   }
 }
 
 .pix-dialog__backdrop--closing {
-  animation: pixora-fade-out var(--duration-fast) var(--ease-standard) both;
+  animation: fovea-fade-out var(--duration-fast) var(--ease-standard) both;
 }
 
 .pix-dialog--closing {
-  animation: pixora-dialog-out var(--duration-fast) var(--ease-standard) both;
+  animation: fovea-dialog-out var(--duration-fast) var(--ease-standard) both;
 }
 
 .pix-dialog--sm {

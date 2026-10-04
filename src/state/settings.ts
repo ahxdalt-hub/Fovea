@@ -26,16 +26,17 @@
  *   read folds them in and removes them, so there is never two answers
  *   to "what is my theme?".
  */
-import type { EnhanceModeKey, ExportFormatKey } from '../types/ipc'
+import type { EnhanceModeKey, ExportFormatKey, FilterKey } from '../types/ipc'
+import { FILTER_DEFAULT_INTENSITY, FILTER_ORDER } from '../lib/catalog'
 
 /** Theme choice; `system` follows the OS and stores no attribute. */
 export type ThemePreference = 'system' | 'light' | 'dark'
 
-/** Which view opens when Pixora starts. */
+/** Which view opens when Fovea starts. */
 export type StartupView = 'last' | 'enhance' | 'batch' | 'history'
 
 /**
- * What enhancement runs on. `auto` is Pixora's own decision (GPU when
+ * What enhancement runs on. `auto` is Fovea's own decision (GPU when
  * genuinely usable, processor otherwise); `cpu` forces the slower,
  * calmer path — the honest off-switch for a flaky driver, mirroring
  * `GpuPreference` on the Rust side. There is deliberately no "force
@@ -47,7 +48,7 @@ export type EnginePath = 'auto' | 'cpu'
 
 export interface GeneralSettings {
   theme: ThemePreference
-  /** What to show when Pixora starts. */
+  /** What to show when Fovea starts. */
   startupView: StartupView
   /** Keep the short "pick up where you left off" list. */
   rememberRecentFiles: boolean
@@ -60,6 +61,10 @@ export interface ProcessingSettings {
   defaultScale: number
   /** Enhancement mode the strip pre-selects. */
   defaultMode: EnhanceModeKey
+  /** Finishing filter the strip pre-selects ('original' = no filter). */
+  defaultFilter: FilterKey
+  /** Filter strength the strip pre-selects (0-100). */
+  defaultIntensity: number
   /** Which hardware path enhancement runs on. */
   enginePath: EnginePath
 }
@@ -68,13 +73,13 @@ export interface ExportSettings {
   format: ExportFormatKey
   /** 1–100; only meaningful for the lossy formats. */
   quality: number
-  /** "" means Pixora's own export folder. */
+  /** "" means Fovea's own export folder. */
   folder: string
 }
 
 export interface PerformanceSettings {
   /**
-   * How hard the engine may use the machine. `balanced` keeps Pixora
+   * How hard the engine may use the machine. `balanced` keeps Fovea
    * responsive while a job runs (the engine caps its worker threads at
    * the physical cores); `maximum` lets a long run claim every logical
    * processor — faster on an otherwise idle machine, at the cost of a
@@ -84,7 +89,7 @@ export interface PerformanceSettings {
   speed: 'balanced' | 'maximum'
 }
 
-export interface PixoraSettings {
+export interface FoveaSettings {
   general: GeneralSettings
   processing: ProcessingSettings
   export: ExportSettings
@@ -94,17 +99,19 @@ export interface PixoraSettings {
 /** The settings format version on disk. Bumped only on a breaking change. */
 export const SETTINGS_VERSION = 1
 
-const SETTINGS_KEY = 'pixora:settings'
+const SETTINGS_KEY = 'fovea:settings'
 /** Where the last-opened view is remembered for `startupView: 'last'`.
  * Session data, not a preference — kept out of the settings record. */
-const LAST_VIEW_KEY = 'pixora:last-view'
+const LAST_VIEW_KEY = 'fovea:last-view'
 /** Retired per-feature keys, folded in once on first read (Stage 10). */
-const LEGACY_THEME_KEY = 'pixora:theme'
-const LEGACY_ENHANCE_KEY = 'pixora:enhance-settings'
+const LEGACY_THEME_KEY = 'fovea:theme'
+const LEGACY_ENHANCE_KEY = 'fovea:enhance-settings'
 
-export const DEFAULT_SETTINGS: PixoraSettings = {
+export const DEFAULT_SETTINGS: FoveaSettings = {
   general: {
-    theme: 'system',
+    // Light is the product's default face: a fresh install opens light
+    // regardless of the OS setting. System and dark remain one click away.
+    theme: 'light',
     startupView: 'last',
     rememberRecentFiles: true,
     recentFilesLimit: 6,
@@ -112,6 +119,8 @@ export const DEFAULT_SETTINGS: PixoraSettings = {
   processing: {
     defaultScale: 4,
     defaultMode: 'standard',
+    defaultFilter: 'original',
+    defaultIntensity: FILTER_DEFAULT_INTENSITY,
     enginePath: 'auto',
   },
   export: {
@@ -126,6 +135,9 @@ export const DEFAULT_SETTINGS: PixoraSettings = {
 
 const VALID_SCALES = [2, 4]
 const VALID_MODES: EnhanceModeKey[] = ['standard', 'natural', 'detail']
+/** The filter list is the catalog's (the same order the strip renders), so
+ * a stored value and a offered choice can never disagree. */
+const VALID_FILTERS: FilterKey[] = FILTER_ORDER
 const VALID_FORMATS: ExportFormatKey[] = ['png', 'jpeg', 'webp']
 const VALID_THEMES: ThemePreference[] = ['system', 'light', 'dark']
 const VALID_STARTUP: StartupView[] = ['last', 'enhance', 'batch', 'history']
@@ -159,7 +171,7 @@ function asGroup(raw: unknown): Record<string, unknown> {
  * valid settings record. Every field independently falls back, so one bad
  * value costs one default — never the whole record.
  */
-export function normalizeSettings(raw: unknown): PixoraSettings {
+export function normalizeSettings(raw: unknown): FoveaSettings {
   const root = asGroup(raw)
   const general = asGroup(root.general)
   const processing = asGroup(root.processing)
@@ -184,6 +196,15 @@ export function normalizeSettings(raw: unknown): PixoraSettings {
       // 3× has never existed and never will.
       defaultScale: pick(processing.defaultScale, VALID_SCALES, d.processing.defaultScale),
       defaultMode: pick(processing.defaultMode, VALID_MODES, d.processing.defaultMode),
+      // Filters are pixel math, so every key in the catalog is always
+      // storable — availability does not depend on an installed model.
+      defaultFilter: pick(processing.defaultFilter, VALID_FILTERS, d.processing.defaultFilter),
+      defaultIntensity: numberIn(
+        processing.defaultIntensity,
+        0,
+        100,
+        d.processing.defaultIntensity,
+      ),
       enginePath: pick(processing.enginePath, VALID_ENGINE_PATHS, d.processing.enginePath),
     },
     export: {
@@ -242,7 +263,7 @@ function dropLegacyKeys() {
  * no storage at all) and never throws. A first run under Stage 10 migrates
  * the Stage 01–06 per-feature keys, then removes them.
  */
-export function readSettings(): PixoraSettings {
+export function readSettings(): FoveaSettings {
   let stored: unknown = null
   let hadStored = false
   try {
@@ -270,7 +291,7 @@ export function readSettings(): PixoraSettings {
 
 /** Write the full record. Fails silently by design: a preference that
  * cannot persist must not break the session that just changed it. */
-export function writeSettings(settings: PixoraSettings) {
+export function writeSettings(settings: FoveaSettings) {
   try {
     localStorage.setItem(SETTINGS_KEY, JSON.stringify({ version: SETTINGS_VERSION, ...settings }))
   } catch {
@@ -280,11 +301,11 @@ export function writeSettings(settings: PixoraSettings) {
 
 /** Immutable patch of one group. Reducer and persistence share it; the
  * result is always a fully normalized record. */
-export function patchSettings<K extends keyof PixoraSettings>(
-  current: PixoraSettings,
+export function patchSettings<K extends keyof FoveaSettings>(
+  current: FoveaSettings,
   group: K,
-  patch: Partial<PixoraSettings[K]>,
-): PixoraSettings {
+  patch: Partial<FoveaSettings[K]>,
+): FoveaSettings {
   return normalizeSettings({ ...current, [group]: { ...current[group], ...patch } })
 }
 
@@ -312,7 +333,7 @@ export function persistLastView(view: ConcreteView) {
 }
 
 /** The view to open on a cold start, given settings + what was last used. */
-export function resolveStartupView(settings: PixoraSettings): ConcreteView {
+export function resolveStartupView(settings: FoveaSettings): ConcreteView {
   if (settings.general.startupView === 'last') return readStoredLastView()
   return settings.general.startupView
 }
@@ -330,7 +351,7 @@ export interface EngineHints {
   recordRecents: boolean
 }
 
-export function toEngineHints(settings: PixoraSettings): EngineHints {
+export function toEngineHints(settings: FoveaSettings): EngineHints {
   return {
     cpuOnly: settings.processing.enginePath === 'cpu',
     fullPower: settings.performance.speed === 'maximum',

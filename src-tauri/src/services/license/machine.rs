@@ -112,8 +112,10 @@ pub fn id() -> Option<&'static str> {
         .as_deref()
 }
 
-/// A stable, non-identifying label for diagnostics: first hash group only.
-pub fn short_id() -> String {
-    id().map(|i| i[..8].to_string())
-        .unwrap_or_else(|| "unknown".to_string())
+/// The fingerprint shown in the license panel. It is the *whole* id on
+/// purpose: a machine-bound key is issued with `--machine <this string>`,
+/// so a truncated label would look like the vendor's requirement and be
+/// unusable. Still a one-way hash — it identifies a machine, not a person.
+pub fn display_id() -> String {
+    id().unwrap_or("unidentified").to_string()
 }

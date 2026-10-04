@@ -4,3 +4,7 @@ src-tauri/target
 src-tauri/icons
 package-lock.json
 Cargo.lock
+website/.next
+website/.open-next
+website/opennext
+website/dist

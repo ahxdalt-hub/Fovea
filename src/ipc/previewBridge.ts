@@ -22,9 +22,9 @@ export function shouldUsePreviewBridge(): boolean {
 
 export function previewInvoke(cmd: string): Promise<unknown> {
   const config: AppConfigDto = {
-    productName: 'Pixora',
+    productName: 'Fovea',
     version: '0.0.0-preview',
-    identifier: 'com.pixora.desktop',
+    identifier: 'com.fovea.desktop',
     debug: true,
   }
   const systemInfo: SystemInfoDto = {
@@ -32,6 +32,8 @@ export function previewInvoke(cmd: string): Promise<unknown> {
     arch: 'js',
     appDataDir: '(browser preview — no native storage)',
     logsDir: '(browser preview — no native logs)',
+    defaultExportDir: '',
+    defaultBatchExportDir: '',
   }
   switch (cmd) {
     case 'get_config':

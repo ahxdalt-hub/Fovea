@@ -1,9 +1,9 @@
-import type { Metadata, Viewport } from 'next';
-import { Fraunces, Inter } from 'next/font/google';
-import './globals.css';
-import { Nav } from '@/components/Nav';
-import { Footer } from '@/components/Footer';
-import { site } from '@/lib/site';
+import type { Metadata, Viewport } from 'next'
+import { Fraunces, Inter } from 'next/font/google'
+import './globals.css'
+import { Nav } from '@/components/Nav'
+import { Footer } from '@/components/Footer'
+import { site } from '@/lib/site'
 
 const fraunces = Fraunces({
   subsets: ['latin'],
@@ -11,14 +11,14 @@ const fraunces = Fraunces({
   axes: ['opsz'],
   display: 'swap',
   variable: '--font-fraunces',
-});
+})
 
 const inter = Inter({
   subsets: ['latin'],
   weight: ['400', '500', '600', '700'],
   display: 'swap',
   variable: '--font-inter',
-});
+})
 
 export const metadata: Metadata = {
   metadataBase: new URL(site.url),
@@ -44,9 +44,9 @@ export const metadata: Metadata = {
     images: [
       {
         url: '/images/coast-after.jpg',
-        width: 1200,
-        height: 630,
-        alt: 'A photograph enhanced and upscaled 4× by Pixora',
+        width: 1440,
+        height: 960,
+        alt: 'A photograph enhanced and upscaled 4× by Fovea',
       },
     ],
   },
@@ -57,13 +57,13 @@ export const metadata: Metadata = {
     images: ['/images/coast-after.jpg'],
   },
   robots: { index: true, follow: true },
-};
+}
 
 export const viewport: Viewport = {
   themeColor: '#2f6fed',
   width: 'device-width',
   initialScale: 1,
-};
+}
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
@@ -88,5 +88,5 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <Footer />
       </body>
     </html>
-  );
+  )
 }

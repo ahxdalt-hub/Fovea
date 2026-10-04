@@ -170,8 +170,7 @@ mod tests {
     use super::*;
 
     fn scratch(tag: &str) -> PathBuf {
-        let dir =
-            std::env::temp_dir().join(format!("pixora-settings-{}-{tag}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("fovea-settings-{}-{tag}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).expect("scratch dir");
         dir

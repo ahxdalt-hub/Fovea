@@ -41,7 +41,8 @@ use crate::services::hardware::{self, MemoryBudgets};
 use crate::services::import;
 
 use super::backend::{Backend, CancelToken, EngineError, GpuPreference};
-use super::engine::{self, Plan, PostPass, RowWriter};
+use super::engine::{self, Plan, RowWriter};
+use super::finish::{self, Filter, FilterStatus, Finish, PostPass};
 use super::model::{EnhanceMode, ModelRegistry, ModelState, product_scales_for};
 
 /// Largest *output* (in pixels) the engine will attempt. Import allows
@@ -79,11 +80,11 @@ impl Default for EngineConfig {
         } else {
             hardware::memory_budgets(hw)
         };
-        // QA doors (Stage 07, dev-only like PIXORA_MODELS_DIR):
-        // PIXORA_TILE pins the ceiling; PIXORA_BUDGET_MB clamps both
+        // QA doors (Stage 07, dev-only like FOVEA_MODELS_DIR):
+        // FOVEA_TILE pins the ceiling; FOVEA_BUDGET_MB clamps both
         // budgets to reproduce low-VRAM/low-RAM conditions on a healthy
         // machine — the adaptive shrink and the ladder then run for real.
-        let budgets = match std::env::var("PIXORA_BUDGET_MB")
+        let budgets = match std::env::var("FOVEA_BUDGET_MB")
             .ok()
             .and_then(|v| v.parse::<usize>().ok())
         {
@@ -93,7 +94,7 @@ impl Default for EngineConfig {
             },
             _ => budgets,
         };
-        let tile = std::env::var("PIXORA_TILE")
+        let tile = std::env::var("FOVEA_TILE")
             .ok()
             .and_then(|v| v.parse::<usize>().ok())
             .filter(|t| (16..=1024).contains(t))
@@ -124,12 +125,12 @@ impl EngineConfig {
 }
 
 /// CPU path required for this run: the QA/dev door
-/// (`PIXORA_FORCE_CPU=1`, read once so status probing and jobs stay
+/// (`FOVEA_FORCE_CPU=1`, read once so status probing and jobs stay
 /// consistent) *or* the user's Settings choice (Stage 10), which is
 /// dynamic — flipping it takes effect from the next job onward.
 fn force_cpu() -> bool {
     static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
-    *ON.get_or_init(|| std::env::var_os("PIXORA_FORCE_CPU").is_some())
+    *ON.get_or_init(|| std::env::var_os("FOVEA_FORCE_CPU").is_some())
         || crate::services::settings::cpu_only()
 }
 
@@ -139,7 +140,7 @@ fn force_cpu() -> bool {
 pub struct EnhanceResult {
     /// The imported image's canonical path (the UI's stable key).
     pub image_id: String,
-    /// Pixora's output file — export/save-as works from here.
+    /// Fovea's output file — export/save-as works from here.
     pub file_path: PathBuf,
     pub width: u32,
     pub height: u32,
@@ -202,7 +203,7 @@ pub enum EnhanceEvent {
 }
 
 /// Tracks in-flight jobs so the UI can cancel them. Registration is
-/// single-slot by design: Pixora Stage 05 runs one enhancement at a time
+/// single-slot by design: Fovea Stage 05 runs one enhancement at a time
 /// (a second concurrent GPU job would thrash memory and slow both); a
 /// busy second request is refused honestly. Stage 08's batch queue keeps
 /// the same invariant from the other side: it queues many items, but its
@@ -350,6 +351,12 @@ pub struct InferenceStatus {
     /// Every mode the product knows about and whether its model is
     /// installed — the UI hides what isn't rather than offering a lie.
     pub modes: Vec<ModeStatus>,
+    /// Every finishing filter the product offers, in native words. Filters
+    /// are pure pixel math on data the engine already holds, so unlike
+    /// modes they never depend on an installed model — the list is the
+    /// product's full set, and the UI repeats these labels and hints
+    /// verbatim instead of keeping its own copy.
+    pub filters: Vec<FilterStatus>,
     /// Directory the user can drop models into (display only).
     pub models_dir_display: String,
 }
@@ -380,12 +387,18 @@ pub fn inference_status(registry: &ModelRegistry) -> InferenceStatus {
             available: registry.mode_available(*m),
         })
         .collect();
+    let filters = Filter::ALL
+        .iter()
+        .copied()
+        .map(finish::status_for)
+        .collect();
     InferenceStatus {
         device: probe_device(),
         models,
         ready,
         scales,
         modes,
+        filters,
         models_dir_display: registry
             .search_dirs()
             .last()
@@ -396,7 +409,7 @@ pub fn inference_status(registry: &ModelRegistry) -> InferenceStatus {
 
 /// Which device a newly-created session will land on. `ort` decides per
 /// session; the answer is stable for the process, so probe + cache.
-/// `PIXORA_FORCE_CPU` short-circuits it (QA door — the probe and the job
+/// `FOVEA_FORCE_CPU` short-circuits it (QA door — the probe and the job
 /// ladder must agree), and so does the user's Stage 10 "processor" choice
 /// — that one is checked per call, so Diagnostics never shows a stale GPU.
 pub fn probe_device() -> &'static str {
@@ -428,6 +441,11 @@ pub fn probe_device() -> &'static str {
 /// chosen model (`product_scales_for`), or the job fails honestly before
 /// any work starts.
 ///
+/// `filter` + `intensity` are the finishing look applied to the model's
+/// output (see [`finish`]); [`Filter::Original`] runs no filter pass at
+/// all, so an unfiltered job costs exactly what it did before filters
+/// existed.
+///
 /// `open_backend` is *callable per attempt*: the GPU/CPU path may retry
 /// (see [`enhance_inner`]'s ladder). `jobs.begin` must already own
 /// registration failure; this function always reaches `jobs.finish`
@@ -437,6 +455,8 @@ pub fn enhance<B: Backend>(
     source_id: &str,
     mode: EnhanceMode,
     target: usize,
+    filter: Filter,
+    intensity: u8,
     registry: &ModelRegistry,
     config: &EngineConfig,
     out_dir: &Path,
@@ -451,6 +471,8 @@ pub fn enhance<B: Backend>(
         source_id,
         mode,
         target,
+        filter,
+        intensity,
         registry,
         config,
         out_dir,
@@ -473,6 +495,8 @@ pub fn enhance_without_view<B: Backend>(
     source_id: &str,
     mode: EnhanceMode,
     target: usize,
+    filter: Filter,
+    intensity: u8,
     registry: &ModelRegistry,
     config: &EngineConfig,
     out_dir: &Path,
@@ -487,6 +511,8 @@ pub fn enhance_without_view<B: Backend>(
         source_id,
         mode,
         target,
+        filter,
+        intensity,
         registry,
         config,
         out_dir,
@@ -504,6 +530,8 @@ fn enhance_with_view<B: Backend>(
     source_id: &str,
     mode: EnhanceMode,
     target: usize,
+    filter: Filter,
+    intensity: u8,
     registry: &ModelRegistry,
     config: &EngineConfig,
     out_dir: &Path,
@@ -521,6 +549,8 @@ fn enhance_with_view<B: Backend>(
         source_id,
         mode,
         target,
+        filter,
+        intensity,
         registry,
         config,
         out_dir,
@@ -555,6 +585,8 @@ fn enhance_inner<B: Backend>(
     source_id: &str,
     mode: EnhanceMode,
     target: usize,
+    filter: Filter,
+    intensity: u8,
     registry: &ModelRegistry,
     config: &EngineConfig,
     out_dir: &Path,
@@ -617,11 +649,15 @@ fn enhance_inner<B: Backend>(
     });
     let rgb: RgbImage = decoded.into_rgb8();
 
-    // Detail is Standard + the engine's real unsharp post-pass.
+    // Detail is Standard + the engine's real unsharp post-pass. The
+    // filter is the user's independent look on top of whichever mode ran
+    // (see `finish`): mode decides how the result is read, filter decides
+    // what it should feel like.
     let post = match mode {
         EnhanceMode::Detail => PostPass::Sharpen,
         _ => PostPass::None,
     };
+    let passes = Finish::for_mode(post, filter, intensity);
 
     // Atomic output: write `*.part`, rename on success, delete otherwise.
     // The `.part` name is per *attempt* so a failed GPU run can never
@@ -632,7 +668,7 @@ fn enhance_inner<B: Backend>(
 
     // ── The processing ladder (Stage 07) ──────────────────────────────
     //
-    //   attempt 1: GPU preferred (unless PIXORA_FORCE_CPU) with the
+    //   attempt 1: GPU preferred (unless FOVEA_FORCE_CPU) with the
     //              hardware-derived budgets and an adaptive tile
     //   attempt 2: any GPU-path failure (session build, device removed,
     //              OOM mid-run) drops to the CPU session with a halved
@@ -737,7 +773,7 @@ fn enhance_inner<B: Backend>(
             &rgb,
             alpha_plane.clone(),
             &plan,
-            post,
+            &passes,
             &part_path,
             token,
             emit,
@@ -828,7 +864,7 @@ fn run_pipeline<B: Backend>(
     rgb: &RgbImage,
     alpha_plane: Option<Vec<u8>>,
     plan: &Plan,
-    post: PostPass,
+    passes: &Finish,
     part_path: &Path,
     token: &CancelToken,
     emit: &mut dyn FnMut(EnhanceEvent),
@@ -844,9 +880,15 @@ fn run_pipeline<B: Backend>(
         plan.src_w,
         plan.target,
     )?;
-    engine::run(backend, rgb, plan, post, &mut sink, token, |done, total| {
-        emit(EnhanceEvent::Processing { done, total })
-    })
+    engine::run(
+        backend,
+        rgb,
+        plan,
+        passes,
+        &mut sink,
+        token,
+        |done, total| emit(EnhanceEvent::Processing { done, total }),
+    )
     .map_err(map_engine_error)?;
     // All tiles done — finishing the encode is the last real phase.
     emit(EnhanceEvent::Completing);
@@ -888,8 +930,13 @@ fn png_row_error(e: &std::io::Error) -> EngineError {
 /// (~27 MB) regardless of master size.
 struct ViewTee {
     step: usize,
+    /// Master width in pixels — the rightmost view block is partial when
+    /// `step` exceeds it (a 12 × 48 000 strip from a 3 px-wide source).
+    ow: usize,
     vw: usize,
     ch: usize,
+    /// Source columns feeding each view column; constant per column.
+    cols: Vec<usize>,
     /// u32 channel sums for the current view-row block.
     acc: Vec<u32>,
     /// Finished view rows, top to bottom.
@@ -902,33 +949,44 @@ impl ViewTee {
     fn new(out_w: usize, out_h: usize, ch: usize) -> Self {
         let step = out_w.max(out_h).div_ceil(import::VIEW_MAX_EDGE as usize);
         let step = step.max(2); // a tee exists only when downscaling is real
-        let vw = (out_w / step).max(1);
-        let vh = (out_h / step).max(1);
+        // Ceil, never floor: a partial edge block still produces a view
+        // column, averaging only the pixels that exist. Flooring (and
+        // clamping to 1) made the single column of an extreme-aspect master
+        // read `step` pixels out of a narrower row — a panic mid-encode.
+        let vh = out_h.div_ceil(step).max(1);
+        let cols: Vec<usize> = (0..out_w.div_ceil(step).max(1))
+            .map(|vx| (out_w - vx * step).min(step))
+            .collect();
+        let vw = cols.len();
         ViewTee {
             step,
+            ow: out_w,
             vw,
             ch,
+            cols,
             acc: vec![0u32; vw * ch],
             out: Vec::with_capacity(vw * vh * ch),
             rows_in_block: 0,
         }
     }
     fn push_row(&mut self, rgb: &[u8], alpha: Option<&[u8]>) {
-        debug_assert!(rgb.len() >= self.vw * self.step * 3);
+        debug_assert!(rgb.len() >= self.ow * 3);
+        let mut src = 0usize;
         for vx in 0..self.vw {
-            let base = vx * self.step * 3;
+            let n = self.cols[vx];
             let a = &mut self.acc[vx * self.ch..][..self.ch];
-            for px in rgb[base..base + self.step * 3].chunks_exact(3) {
+            for px in rgb[src * 3..(src + n) * 3].chunks_exact(3) {
                 for c in 0..3 {
                     a[c] += px[c] as u32;
                 }
             }
             if self.ch == 4 {
                 let asum = &mut a[3];
-                for av in alpha.unwrap()[base / 3..base / 3 + self.step].iter() {
+                for av in alpha.unwrap()[src..src + n].iter() {
                     *asum += *av as u32;
                 }
             }
+            src += n;
         }
         self.rows_in_block += 1;
         if self.rows_in_block == self.step {
@@ -937,11 +995,11 @@ impl ViewTee {
     }
 
     fn flush_block(&mut self) {
-        let rows = self.rows_in_block.max(1) as u32;
-        let denom = (self.step as u32 * rows).max(1);
+        let rows = self.rows_in_block.max(1);
         let vw = self.vw;
         let ch = self.ch;
         for vx in 0..vw {
+            let denom = (self.cols[vx] * rows) as u32;
             for c in 0..ch {
                 let i = vx * ch + c;
                 let v = self.acc[i];
@@ -1100,6 +1158,7 @@ impl RowWriter for PngSink {
 mod tests {
     use super::*;
     use crate::services::inference::backend::TileOutput;
+    use crate::services::inference::finish::DEFAULT_INTENSITY;
     use crate::services::inference::model::ModelSpec;
     use image::{ImageFormat, Rgba, RgbaImage};
 
@@ -1162,7 +1221,7 @@ mod tests {
     }
 
     fn scratch(tag: &str) -> PathBuf {
-        let dir = std::env::temp_dir().join(format!("pixora-enhance-{}-{tag}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("fovea-enhance-{}-{tag}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).expect("scratch dir");
         dir
@@ -1304,6 +1363,8 @@ mod tests {
             &source.to_string_lossy(),
             mode,
             target,
+            Filter::Original,
+            DEFAULT_INTENSITY,
             &registry,
             &config,
             &out_dir,
@@ -1386,6 +1447,8 @@ mod tests {
             &source.to_string_lossy(),
             EnhanceMode::Standard,
             2,
+            Filter::Original,
+            DEFAULT_INTENSITY,
             &registry,
             &EngineConfig::default(),
             &out_dir,
@@ -1505,6 +1568,8 @@ mod tests {
             &source.to_string_lossy(),
             EnhanceMode::Standard,
             2,
+            Filter::Original,
+            DEFAULT_INTENSITY,
             &registry,
             &EngineConfig::default(),
             &out_dir,
@@ -1546,6 +1611,8 @@ mod tests {
             &source.to_string_lossy(),
             EnhanceMode::Standard,
             2,
+            Filter::Original,
+            DEFAULT_INTENSITY,
             &registry,
             &EngineConfig::default(),
             &out_dir,
@@ -1642,6 +1709,8 @@ mod tests {
             &source.to_string_lossy(),
             EnhanceMode::Standard,
             2,
+            Filter::Original,
+            DEFAULT_INTENSITY,
             &registry,
             &EngineConfig::default(),
             &out_dir,
@@ -1701,6 +1770,8 @@ mod tests {
             &source.to_string_lossy(),
             EnhanceMode::Standard,
             2,
+            Filter::Original,
+            DEFAULT_INTENSITY,
             &registry,
             &EngineConfig::default(),
             &out_dir,
@@ -1741,6 +1812,8 @@ mod tests {
             &source.to_string_lossy(),
             EnhanceMode::Standard,
             2,
+            Filter::Original,
+            DEFAULT_INTENSITY,
             &registry,
             &EngineConfig::default(),
             &out_dir,
@@ -1812,6 +1885,8 @@ mod tests {
             &source.to_string_lossy(),
             EnhanceMode::Standard,
             2,
+            Filter::Original,
+            DEFAULT_INTENSITY,
             &registry,
             &EngineConfig::default(),
             &out_dir,
@@ -1854,6 +1929,8 @@ mod tests {
             &source.to_string_lossy(),
             EnhanceMode::Standard,
             2,
+            Filter::Original,
+            DEFAULT_INTENSITY,
             &registry,
             &EngineConfig::default(),
             &out_dir,
@@ -1899,6 +1976,8 @@ mod tests {
                 &source.to_string_lossy(),
                 EnhanceMode::Standard,
                 2,
+                Filter::Original,
+                DEFAULT_INTENSITY,
                 &registry,
                 &EngineConfig::default(),
                 &out_dir,
@@ -1951,6 +2030,8 @@ mod tests {
             &source.to_string_lossy(),
             EnhanceMode::Standard,
             4,
+            Filter::Original,
+            DEFAULT_INTENSITY,
             &registry,
             &EngineConfig::default(),
             &out_dir,
@@ -2025,6 +2106,8 @@ mod tests {
             &source.to_string_lossy(),
             EnhanceMode::Natural,
             2,
+            Filter::Original,
+            DEFAULT_INTENSITY,
             &registry,
             &EngineConfig::default(),
             &out_dir,
@@ -2090,6 +2173,37 @@ mod tests {
             assert_eq!(px, [*expect; 3], "view row {vy}");
         }
         let _ = std::fs::remove_dir_all(dir);
+    }
+
+    /// A 3 px-wide strip upscaled 4× yields a 12 × 48 000 master whose view
+    /// block (19 px) is wider than the image itself. The original
+    /// floor-based column count asked for 19 pixels out of a 12 pixel row
+    /// and panicked inside the PNG encode — killing the job, and in an
+    /// abort-profile build, the process.
+    #[test]
+    fn view_tee_averages_partial_columns_on_an_extreme_aspect_master() {
+        let (ow, oh) = (12usize, 48_000usize);
+        for ch in [3usize, 4] {
+            let mut tee = ViewTee::new(ow, oh, ch);
+            assert!(tee.step > ow, "row must be narrower than a block");
+            assert_eq!(tee.cols.iter().sum::<usize>(), ow);
+            let row = vec![100u8; ow * 3];
+            let alpha = vec![200u8; ow];
+            let alpha_arg = (ch == 4).then_some(alpha.as_slice());
+            for _ in 0..oh {
+                tee.push_row(&row, alpha_arg);
+            }
+            let (bytes, vw, vh, channels) = tee.finish();
+            assert_eq!(channels, ch);
+            assert_eq!(vw, 1, "one partial column across");
+            assert_eq!(vh, 2_527, "ceil of 48 000 rows at step 19");
+            assert_eq!(bytes.len(), vw * vh * ch);
+            let expected: Vec<u8> = (0..ch).map(|c| if c == 3 { 200 } else { 100 }).collect();
+            assert!(
+                bytes.chunks(ch).all(|px| px == expected),
+                "partial block averages the pixels that exist (ch={ch})"
+            );
+        }
     }
 
     #[test]
@@ -2198,6 +2312,8 @@ mod tests {
             &source.to_string_lossy(),
             EnhanceMode::Standard,
             4,
+            Filter::Original,
+            DEFAULT_INTENSITY,
             &registry,
             // Deliberately a small grid so multiple real tiles run.
             &EngineConfig {
@@ -2283,6 +2399,8 @@ mod tests {
                 &source.to_string_lossy(),
                 mode,
                 scale,
+                Filter::Original,
+                DEFAULT_INTENSITY,
                 &registry,
                 &config,
                 &out_dir,

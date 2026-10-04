@@ -1,4 +1,4 @@
-# Pixora models
+# Fovea models
 
 Self-contained ONNX models the local AI engine (`services/inference`) can
 find, validate, and run. This directory is bundled into the installer as
@@ -17,7 +17,7 @@ the app's `models/` resource folder (see `tauri.conf.json` →
   (4,871,181 bytes) — pinned in `src-tauri/src/services/inference/model.rs`
   and verified before every load.
 - **Runtime:** input `[1,3,H,W]` float32 RGB in [0,1], dynamic sizes;
-  output `[1,3,4H,4W]`. Pixora tiles large images (see
+  output `[1,3,4H,4W]`. Fovea tiles large images (see
   `services/inference/engine.rs`).
 
 ## realesr-general-wdn-x4v3.onnx — mode "Natural"
@@ -26,7 +26,7 @@ the app's `models/` resource folder (see `tauri.conf.json` →
   same architecture — genuinely different trained weights that suppress
   noise and compression artifacts and keep the photo's character, instead
   of reconstructing detail. Upstream ships it to be _blended_ with the
-  general model; Pixora exposes the two pure behaviors as modes rather
+  general model; Fovea exposes the two pure behaviors as modes rather
   than inventing a blend knob the pipeline doesn't run.
 - **Upstream:** xinntao/Real-ESRGAN (Tencent ARC Lab), BSD-3-Clause —
   same license file as above.

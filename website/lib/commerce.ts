@@ -1,6 +1,6 @@
 /**
  * Commerce seam — the single, provider-agnostic boundary between "a customer
- * decides to buy" and "a Pixora license exists."
+ * decides to buy" and "a Fovea license exists."
  *
  * Two rules keep this honest and safe:
  *
@@ -14,13 +14,14 @@
  *
  * Provider APIs change and differ, so none are hard-coded. A provider is a
  * tiny interface with one method; concrete adapters live in `./providers/*`
- * and are selected by env (`PIXORA_PAYMENT_PROVIDER`). The default provider
+ * and are selected by env (`FOVEA_PAYMENT_PROVIDER`). The default provider
  * needs no secret and makes no network call — it records the intent and hands
  * the buyer to the download/activation flow, which is the truthful launch path
  * until a real processor is connected.
  */
 
 import { ManualProvider } from './providers/manual';
+import { ProviderConfigError, StripeProvider } from './providers/stripe';
 
 /** Which commercial product a checkout is for. Maps 1:1 to `tiers` in site.ts. */
 export type TierId = 'pro' | 'studio' | 'evaluate';
@@ -64,16 +65,29 @@ export interface PaymentProvider {
  * the safe, secret-free manual path rather than failing the customer.
  */
 export function resolveProvider(): PaymentProvider {
-  const id = (process.env.PIXORA_PAYMENT_PROVIDER ?? 'manual').trim().toLowerCase();
+  const id = (process.env.FOVEA_PAYMENT_PROVIDER ?? 'manual').trim().toLowerCase();
   switch (id) {
-    // Real adapters (Stripe Checkout, Paddle, Gumroad webhook, …) get their own
-    // files under ./providers/* and a case here. Each verifies the provider's
-    // *current* API against its own docs when wired — none is assumed now.
+    // Real adapters (Paddle, Gumroad webhook, …) would get their own files
+    // under ./providers/* and a case here.
+    case 'stripe':
+      return new StripeProvider();
     case 'manual':
     default:
       return new ManualProvider();
   }
 }
+
+/**
+ * True when FOVEA_PAYMENT_PROVIDER names a provider that needs secrets and
+ * those secrets are present. Used to fail loudly (never silently degrade to
+ * the manual path, which would sell a license nobody delivers).
+ */
+export function providerIsConfigured(): boolean {
+  const id = (process.env.FOVEA_PAYMENT_PROVIDER ?? 'manual').trim().toLowerCase();
+  return id === 'manual' || (id === 'stripe' && !!process.env.FOVEA_STRIPE_SECRET_KEY?.trim());
+}
+
+export { ProviderConfigError };
 
 /** The delivery location the manual flow (and post-checkout return) uses. */
 export const DELIVERY_PATH = '/download';

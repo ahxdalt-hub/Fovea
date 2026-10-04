@@ -15,6 +15,7 @@ use std::sync::Arc;
 use image::{DynamicImage, ImageFormat, Rgba, RgbaImage};
 use upscaler_lib::services::export::{self, ExportFormat};
 use upscaler_lib::services::inference::backend::{CancelToken, OnnxBackend};
+use upscaler_lib::services::inference::finish::{DEFAULT_INTENSITY, Filter};
 use upscaler_lib::services::inference::model::{EnhanceMode, ModelRegistry};
 use upscaler_lib::services::inference::service::{self, EngineConfig, EnhanceResult, JobRegistry};
 
@@ -61,6 +62,8 @@ fn enhance(
         source,
         mode,
         scale,
+        Filter::Original,
+        DEFAULT_INTENSITY,
         registry,
         &EngineConfig::default(),
         out_dir,
@@ -90,11 +93,11 @@ fn main() {
     let fixtures = std::env::args()
         .nth(1)
         .map(PathBuf::from)
-        .unwrap_or_else(|| std::env::temp_dir().join("pixora-fixtures"));
+        .unwrap_or_else(|| std::env::temp_dir().join("fovea-fixtures"));
     let out = std::env::args()
         .nth(2)
         .map(PathBuf::from)
-        .unwrap_or_else(|| std::env::temp_dir().join("pixora-stage06-qa"));
+        .unwrap_or_else(|| std::env::temp_dir().join("fovea-stage06-qa"));
     // QA output is disposable: start clean so repeated runs are
     // deterministic (file-name-collision checks compare against fresh dirs).
     let _ = std::fs::remove_dir_all(&out);

@@ -1,7 +1,7 @@
-//! Generates Pixora's marketing before/after samples using the REAL
+//! Generates Fovea's marketing before/after samples using the REAL
 //! enhancement pipeline — the same `service::enhance` the app runs, against
 //! the bundled ONNX models (DirectML GPU when present). There is no
-//! fabrication: the "after" images are genuine Pixora output, the "before"
+//! fabrication: the "after" images are genuine Fovea output, the "before"
 //! images are genuinely small, so the website only shows what the product
 //! actually produces.
 //!
@@ -11,14 +11,15 @@
 //!
 //! <sources-dir> holds source photographs; <out-dir> receives
 //!   <name>-before.jpg  (small, what a user starts with)
-//!   <name>-after.jpg   (Pixora 4× enhancement of that same small image)
+//!   <name>-after.jpg   (Fovea 4× enhancement of that same small image)
 
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use image::imageops::FilterType;
 use image::DynamicImage;
+use image::imageops::FilterType;
 use upscaler_lib::services::inference::backend::{CancelToken, OnnxBackend};
+use upscaler_lib::services::inference::finish::{DEFAULT_INTENSITY, Filter};
 use upscaler_lib::services::inference::model::{EnhanceMode, ModelRegistry};
 use upscaler_lib::services::inference::service::{self, EngineConfig, JobRegistry};
 
@@ -63,9 +64,9 @@ fn main() {
         let before_path = out.join(format!("{stem}-before.jpg"));
         save_jpeg(&small, &before_path, 82);
 
-        // "after": Pixora runs on that small image and returns a true 4×
+        // "after": Fovea runs on that small image and returns a true 4×
         // result (detail reconstructed by the model, not stretched pixels).
-        let work = std::env::temp_dir().join(format!("pixora-sample-{stem}"));
+        let work = std::env::temp_dir().join(format!("fovea-sample-{stem}"));
         let _ = std::fs::remove_dir_all(&work);
         std::fs::create_dir_all(&work).expect("work dir");
         let master = enhance(&registry, &before_path, mode, 4, &work);
@@ -74,10 +75,10 @@ fn main() {
         save_jpeg(&after, &after_path, 90);
 
         println!(
-          "  {stem}: {small_w}px {mode:?} → {}×{} · {}",
-          after.width(),
-          after.height(),
-          status.device
+            "  {stem}: {small_w}px {mode:?} → {}×{} · {}",
+            after.width(),
+            after.height(),
+            status.device
         );
     }
     println!("done → {}", out.display());
@@ -99,6 +100,8 @@ fn enhance(
         &source_str,
         mode,
         scale,
+        Filter::Original,
+        DEFAULT_INTENSITY,
         registry,
         &EngineConfig::default(),
         out_dir,

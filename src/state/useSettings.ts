@@ -13,15 +13,15 @@
 import { useCallback } from 'react'
 import { setEngineHints } from '../ipc/bridge'
 import { useAppState } from './useAppState'
-import { patchSettings, toEngineHints, writeSettings, type PixoraSettings } from './settings'
+import { patchSettings, toEngineHints, writeSettings, type FoveaSettings } from './settings'
 
 export interface SettingsApi {
-  settings: PixoraSettings
+  settings: FoveaSettings
   /** Patch one group; returns the full next record (already persisted). */
-  update: <K extends keyof PixoraSettings>(
+  update: <K extends keyof FoveaSettings>(
     group: K,
-    patch: Partial<PixoraSettings[K]>,
-  ) => PixoraSettings
+    patch: Partial<FoveaSettings[K]>,
+  ) => FoveaSettings
 }
 
 export function useSettings(): SettingsApi {

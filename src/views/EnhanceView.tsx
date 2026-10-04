@@ -108,19 +108,19 @@ export function EnhanceView({ importApi, enhanceApi, images, onReopen }: Enhance
   }, [selected])
 
   return (
-    <div className="pixora-view pixora-view--enhance anim-fade">
+    <div className="fovea-view fovea-view--enhance anim-fade">
       <h1 className="u-visually-hidden">Enhance</h1>
 
       {images.length === 0 ? (
         <>
-          <div className="pixora-workflow" aria-label="Workflow">
+          <div className="fovea-workflow" aria-label="Workflow">
             {WORKFLOW.map((step, index) => (
-              <div className="pixora-workflow__step" key={step.id}>
-                {index > 0 && <span className="pixora-workflow__chevron" aria-hidden="true" />}
-                <span className="pixora-workflow__n u-tabular">{step.n}</span>
-                <span className="pixora-workflow__text">
-                  <span className="pixora-workflow__title">{step.title}</span>
-                  <span className="pixora-workflow__detail">{step.detail}</span>
+              <div className="fovea-workflow__step" key={step.id}>
+                {index > 0 && <span className="fovea-workflow__chevron" aria-hidden="true" />}
+                <span className="fovea-workflow__n u-tabular">{step.n}</span>
+                <span className="fovea-workflow__text">
+                  <span className="fovea-workflow__title">{step.title}</span>
+                  <span className="fovea-workflow__detail">{step.detail}</span>
                 </span>
               </div>
             ))}
@@ -150,7 +150,7 @@ export function EnhanceView({ importApi, enhanceApi, images, onReopen }: Enhance
             </section>
           )}
 
-          <div className="pixora-view__footnote">
+          <div className="fovea-view__footnote">
             <Badge tone="success" dot>
               Local processing
             </Badge>
@@ -158,17 +158,17 @@ export function EnhanceView({ importApi, enhanceApi, images, onReopen }: Enhance
           </div>
         </>
       ) : (
-        <div className="pixora-collection anim-rise">
-          <div className="pixora-collection__bar">
-            <h2 className="pixora-collection__heading">
+        <div className="fovea-collection anim-rise">
+          <div className="fovea-collection__bar">
+            <h2 className="fovea-collection__heading">
               Imported
-              <span className="pixora-collection__count u-tabular">
+              <span className="fovea-collection__count u-tabular">
                 {collectionSummary(images)}
               </span>
             </h2>
-            <div className="pixora-collection__actions">
+            <div className="fovea-collection__actions">
               {importing && (
-                <span className="pixora-collection__busy" role="status">
+                <span className="fovea-collection__busy" role="status">
                   <Spinner /> Checking files…
                 </span>
               )}
@@ -199,23 +199,23 @@ export function EnhanceView({ importApi, enhanceApi, images, onReopen }: Enhance
             onCompare={requestCompare}
           />
 
-          <div className="pixora-collection__body">
-            <ol className="pixora-thumbs" aria-label="Imported images">
+          <div className="fovea-collection__body">
+            <ol className="fovea-thumbs" aria-label="Imported images">
               {images.map((img) => (
                 <li key={img.id}>
                   <button
                     type="button"
-                    className={`pixora-thumb${img.id === selected?.id ? ' pixora-thumb--active' : ''}`}
+                    className={`fovea-thumb${img.id === selected?.id ? ' fovea-thumb--active' : ''}`}
                     aria-current={img.id === selected?.id || undefined}
                     onClick={() => selectImage(img.id)}
                     title={img.name}
                   >
-                    <img className="pixora-thumb__img" src={img.previewDataUrl} alt="" />
-                    <span className="pixora-thumb__name">{img.name}</span>
+                    <img className="fovea-thumb__img" src={img.previewDataUrl} alt="" />
+                    <span className="fovea-thumb__name">{img.name}</span>
                   </button>
                   <IconButton
                     label={`Remove ${img.name} from the collection`}
-                    className="pixora-thumb__remove"
+                    className="fovea-thumb__remove"
                     onClick={() => importApi.removeImage(img.id)}
                   >
                     <IconClose size="sm" />
@@ -267,7 +267,7 @@ function WorkspaceEmpty({ importApi, importing }: { importApi: ImportApi; import
       title="Drop an image anywhere to begin"
       description={
         <>
-          Drag JPG, PNG, or WebP files onto Pixora, or choose files from disk. Every file is checked
+          Drag JPG, PNG, or WebP files onto Fovea, or choose files from disk. Every file is checked
           on this machine and the full image stays where it is — nothing is uploaded, at any point.
         </>
       }

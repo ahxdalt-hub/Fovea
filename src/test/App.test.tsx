@@ -29,9 +29,9 @@ function mockSuccessfulCore() {
   invoke.mockImplementation((cmd: string) => {
     if (cmd === 'get_config')
       return Promise.resolve({
-        productName: 'Pixora',
+        productName: 'Fovea',
         version: '0.2.0',
-        identifier: 'com.pixora.desktop',
+        identifier: 'com.fovea.desktop',
         debug: true,
       })
     if (cmd === 'get_system_info')
@@ -40,6 +40,8 @@ function mockSuccessfulCore() {
         arch: 'x86_64',
         appDataDir: 'C:/Users/test/AppData',
         logsDir: 'C:/Users/test/AppData/logs',
+        defaultExportDir: 'C:/Users/test/Documents/Fovea',
+        defaultBatchExportDir: 'C:/Users/test/Documents/Fovea/Batch',
       })
     if (cmd === 'write_frontend_log') return Promise.resolve(null)
     // Stage 10: the hint mirror at core-ready (and on any settings edit).
@@ -85,7 +87,7 @@ function navButton(label: string): HTMLElement {
   return match
 }
 
-describe('Pixora shell', () => {
+describe('Fovea shell', () => {
   beforeEach(() => {
     invoke.mockReset()
     localStorage.clear()
@@ -155,7 +157,7 @@ describe('Pixora shell', () => {
     fireEvent.click(within(dialog).getByRole('button', { name: /^General/ }))
     fireEvent.click(within(dialog).getByRole('radio', { name: 'Dark' }))
     expect(document.documentElement.getAttribute('data-theme')).toBe('dark')
-    const stored = JSON.parse(localStorage.getItem('pixora:settings') ?? '{}')
+    const stored = JSON.parse(localStorage.getItem('fovea:settings') ?? '{}')
     expect(stored.general.theme).toBe('dark')
 
     fireEvent.keyDown(dialog, { key: 'Escape' })
@@ -171,9 +173,9 @@ describe('Pixora shell', () => {
         return Promise.reject({ code: 'unexpected_error', message: 'no' })
       if (cmd === 'get_config')
         return Promise.resolve({
-          productName: 'Pixora',
+          productName: 'Fovea',
           version: '0.2.0',
-          identifier: 'com.pixora.desktop',
+          identifier: 'com.fovea.desktop',
           debug: true,
         })
       if (cmd === 'get_system_info')

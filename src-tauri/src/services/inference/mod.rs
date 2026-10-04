@@ -13,6 +13,9 @@
 //! - [`engine`]  — the pure image pipeline: preprocess → tiled inference
 //!   → postprocess → streamed row output. Generic over [`Backend`] so it
 //!   is testable with a fake runtime.
+//! - [`finish`]  — the passes that run on model output: the mode's
+//!   post-pass and the user's filter at their chosen intensity. Pure
+//!   pixel math, so every look is unit-testable without a runtime.
 //! - [`service`] — the application-level orchestrator the commands call:
 //!   decodes the source, wires progress/cancellation, writes the output
 //!   file atomically.
@@ -25,6 +28,7 @@
 
 pub mod backend;
 pub mod engine;
+pub mod finish;
 pub mod model;
 pub mod service;
 

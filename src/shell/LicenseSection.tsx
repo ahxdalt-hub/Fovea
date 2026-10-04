@@ -22,20 +22,20 @@ import { Button } from '../ui/Button'
 import './Dialogs.css'
 
 const STATE_HEADLINE: Record<LicenseStatusDto['state'], string> = {
-  not_activated: 'Pixora is running unactivated.',
-  active: 'Pixora is activated.',
+  not_activated: 'Fovea is running unactivated.',
+  active: 'Fovea is activated.',
   expired: 'This license has expired.',
   wrong_machine: 'This license key is bound to a different computer.',
   tampered: 'The stored license record is damaged.',
   revoked: 'This license was revoked by its issuer.',
-  clock_suspect: "This computer's clock is set behind the last time Pixora ran.",
+  clock_suspect: "This computer's clock is set behind the last time Fovea ran.",
 }
 
 const STATE_SENTENCE: Record<LicenseStatusDto['state'], string> = {
   not_activated:
-    'Everything Pixora does — import, enhance, batch, export — runs on this machine with or without a key. ' +
+    'Everything Fovea does — import, enhance, batch, export — runs on this machine with or without a key. ' +
     'Activating records your commercial license for this copy.',
-  active: 'Thank you for supporting Pixora.',
+  active: 'Thank you for supporting Fovea.',
   expired:
     'Your key was valid but its period has closed. Renew with the store you bought it from; ' +
     'enhancement on this machine continues meanwhile.',
@@ -48,7 +48,7 @@ const STATE_SENTENCE: Record<LicenseStatusDto['state'], string> = {
   revoked:
     'Contact the store you bought the key from. Enhancement on this machine continues meanwhile.',
   clock_suspect:
-    'Fix the date and time in Windows settings (Pixora keeps the highest clock it has seen, ' +
+    'Fix the date and time in Windows settings (Fovea keeps the highest clock it has seen, ' +
     'so rewinding the clock does not extend a license). Once the clock is right, this resolves itself.',
 }
 
@@ -104,11 +104,11 @@ export function LicenseSection() {
       const result = await activateLicense(key)
       setStatus(result.status)
       setKey('')
-      const edition = result.status.edition ? titleCase(result.status.edition) : 'Pixora'
+      const edition = result.status.edition ? titleCase(result.status.edition) : 'Fovea'
       setSuccess(
         result.alreadyActive
           ? `Already active — this key is the license in use on this machine (${edition}).`
-          : `License activated: Pixora ${edition}${
+          : `License activated: Fovea ${edition}${
               result.status.holder ? ` for ${result.status.holder}` : ''
             }.`,
       )
@@ -137,7 +137,7 @@ export function LicenseSection() {
       <>
         <SectionIntro />
         <p className="pix-settings__note">
-          License information is unavailable right now. Restart Pixora if this persists — your
+          License information is unavailable right now. Restart Fovea if this persists — your
           images and enhancement are unaffected.
         </p>
       </>
@@ -163,7 +163,7 @@ export function LicenseSection() {
       <div className="pix-settings__group">
         <div className="pix-license__head">
           <Badge tone={STATE_TONE[status.state]} dot>
-            {isActive ? `Pixora ${titleCase(status.edition ?? 'licensed')}` : 'Not activated'}
+            {isActive ? `Fovea ${titleCase(status.edition ?? 'licensed')}` : 'Not activated'}
           </Badge>
           <p className="pix-settings__note">{STATE_HEADLINE[status.state]}</p>
         </div>
@@ -192,21 +192,21 @@ export function LicenseSection() {
       </div>
 
       <div className="pix-settings__group">
-        <label className="pix-field__label" htmlFor="pixora-license-key">
+        <label className="pix-field__label" htmlFor="fovea-license-key">
           License key
         </label>
         <textarea
-          id="pixora-license-key"
+          id="fovea-license-key"
           className="pix-input pix-license__key"
           rows={3}
           spellCheck={false}
-          placeholder="PIXORA1.…"
+          placeholder="FOVEA1.…"
           value={key}
           disabled={busy}
           onChange={(event) => setKey(event.target.value)}
         />
         <p className="pix-field__message">
-          Issued when you purchase Pixora — check your order confirmation. Keys are verified on this
+          Issued when you purchase Fovea — check your order confirmation. Keys are verified on this
           machine; activation needs no internet connection.
         </p>
         {error && (
@@ -237,7 +237,7 @@ export function LicenseSection() {
       </div>
 
       <p className="pix-settings__footnote">
-        Licensing is a record about this copy of Pixora, never a dependency of your work: the
+        Licensing is a record about this copy of Fovea, never a dependency of your work: the
         enhancement engine processes images locally and will not wait on a license check.
       </p>
     </>
@@ -248,7 +248,7 @@ function SectionIntro() {
   return (
     <SectionHeader
       title="License"
-      blurb="Your commercial record for this copy of Pixora. Nothing here changes what the app can do on your machine."
+      blurb="Your commercial record for this copy of Fovea. Nothing here changes what the app can do on your machine."
     />
   )
 }

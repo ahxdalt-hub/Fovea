@@ -111,10 +111,28 @@ describe('ExportDialog', () => {
     fireEvent.click(screen.getByRole('button', { name: /^export$/i }))
     expect(await screen.findByText(/saved sunset\.jpg/i)).toBeInTheDocument()
     expect(onExported).toHaveBeenCalledWith(exportResult)
+    // The user lands on the file they just made: the native reveal runs
+    // after the write, against the folder the native layer recorded.
+    await waitFor(() => expect(invoke).toHaveBeenCalledWith('open_export_folder', undefined))
+  })
+
+  it('reports a reveal the OS refused, without pretending the save failed', async () => {
+    invoke.mockImplementation((cmd: string) => {
+      if (cmd === 'export_enhanced_image') return Promise.resolve(exportResult)
+      if (cmd === 'open_export_folder')
+        return Promise.reject({ code: 'unexpected_error', message: 'could not open File Explorer' })
+      return Promise.resolve(null)
+    })
+    renderDialog()
+    fireEvent.click(screen.getByRole('button', { name: /^export$/i }))
+    expect(await screen.findByText(/saved sunset\.jpg/i)).toBeInTheDocument()
+    expect(await screen.findByText(/could not open File Explorer/i)).toBeInTheDocument()
+    // The file really was written — the state handoff still happens.
+    expect(screen.getByTestId('state-probe').textContent).toBe(exportResult.filePath)
   })
 
   it('failed export keeps the dialog open with the user-safe message', async () => {
-    const failure = { code: 'permission_denied', message: 'Windows won’t let Pixora write there.' }
+    const failure = { code: 'permission_denied', message: 'Windows won’t let Fovea write there.' }
     invoke.mockImplementation((cmd: string) =>
       cmd === 'export_enhanced_image' ? Promise.reject(failure) : Promise.resolve(null),
     )

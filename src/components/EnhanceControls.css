@@ -44,6 +44,88 @@
   flex: none;
 }
 
+/* Stage 19: the finishing look — preset, filter, strength. Three stacked
+   fields on one line, each with its own one-line explainer, so the row is
+   self-describing without a panel. It wraps on a narrow window rather than
+   crushing the chips. */
+.pix-enhance__look {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-4);
+  flex-wrap: wrap;
+  padding-top: var(--space-1);
+  border-top: 1px solid var(--border-subtle);
+}
+
+.pix-enhance__group {
+  min-width: 0;
+  flex: 0 1 auto;
+}
+
+.pix-enhance__group--preset {
+  flex: 1 1 340px;
+}
+
+.pix-enhance__chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+/* A preset is a shortcut, not a mode: small, quiet chips that only light up
+   when the strip genuinely matches one. */
+.pix-enhance__chip {
+  font: inherit;
+  font-size: var(--text-xs);
+  line-height: 1;
+  padding: 7px var(--space-3);
+  border: 1px solid var(--border-subtle);
+  border-radius: 999px;
+  background: var(--bg-sunken);
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition:
+    background var(--duration-fast) var(--ease-standard),
+    color var(--duration-fast) var(--ease-standard),
+    border-color var(--duration-fast) var(--ease-standard);
+}
+
+.pix-enhance__chip:hover:not(:disabled) {
+  color: var(--text-primary);
+  border-color: var(--border-strong);
+}
+
+.pix-enhance__chip--on {
+  background: var(--accent-soft);
+  border-color: var(--accent);
+  color: var(--text-primary);
+  font-weight: 600;
+}
+
+.pix-enhance__chip:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+
+.pix-enhance__chip:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+
+/* Label with its live value held to the far edge. */
+.pix-enhance__value-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+
+/* Original runs no pass, so strength is genuinely inert — dimmed and
+   disabled, never removed, so the reason stays on screen. */
+.pix-enhance__group--off {
+  opacity: 0.55;
+}
+
 .pix-enhance__hint {
   font-size: var(--text-xs);
   color: var(--text-tertiary);
@@ -72,6 +154,18 @@
 .pix-enhance__phase {
   font-size: var(--text-sm);
   color: var(--text-secondary);
+}
+
+/* Which image a live job belongs to, named when it isn't the selected
+   one. Truncated hard: a 200-character filename must not push the
+   Cancel button off the strip. */
+.pix-enhance__owner {
+  font-size: var(--text-xs);
+  color: var(--text-tertiary);
+  max-width: 18ch;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
 }
 
 /* Stage 07: the engine's device readout during a job — deliberately

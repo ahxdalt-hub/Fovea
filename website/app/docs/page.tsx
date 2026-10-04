@@ -7,7 +7,7 @@ import { systemRequirements } from '@/lib/download';
 export const metadata: Metadata = {
   title: 'Documentation',
   description:
-    'How to install, activate and use Pixora: importing, enhancement, batch processing, export and troubleshooting — for the app that runs entirely on your machine.',
+    'How to install, activate and use Fovea: importing, enhancement, batch processing, export and troubleshooting — for the app that runs entirely on your machine.',
 };
 
 export default function DocsPage() {
@@ -19,7 +19,7 @@ export default function DocsPage() {
             Documentation
           </p>
           <h1 className="font-display text-4xl font-semibold leading-tight sm:text-5xl">
-            Use Pixora with confidence.
+            Use Fovea with confidence.
           </h1>
           <p className="mt-4 max-w-2xl text-lg text-steel-light">
             Short, task-focused guides. Everything here describes the app as it actually behaves —
@@ -115,7 +115,7 @@ export default function DocsPage() {
           </Reveal>
 
           <div className="mt-10 flex flex-wrap gap-4">
-            <Cta href="/download">Download Pixora</Cta>
+            <Cta href="/download">Download Fovea</Cta>
             <Cta href="/#faq" variant="ghost">
               Read the FAQ
             </Cta>

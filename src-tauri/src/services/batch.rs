@@ -45,6 +45,7 @@ use crate::services::hardware;
 use crate::services::history;
 use crate::services::history::{EntryKind, EntryStatus, HistoryEntry, now_ms};
 use crate::services::inference::backend::{CancelToken, GpuPreference};
+use crate::services::inference::finish::Filter;
 use crate::services::inference::model::{EnhanceMode, ModelRegistry};
 use crate::services::inference::service::{
     self, EngineConfig, EnhanceEvent, JobRegistry, MAX_ENHANCE_OUTPUT_PIXELS,
@@ -79,6 +80,8 @@ pub enum BatchItemState {
 pub struct BatchSettings {
     pub mode: EnhanceMode,
     pub scale: usize,
+    pub filter: Filter,
+    pub intensity: u8,
 }
 
 /// The committed artifact of a completed item: everything the UI needs
@@ -122,6 +125,8 @@ pub struct BatchItem {
     /// The settings this item runs (or ran) with.
     pub mode: &'static str,
     pub scale: usize,
+    pub filter: &'static str,
+    pub intensity: u8,
     /// True once a cancel has been requested but the item hasn't reached
     /// its terminal `cancelled` state yet (mid-run: the engine is
     /// tearing the attempt down).
@@ -206,6 +211,8 @@ impl Item {
             output: self.output.clone(),
             mode: self.settings.mode.key(),
             scale: self.settings.scale,
+            filter: self.settings.filter.key(),
+            intensity: self.settings.intensity,
             cancelling: self.cancelling,
         }
     }
@@ -218,7 +225,7 @@ struct QueueState {
     running: bool,
 }
 
-/// Where results land: `""` means Pixora's default batch-export folder.
+/// Where results land: `""` means Fovea's default batch-export folder.
 #[derive(Debug, Clone)]
 pub struct BatchOutputConfig {
     pub folder: String,
@@ -464,18 +471,27 @@ impl BatchHandle {
         self.try_emit(event);
     }
 
+    /// Push one event to the UI without ever letting a slow webview stall
+    /// the queue. Tile progress and device announcements are advisory:
+    /// the queue state already holds the true counts, and the next
+    /// snapshot corrects the display, so they are *dropped* when the
+    /// buffer is full rather than making the worker wait on the window.
+    /// Terminal events are the opposite — they are the only thing that
+    /// tells the UI an item's fate, so the worker waits for room instead
+    /// of losing one. (A disconnected channel returns immediately.)
     fn try_emit(&self, event: BatchEvent) {
+        let advisory = matches!(
+            event,
+            BatchEvent::Progress { .. } | BatchEvent::Device { .. }
+        );
         match self.event_tx.try_send(event) {
+            Ok(()) => {}
             Err(TrySendError::Full(event)) | Err(TrySendError::Disconnected(event)) => {
-                // Slow or gone window: coalesce on the channel is not
-                // possible, and blocking the worker on a dead UI is
-                // worse than one missed per-item tick — the next sync
-                // snapshot (on the next change that outlives events)
-                // corrects the display. Never lose terminal events:
-                // they always fit the small buffer by construction.
+                if advisory {
+                    return;
+                }
                 let _ = self.event_tx.send(event);
             }
-            Ok(()) => {}
         }
     }
 
@@ -566,7 +582,7 @@ impl BatchHandle {
         }
         let handle = self.clone();
         if let Err(e) = std::thread::Builder::new()
-            .name("pixora-batch-worker".into())
+            .name("fovea-batch-worker".into())
             .spawn(move || run_worker(handle))
         {
             log::error!("batch worker could not start: {e}");
@@ -743,6 +759,24 @@ fn run_worker(handle: BatchHandle) {
 /// output folder. Progress reaches the UI through `handle` (the relay).
 /// Journaling is *not* here — the worker's `finish_item` records every
 /// terminal outcome, so this function stays a pure "run and export".
+/// Releases the engine's single job slot if an unwind passes through the
+/// engine call. `enhance_without_view` finishes the slot itself on every
+/// path it controls, so this only fires for the abnormal one — without it
+/// a panicking batch item would leave the engine reporting "busy" for the
+/// rest of the session, and the whole queue plus manual Enhance with it.
+struct JobSlotGuard {
+    jobs: Arc<JobRegistry>,
+    job_id: String,
+}
+
+impl Drop for JobSlotGuard {
+    fn drop(&mut self) {
+        if self.jobs.has(&self.job_id) {
+            self.jobs.finish(&self.job_id);
+        }
+    }
+}
+
 pub fn enhance_item_onnx(
     handle: &BatchHandle,
     item_id: &str,
@@ -758,11 +792,17 @@ pub fn enhance_item_onnx(
     if let Err(busy) = engine.jobs.begin(&job_id, Arc::clone(token)) {
         return Err(AppError::from(busy));
     }
+    let _slot = JobSlotGuard {
+        jobs: Arc::clone(&engine.jobs),
+        job_id: job_id.clone(),
+    };
     let relay_id = item_id.to_string();
     let result = service::enhance_without_view(
         &path.to_string_lossy(),
         settings.mode,
         settings.scale,
+        settings.filter,
+        settings.intensity,
         &engine.registry,
         &engine.config,
         &engine.out_dir,
@@ -782,7 +822,17 @@ pub fn enhance_item_onnx(
         Ok(enhanced) => match commit_batch_output(&handle.output)
             .and_then(|()| export_result_of(&enhanced, &handle.output))
         {
-            Ok(exported) => Ok(exported),
+            Ok(exported) => {
+                // The batch's deliverable is the exported file; the
+                // 16-bit master PNG behind it is an intermediate, and a
+                // 100-image run would otherwise leave a gigabyte of
+                // unlabelled duplicates in app data that the user is
+                // never told about and cannot clean.
+                if let Err(err) = std::fs::remove_file(&enhanced.file_path) {
+                    log::warn!("batch master cleanup failed: {err}");
+                }
+                Ok(exported)
+            }
             Err(err) => {
                 let _ = std::fs::remove_file(&enhanced.file_path);
                 Err(err)
@@ -807,7 +857,7 @@ fn engine_open(
 /// Export the committed master into the batch's output folder with the
 /// batch's format/quality (collision-safe naming lives in the export
 /// service). The folder is resolved by the command layer (empty means
-/// Pixora's default batch export dir — only the command can reach the
+/// Fovea's default batch export dir — only the command can reach the
 /// app-data path, so the service treats it as always-set).
 fn export_result_of(
     enhanced: &service::EnhanceResult,
@@ -817,7 +867,7 @@ fn export_result_of(
     let stem = Path::new(&enhanced.image_id)
         .file_stem()
         .map(|s| s.to_string_lossy().into_owned())
-        .unwrap_or_else(|| "pixora".into());
+        .unwrap_or_else(|| "fovea".into());
     let exported = export::export_image(
         &enhanced.file_path,
         &dest,
@@ -892,11 +942,12 @@ pub fn max_output_pixels() -> u64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::services::inference::finish::DEFAULT_INTENSITY;
     use std::sync::mpsc;
     use std::time::{Duration, Instant};
 
     fn scratch(tag: &str) -> PathBuf {
-        let dir = std::env::temp_dir().join(format!("pixora-batch-{}-{tag}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("fovea-batch-{}-{tag}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).expect("scratch dir");
         dir
@@ -1020,6 +1071,8 @@ mod tests {
                 settings: BatchSettings {
                     mode: EnhanceMode::Standard,
                     scale: 2,
+                    filter: Filter::Original,
+                    intensity: DEFAULT_INTENSITY,
                 },
             })
             .collect()
@@ -1281,6 +1334,8 @@ mod tests {
                 settings: BatchSettings {
                     mode: EnhanceMode::Standard,
                     scale: 2,
+                    filter: Filter::Original,
+                    intensity: DEFAULT_INTENSITY,
                 },
             })
             .collect();

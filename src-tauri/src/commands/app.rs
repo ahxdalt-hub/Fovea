@@ -35,9 +35,22 @@ pub fn get_system_info(app: AppHandle) -> AppResult<SystemInfo> {
         .path()
         .app_log_dir()
         .unwrap_or_else(|_| dir.join("logs"));
+    // Fovea's own export folders are reported (and created) here, so the UI
+    // can name the real place an export lands instead of hiding it behind
+    // a label. A Documents folder this machine refuses to hand over is not
+    // worth failing the snapshot for: an empty answer keeps the generic
+    // label, and the picker still works.
+    let exports = crate::commands::export::default_export_dir(&app)
+        .map(|path| path.display().to_string())
+        .unwrap_or_default();
+    let batches = crate::commands::export::default_batch_export_dir(&app)
+        .map(|path| path.display().to_string())
+        .unwrap_or_default();
     Ok(SystemInfo::collect(
         dir.display().to_string(),
         logs.display().to_string(),
+        exports,
+        batches,
     ))
 }
 
@@ -94,7 +107,7 @@ pub struct DiagnosticsDto {
     pub engine_device: &'static str,
     /// Tile-output float buffer cap, in bytes (the runtime's budget).
     pub max_tile_bytes: usize,
-    /// Streaming band buffer cap, in bytes (Pixora's own budget).
+    /// Streaming band buffer cap, in bytes (Fovea's own budget).
     pub max_band_bytes: usize,
     /// Which pool the tile budget is squeezed by, for display.
     pub memory_limit: &'static str,

@@ -21,13 +21,13 @@ use services::inference::{model::ModelRegistry, service};
 use services::settings;
 
 /// Resolve where model files may live, in priority order:
-/// 1. `PIXORA_MODELS_DIR` — explicit dev/QA override,
+/// 1. `FOVEA_MODELS_DIR` — explicit dev/QA override,
 /// 2. the bundled resource dir's `models/` (release),
 /// 3. `src-tauri/models` (dev builds — resource staging differs),
 /// 4. `<app_data>/models` — the user-installable drop location.
 fn model_search_dirs(app: &tauri::App) -> Vec<PathBuf> {
     let mut dirs = Vec::new();
-    if let Ok(dir) = std::env::var("PIXORA_MODELS_DIR") {
+    if let Ok(dir) = std::env::var("FOVEA_MODELS_DIR") {
         dirs.push(PathBuf::from(dir));
     }
     if let Ok(resource) = app.path().resource_dir() {
@@ -80,6 +80,7 @@ pub fn run() {
             commands::inference::get_inference_status,
             commands::export::pick_export_folder,
             commands::export::export_enhanced_image,
+            commands::export::open_export_folder,
             commands::batch::start_batch,
             commands::batch::cancel_batch_item,
             commands::batch::cancel_batch_all,
@@ -104,6 +105,16 @@ pub fn run() {
             // Surface a visible failure early rather than a silent half-start.
             if let Err(err) = app.path().app_data_dir() {
                 log::warn!("app data dir unavailable: {err}");
+            }
+            // Exports land in `Documents/Fovea` (batches in the `Batch`
+            // folder under it). Both are made real here, at first start —
+            // before the UI ever offers a location — so the place Fovea
+            // names on screen is the place that exists. A refusal (roaming
+            // profile locked, OneDrive Documents moved) is logged, not
+            // fatal: the picker path still works.
+            match commands::export::prepare_export_folders(app.handle()) {
+                Ok(_) => log::info!("export folders ready under Documents"),
+                Err(err) => log::warn!("export folders unavailable: {err}"),
             }
 
             // Stage 05: the local inference engine. The app runs without
@@ -157,7 +168,7 @@ pub fn run() {
             let out_dir = app_data
                 .as_ref()
                 .map(|d| service::enhanced_dir(d))
-                .unwrap_or_else(|| std::env::temp_dir().join("pixora-enhanced-fallback"));
+                .unwrap_or_else(|| std::env::temp_dir().join("fovea-enhanced-fallback"));
             // Leftover *.part scratch from an interrupted run dies here.
             service::cleanup_scratch(&out_dir);
             app.manage(EngineState {
@@ -173,13 +184,17 @@ pub fn run() {
             // Arc itself so command state and the batch worker share one.
             let store_dir = app_data
                 .clone()
-                .unwrap_or_else(|| std::env::temp_dir().join("pixora-store-fallback"));
+                .unwrap_or_else(|| std::env::temp_dir().join("fovea-store-fallback"));
             app.manage(HistoryStore::open(&store_dir));
             // Stage 08/09: the batch queue session slot. One at a time;
             // replaced (never appended) when a new batch starts.
             app.manage(BatchState {
                 session: std::sync::Mutex::new(None),
             });
+            // The folder Fovea last wrote an export into, remembered here
+            // so "open the folder" reveals a location this side chose
+            // instead of one the webview names.
+            app.manage(commands::export::LastExport::default());
             Ok(())
         })
         .on_window_event(|window, event| {
@@ -195,5 +210,5 @@ pub fn run() {
             }
         })
         .run(tauri::generate_context!())
-        .expect("failed to run Pixora");
+        .expect("failed to run Fovea");
 }

@@ -29,10 +29,11 @@ use std::sync::Arc;
 use image::{DynamicImage, ImageFormat, Rgba, RgbaImage};
 use upscaler_lib::services::export::{self, ExportFormat};
 use upscaler_lib::services::inference::backend::{CancelToken, OnnxBackend};
+use upscaler_lib::services::inference::finish::{DEFAULT_INTENSITY, Filter};
 use upscaler_lib::services::inference::model::{EnhanceMode, ModelRegistry};
 use upscaler_lib::services::inference::service::{self, EngineConfig, JobRegistry};
 use upscaler_lib::services::license::key::{self, Edition, LicensePayload, sign_key};
-use upscaler_lib::services::license::{allows, machine, now_secs, Feature};
+use upscaler_lib::services::license::{Feature, allows, machine, now_secs};
 
 // The website maps each paid tier to a license edition. These literals must
 // match BOTH `lib/commerce.ts` (TIER_EDITION) and the Rust `Edition::as_str()`;
@@ -64,7 +65,7 @@ fn vendor_issue(tier: &str, holder: &str, license_id: &str) -> String {
             .collect();
         let payload = LicensePayload {
             v: 1,
-            product: "pixora".into(),
+            product: "fovea".into(),
             edition,
             license_id: license_id.into(),
             holder: holder.into(),
@@ -105,7 +106,7 @@ fn main() {
     let out = std::env::args()
         .nth(1)
         .map(PathBuf::from)
-        .unwrap_or_else(|| std::env::temp_dir().join("pixora-stage16-journey"));
+        .unwrap_or_else(|| std::env::temp_dir().join("fovea-stage16-journey"));
     let _ = std::fs::remove_dir_all(&out);
     std::fs::create_dir_all(&out).expect("out dir");
 
@@ -115,12 +116,15 @@ fn main() {
     // Exercise the featured tier (Studio), then confirm Pro maps cleanly too.
     let studio_key = vendor_issue("studio", "buyer@example.com", "PL-JOURNEY-1");
     assert!(
-        studio_key.starts_with("PIXORA1."),
-        "delivered key is not a PIXORA1 key"
+        studio_key.starts_with("FOVEA1."),
+        "delivered key is not a FOVEA1 key"
     );
     let pro_key = vendor_issue("pro", "solo@example.com", "PL-JOURNEY-2");
     println!("  [1-3] purchase → license issued");
-    println!("        studio edition as_str = {}", Edition::Studio.as_str());
+    println!(
+        "        studio edition as_str = {}",
+        Edition::Studio.as_str()
+    );
     println!("        pro    edition as_str = {}", Edition::Pro.as_str());
     assert_eq!(Edition::Studio.as_str(), WEB_TIER_STUDIO_EDITION);
     assert_eq!(Edition::Pro.as_str(), WEB_TIER_PRO_EDITION);
@@ -138,17 +142,16 @@ fn main() {
     println!("  [4-5] delivery → paste → verify signature (offline)");
     println!(
         "        product={} edition={:?} holder={} id={} expires={:?}",
-        payload.product,
-        payload.edition,
-        payload.holder,
-        payload.license_id,
-        payload.expires,
+        payload.product, payload.edition, payload.holder, payload.license_id, payload.expires,
     );
-    assert_eq!(payload.product, "pixora");
+    assert_eq!(payload.product, "fovea");
     assert_eq!(payload.edition, Edition::Studio);
     assert_eq!(payload.holder, "buyer@example.com");
     assert_eq!(payload.license_id, "PL-JOURNEY-1");
-    assert!(payload.expires.is_some(), "the delivered key carries its validity window");
+    assert!(
+        payload.expires.is_some(),
+        "the delivered key carries its validity window"
+    );
 
     // Pro maps cleanly too, and a key forged for another product / machine is
     // still refused — activation is not a rubber stamp just because the real
@@ -156,7 +159,7 @@ fn main() {
     let pro = key::verify_key(&pro_key, now_secs(), machine::id()).expect("pro key verifies");
     assert_eq!(pro.edition, Edition::Pro);
     assert!(
-        key::verify_key("PIXORA1.not.a.sig", now_secs(), machine::id()).is_err(),
+        key::verify_key("FOVEA1.not.a.sig", now_secs(), machine::id()).is_err(),
         "a malformed key must never verify"
     );
 
@@ -164,7 +167,12 @@ fn main() {
     // record, NEVER a gate. Both an unactivated install and a paid edition grant
     // every shipped capability — so activation cannot have hidden a feature,
     // and a failed activation can never block work.
-    for f in [Feature::Enhance, Feature::Export, Feature::Batch, Feature::HistoryJournal] {
+    for f in [
+        Feature::Enhance,
+        Feature::Export,
+        Feature::Batch,
+        Feature::HistoryJournal,
+    ] {
         assert!(allows(None, f), "unactivated must grant {}", f.key());
         assert!(allows(Some(Edition::Pro), f));
         assert!(allows(Some(Edition::Studio), f));
@@ -177,7 +185,10 @@ fn main() {
     let manifest = Path::new(env!("CARGO_MANIFEST_DIR")).join("models");
     let registry = ModelRegistry::new(vec![manifest]);
     let engine = service::inference_status(&registry);
-    assert!(engine.ready, "engine must be ready to run a real enhancement");
+    assert!(
+        engine.ready,
+        "engine must be ready to run a real enhancement"
+    );
     let source = out.join("source.png");
     write_source(&source);
     let masters_dir = out.join("enhanced");
@@ -191,6 +202,8 @@ fn main() {
         &source.to_string_lossy(),
         EnhanceMode::Standard,
         2,
+        Filter::Original,
+        DEFAULT_INTENSITY,
         &registry,
         &EngineConfig::default(),
         &masters_dir,
@@ -203,8 +216,17 @@ fn main() {
     .expect("local enhance succeeds");
     let master = Path::new(&result.file_path);
     let decoded = image::open(master).expect("master decodes");
-    assert_eq!((decoded.width(), decoded.height()), (240, 160), "2× of 120×80");
-    println!("  [6]   enhance locally → {}×{} · engine {}", decoded.width(), decoded.height(), result.engine);
+    assert_eq!(
+        (decoded.width(), decoded.height()),
+        (240, 160),
+        "2× of 120×80"
+    );
+    println!(
+        "  [6]   enhance locally → {}×{} · engine {}",
+        decoded.width(),
+        decoded.height(),
+        result.engine
+    );
 
     // 7. Export: atomic, into the buyer's chosen folder.
     let export_dir = out.join("exports");
@@ -222,7 +244,9 @@ fn main() {
         png.file_name, png.bytes, jpeg.file_name, jpeg.bytes,
     );
 
-    println!("\nCustomer journey verified: purchase → issue → deliver → activate → enhance → export.");
+    println!(
+        "\nCustomer journey verified: purchase → issue → deliver → activate → enhance → export."
+    );
     println!("Images processed locally throughout; license verified offline; no network touched.");
     println!("Artifacts under {}", out.display());
 }

@@ -43,7 +43,7 @@ export class ErrorBoundary extends Component<Props, State> {
     return (
       <div className="pix-boundary" role="alert">
         <div className="pix-boundary__card">
-          <h1 className="pix-boundary__title">Pixora hit an unexpected problem</h1>
+          <h1 className="pix-boundary__title">Fovea hit an unexpected problem</h1>
           <p className="pix-boundary__text">
             A display error stopped the interface. Your images and history are safe on this machine.
             Reloading usually fixes it.
@@ -53,7 +53,7 @@ export class ErrorBoundary extends Component<Props, State> {
             className="pix-boundary__reload"
             onClick={() => window.location.reload()}
           >
-            Reload Pixora
+            Reload Fovea
           </button>
         </div>
       </div>

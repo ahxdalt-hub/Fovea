@@ -10,7 +10,7 @@
 //! Only the middle arrow (issue) touches commerce; everything on the
 //! right runs on this machine. A license key is a compact, Ed25519-signed
 //! statement issued by the vendor (see `key.rs` and
-//! `examples/issue_license.rs`); Pixora's app embeds only *public* keys,
+//! `examples/issue_license.rs`); Fovea's app embeds only *public* keys,
 //! so nothing secret ships in the binary and nothing the client says is
 //! trusted beyond the signature itself.
 //!
@@ -65,7 +65,7 @@ pub enum LicenseState {
     /// store from a build with different keys.
     Tampered,
     Revoked,
-    /// This machine's clock sits meaningfully below the last time Pixora
+    /// This machine's clock sits meaningfully below the last time Fovea
     /// saw — the classic way to revive an expired license.
     ClockSuspect,
 }
@@ -102,8 +102,8 @@ pub struct LicenseStatusDto {
     pub machine_bound: bool,
     /// The capabilities the current state grants (see `Feature`).
     pub capabilities: Vec<&'static str>,
-    /// First group of this machine's fingerprint — for support ("is my
-    /// key bound to this machine?"), never a personal identifier.
+    /// This machine's fingerprint, in full — a machine-bound key is issued
+    /// with exactly this value. A hash, never a personal identifier.
     pub machine_hint: String,
 }
 
@@ -134,7 +134,7 @@ impl LicenseStatusDto {
             activated_at,
             machine_bound: false,
             capabilities: capabilities_for(None),
-            machine_hint: machine::short_id(),
+            machine_hint: machine::display_id(),
         }
     }
 
@@ -150,7 +150,7 @@ impl LicenseStatusDto {
             activated_at,
             machine_bound: payload.machine.is_some(),
             capabilities: capabilities_for(Some(edition)),
-            machine_hint: machine::short_id(),
+            machine_hint: machine::display_id(),
         }
     }
 }
@@ -216,7 +216,7 @@ impl Feature {
 /// The license edition required for a feature; `None` = available to
 /// everyone. Deliberately `None` across the board in this build: the
 /// commercial model licenses *terms* (seats, machine binding, support),
-/// not the local engine, and Pixora's promise is that image processing
+/// not the local engine, and Fovea's promise is that image processing
 /// runs on your machine whether or not a key is present.
 pub fn minimum_edition(_feature: Feature) -> Option<Edition> {
     None
@@ -451,7 +451,7 @@ mod tests {
     fn payload_at(issued: u64) -> LicensePayload {
         LicensePayload {
             v: 1,
-            product: "pixora".into(),
+            product: "fovea".into(),
             edition: Edition::Pro,
             license_id: "PL-TEST-1".into(),
             holder: "ada@example.com".into(),
@@ -477,7 +477,7 @@ mod tests {
 
     fn scratch(tag: &str) -> PathBuf {
         let dir =
-            std::env::temp_dir().join(format!("pixora-license-test-{}-{tag}", std::process::id()));
+            std::env::temp_dir().join(format!("fovea-license-test-{}-{tag}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).expect("scratch dir");
         dir
@@ -529,7 +529,7 @@ mod tests {
     #[test]
     fn garbage_and_tampered_keys_are_rejected_humanely() {
         let dir = scratch("invalid");
-        for pasted in ["not-a-key", "PIXORA1.abc.def"] {
+        for pasted in ["not-a-key", "FOVEA1.abc.def"] {
             let err = activate_with(&dir, Backend::File, pasted, T0, &OK).expect_err("must reject");
             assert_eq!(err.code(), "license_invalid", "pasted: {pasted}");
         }
@@ -556,12 +556,12 @@ mod tests {
         assert_eq!(err.code(), "license_invalid");
         assert_eq!(
             serde_json::to_string(&err).unwrap(),
-            r#"{"code":"license_invalid","message":"That doesn't read as a Pixora license key. Copy it again from your purchase email and try once more."}"#
+            r#"{"code":"license_invalid","message":"That doesn't read as a Fovea license key. Copy it again from your purchase email and try once more."}"#
         );
     }
 
     #[test]
-    fn key_for_a_different_product_is_not_a_pixora_license() {
+    fn key_for_a_different_product_is_not_a_fovea_license() {
         let dir = scratch("wrong-product");
         let mut p = payload_at(T0 - 10);
         p.product = "other-app".into();
@@ -775,7 +775,7 @@ mod tests {
         let pretty: serde_json::Value = serde_json::from_slice(&decoded).unwrap();
         let reserialized = serde_json::to_vec_pretty(&pretty).unwrap();
         let remade = format!(
-            "PIXORA1.{}.{}",
+            "FOVEA1.{}.{}",
             base64::Engine::encode(&engine, &reserialized),
             parts[2]
         );

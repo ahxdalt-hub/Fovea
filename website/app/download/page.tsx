@@ -3,19 +3,20 @@ import { Cta } from '@/components/Cta';
 import { Reveal } from '@/components/Reveal';
 import { site, tiers, type Tier } from '@/lib/site';
 import { downloadInfo, systemRequirements } from '@/lib/download';
+import { supabaseConfigured, getOrderByExternalId, type OrderRow } from '@/lib/supabase';
 import type { TierId } from '@/lib/commerce';
 
 export const metadata: Metadata = {
   title: 'Download & activate',
   description:
-    'Install Pixora, enter your license key, and start enhancing on your own machine. System requirements, activation steps and troubleshooting in one place.',
+    'Install Fovea, enter your license key, and start enhancing on your own machine. System requirements, activation steps and troubleshooting in one place.',
 };
 
 const ACTIVATION_STEPS = [
-  'Run the installer and open Pixora.',
+  'Run the installer and open Fovea.',
   'Open Settings (the gear icon, or press Ctrl + ,).',
   'Choose the License section.',
-  'Paste your license key (it starts with PIXORA1.) into the box.',
+  'Paste your license key (it starts with FOVEA1.) into the box.',
   'Press Activate. Verification happens on your machine — no internet needed.',
 ];
 
@@ -27,8 +28,8 @@ function heading(tier: Tier | undefined) {
   if (!tier || tier.id === 'evaluate') {
     return {
       eyebrow: 'Get started',
-      title: 'Download Pixora',
-      note: 'Pixora is free to download and run. Enhancement works with or without a license, so you can try it on your own photos before you decide.',
+      title: 'Download Fovea',
+      note: 'Fovea is free to download and run. Enhancement works with or without a license, so you can try it on your own photos before you decide.',
     };
   }
   return {
@@ -39,12 +40,20 @@ function heading(tier: Tier | undefined) {
 }
 
 export default async function DownloadPage(props: {
-  searchParams: Promise<{ tier?: string; source?: string }>;
+  searchParams: Promise<{ tier?: string; source?: string; session_id?: string }>;
 }) {
-  const { tier: tierParam } = await props.searchParams;
+  const { tier: tierParam, session_id: sessionId } = await props.searchParams;
   const tier = findTier(tierParam);
   const h = heading(tier);
   const dl = downloadInfo();
+
+  // Stripe returns the buyer with the Checkout Session id. That id is a long
+  // random string only the buyer (and Stripe) know, so it doubles as the
+  // lookup token for the license the webhook claimed on payment.
+  const order: OrderRow | null =
+    sessionId && supabaseConfigured()
+      ? await getOrderByExternalId(sessionId).catch(() => null)
+      : null;
 
   return (
     <>
@@ -103,11 +112,31 @@ export default async function DownloadPage(props: {
               </div>
               <div className="rounded-card border border-line bg-app p-6 shadow-soft">
                 <div className="text-sm uppercase tracking-wide text-ink-3">License key</div>
-                <p className="mt-1 text-[0.95rem] leading-relaxed text-ink-2">
-                  A key beginning <code className="rounded bg-sunken px-1">PIXORA1.</code> is issued
-                  with your order and delivered by your purchase channel. Keep the confirmation email
-                  — the key is how you activate below.
-                </p>
+                {order?.license_key ? (
+                  <>
+                    <div className="mt-2 rounded-lg bg-sunken p-3">
+                      <code className="block break-all text-[0.85rem] leading-relaxed text-ink">
+                        {order.license_key}
+                      </code>
+                    </div>
+                    <p className="mt-2 text-[0.95rem] leading-relaxed text-ink-2">
+                      Copy this key now and activate below — then keep your order confirmation as a
+                      backup. It works on this machine immediately; verification is offline.
+                    </p>
+                  </>
+                ) : order ? (
+                  <p className="mt-1 text-[0.95rem] leading-relaxed text-ink-2">
+                    Your payment is confirmed and your key is being finalized. Refresh this page in
+                    a moment; if it doesn’t appear, reply to your purchase confirmation and we’ll
+                    deliver it by hand.
+                  </p>
+                ) : (
+                  <p className="mt-1 text-[0.95rem] leading-relaxed text-ink-2">
+                    A key beginning <code className="rounded bg-sunken px-1">FOVEA1.</code> is issued
+                    with your order and delivered by your purchase channel. Keep the confirmation email
+                    — the key is how you activate below.
+                  </p>
+                )}
               </div>
             </div>
           </div>

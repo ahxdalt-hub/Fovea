@@ -16,7 +16,7 @@ import type {
   BatchSnapshotDto,
   DiagnosticsDto,
   EnhanceEventDto,
-  EnhanceModeKey,
+  EnhanceRecipe,
   EnhanceResultDto,
   ExportFormatKey,
   ExportResultDto,
@@ -109,14 +109,16 @@ export async function loadImageView(imageId: string, maxEdge?: number): Promise<
 
 /**
  * Enhance one imported image with the local AI engine (nothing leaves
- * this machine). `mode` selects the enhancement behavior (each mode is a
- * genuinely different model or post-processing pass — see `EnhanceModeKey`)
- * and `scale` the product upscale factor (only values the installed
- * models genuinely deliver are offered by the UI). `onEvent` receives
- * honest phase updates — preparing, processing (real completed-tile
- * counts), completing, then a terminal completed/failed/cancelled.
- * Returns the result once the output file is committed; rejects with
- * `AppErrorPayload` on failure.
+ * this machine). `recipe.mode` selects the enhancement behavior (each mode
+ * is a genuinely different model or post-processing pass — see
+ * `EnhanceModeKey`), `recipe.scale` the product upscale factor (only values
+ * the installed models genuinely deliver are offered by the UI), and
+ * `recipe.filter`/`intensity` the finishing look applied to the model's
+ * output — pixel math, so it is always available and `original` runs no
+ * filter pass at all. `onEvent` receives honest phase updates — preparing,
+ * processing (real completed-tile counts), completing, then a terminal
+ * completed/failed/cancelled. Returns the result once the output file is
+ * committed; rejects with `AppErrorPayload` on failure.
  *
  * The Tauri `Channel` is created per call and closed automatically when
  * the command settles. Outside Tauri (browser preview/tests) this throws
@@ -124,8 +126,7 @@ export async function loadImageView(imageId: string, maxEdge?: number): Promise<
  */
 export async function enhanceImage(
   imageId: string,
-  mode: EnhanceModeKey,
-  scale: number,
+  recipe: EnhanceRecipe,
   onEvent: (event: EnhanceEventDto) => void,
 ): Promise<EnhanceResultDto> {
   if (shouldUsePreviewBridge()) {
@@ -143,7 +144,14 @@ export async function enhanceImage(
     if (isEnhanceEvent(event)) onEvent(event)
     else writeFrontendLog('warn', 'malformed enhance event dropped')
   }
-  const raw: unknown = await invoke('enhance_image', { imageId, mode, scale, onEvent: channel })
+  const raw: unknown = await invoke('enhance_image', {
+    imageId,
+    mode: recipe.mode,
+    scale: recipe.scale,
+    filter: recipe.filter,
+    intensity: recipe.intensity,
+    onEvent: channel,
+  })
   if (!isEnhanceResult(raw)) {
     throw {
       code: 'unexpected_error',
@@ -198,7 +206,7 @@ export async function pickExportFolder(): Promise<string> {
 
 /**
  * Export the committed enhancement result of `imageId` into `folder`
- * ("" = Pixora's default export folder) as `format` at `quality`
+ * ("" = Fovea's default export folder) as `format` at `quality`
  * (1–100; PNG ignores it — its export is a lossless copy of the master).
  * The source is resolved server-side from the engine's own output
  * registry, so no client-supplied path is ever read or written blindly.
@@ -389,6 +397,20 @@ export function openLogsFolder(): Promise<string> {
     })
   }
   return invoke<string>('open_logs_folder')
+}
+
+/** Open the folder Fovea last exported into, with the exported file
+ * selected when that run wrote one file. Returns the folder path for
+ * display. The location is this side's own record of what it wrote — the
+ * client never names a folder to open. */
+export function openExportFolder(): Promise<string> {
+  if (shouldUsePreviewBridge()) {
+    return Promise.reject({
+      code: 'unexpected_error',
+      message: 'Exports live with the desktop app.',
+    })
+  }
+  return invoke<string>('open_export_folder')
 }
 
 /**

@@ -15,7 +15,7 @@
 //!   verification — it cannot fabricate a license. The file fallback is
 //!   therefore a convenience, not a downgrade.
 //! - `license-state.json` (app-data) holds non-secret bookkeeping: when
-//!   the key was activated and the highest clock value Pixora has ever
+//!   the key was activated and the highest clock value Fovea has ever
 //!   seen. The watermark is what stops an expired license being revived
 //!   by winding the system clock back.
 //!
@@ -37,7 +37,7 @@ pub enum Backend {
 const KEY_FILE: &str = "license.key";
 const STATE_FILE: &str = "license-state.json";
 #[cfg(windows)]
-const CREDENTIAL_TARGET: &str = "pixora/license";
+const CREDENTIAL_TARGET: &str = "fovea/license";
 
 // ── Bookkeeping file ───────────────────────────────────────────────────
 
@@ -45,7 +45,7 @@ const CREDENTIAL_TARGET: &str = "pixora/license";
 #[serde(rename_all = "camelCase")]
 pub struct LicenseState {
     pub activated_at: Option<u64>,
-    /// Highest unix time Pixora has observed on this machine. A license
+    /// Highest unix time Fovea has observed on this machine. A license
     /// check at a clock meaningfully *below* this is a rollback attempt.
     pub max_seen_at: Option<u64>,
 }
@@ -249,7 +249,7 @@ mod credential {
         unsafe {
             let mut cred = CREDENTIALW::default();
             let target = wide(CREDENTIAL_TARGET);
-            let user = wide("pixora");
+            let user = wide("fovea");
             let mut blob: Vec<u16> = key.encode_utf16().chain(std::iter::once(0)).collect();
             cred.Type = CRED_TYPE_GENERIC;
             cred.Persist = CRED_PERSIST_LOCAL_MACHINE;
@@ -276,7 +276,7 @@ mod tests {
 
     fn scratch(tag: &str) -> PathBuf {
         let dir =
-            std::env::temp_dir().join(format!("pixora-license-store-{}-{tag}", std::process::id()));
+            std::env::temp_dir().join(format!("fovea-license-store-{}-{tag}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).expect("scratch dir");
         dir
@@ -287,12 +287,12 @@ mod tests {
         let dir = scratch("key");
         assert_eq!(read_key(&dir, Backend::File), None);
         assert_eq!(
-            write_key(&dir, Backend::File, "PIXORA1.abc.def"),
+            write_key(&dir, Backend::File, "FOVEA1.abc.def"),
             Some("file")
         );
         assert_eq!(
             read_key(&dir, Backend::File).as_deref(),
-            Some("PIXORA1.abc.def")
+            Some("FOVEA1.abc.def")
         );
         clear_key(&dir, Backend::File);
         assert_eq!(read_key(&dir, Backend::File), None);
@@ -326,7 +326,7 @@ mod tests {
         #[cfg(windows)]
         {
             use super::credential::ReadOutcome;
-            let key = "PIXORA1.test-credential-probe";
+            let key = "FOVEA1.test-credential-probe";
             assert!(credential::write(key));
             match credential::read() {
                 ReadOutcome::Found(text) => assert_eq!(text, key),

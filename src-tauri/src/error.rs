@@ -55,8 +55,13 @@ pub enum AppError {
     UnsupportedScale { detail: String },
     /// The user cancelled the operation. Carries no fault.
     Cancelled { detail: String },
+    /// The chosen export codec has a hard ceiling this image exceeds —
+    /// WebP caps any edge at 16383 px. The master is fine; the format is
+    /// not, so this is named as its own condition rather than a crash or a
+    /// vague "processing failed".
+    ExportLimit { detail: String },
     /// Stage 13 licensing: the pasted key is not a license this build can
-    /// honour — malformed, not a Pixora key, or the signature fails. One
+    /// honour — malformed, not a Fovea key, or the signature fails. One
     /// variant on purpose: telling a user *which* of those is never
     /// actionable for them, and never useful to a forger.
     LicenseInvalid { detail: String },
@@ -68,10 +73,10 @@ pub enum AppError {
     LicenseRevoked { detail: String },
     /// The key is signed for a different machine.
     LicenseWrongMachine { detail: String },
-    /// This machine's clock sits below the last time Pixora recorded —
+    /// This machine's clock sits below the last time Fovea recorded —
     /// the shape of a rollback attempt against an expiring license.
     LicenseClockSuspect { detail: String },
-    /// The key is newer than this build understands; update Pixora.
+    /// The key is newer than this build understands; update Fovea.
     LicenseUnsupportedVersion { detail: String },
     /// Neither the credential store nor the app-data file accepted the
     /// key on activation (or deactivation couldn't reach them).
@@ -97,6 +102,7 @@ impl AppError {
             AppError::ModelCorrupt { .. } => "model_corrupt",
             AppError::UnsupportedScale { .. } => "unsupported_scale",
             AppError::Cancelled { .. } => "cancelled",
+            AppError::ExportLimit { .. } => "export_limit",
             AppError::LicenseInvalid { .. } => "license_invalid",
             AppError::LicenseExpired { .. } => "license_expired",
             AppError::LicenseRevoked { .. } => "license_revoked",
@@ -127,29 +133,32 @@ impl AppError {
                 "Not enough free disk space to save that. Free up space and try again."
             }
             AppError::PermissionDenied { .. } => {
-                "Windows won't let Pixora open that file. Check its location and permissions."
+                "Windows won't let Fovea open that file. Check its location and permissions."
             }
             AppError::FileMissing { .. } => {
                 "That file is no longer where it was. It may have been moved or deleted."
             }
             AppError::FileTooLarge { .. } => {
-                "That image is too large to import. Pixora supports images up to 64 megapixels."
+                "That image is too large to import. Fovea supports images up to 64 megapixels."
             }
             AppError::EngineUnavailable { .. } => {
-                "The local AI engine couldn't start. Restart Pixora; if it persists, check the application log."
+                "The local AI engine couldn't start. Restart Fovea; if it persists, check the application log."
             }
             AppError::ModelMissing { .. } => {
-                "The enhancement model isn't installed yet. Place it in Pixora's models folder and try again."
+                "The enhancement model isn't installed yet. Place it in Fovea's models folder and try again."
             }
             AppError::ModelCorrupt { .. } => {
-                "The enhancement model file is damaged or incomplete. Re-download it into Pixora's models folder."
+                "The enhancement model file is damaged or incomplete. Re-download it into Fovea's models folder."
             }
             AppError::UnsupportedScale { .. } => {
                 "This upscale size isn't supported by the installed model. Pick a supported size."
             }
             AppError::Cancelled { .. } => "Processing was cancelled.",
+            AppError::ExportLimit { .. } => {
+                "That image is bigger than this export format can store. Export it as PNG instead."
+            }
             AppError::LicenseInvalid { .. } => {
-                "That doesn't read as a Pixora license key. Copy it again from your purchase email and try once more."
+                "That doesn't read as a Fovea license key. Copy it again from your purchase email and try once more."
             }
             AppError::LicenseExpired { .. } => {
                 "That license key has expired. Renew it to keep your activation current — until then, enhancement on this machine is unaffected."
@@ -161,13 +170,13 @@ impl AppError {
                 "That license key is bound to a different computer. Ask the store where you bought it to re-issue for this machine."
             }
             AppError::LicenseClockSuspect { .. } => {
-                "This computer's clock is behind the last time Pixora ran. Correct the date and time in Windows settings, then restart Pixora."
+                "This computer's clock is behind the last time Fovea ran. Correct the date and time in Windows settings, then restart Fovea."
             }
             AppError::LicenseUnsupportedVersion { .. } => {
-                "That license key is newer than this version of Pixora. Update Pixora and activate again."
+                "That license key is newer than this version of Fovea. Update Fovea and activate again."
             }
             AppError::LicenseStoreUnavailable { .. } => {
-                "Pixora couldn't save the license on this computer. Check free disk space and app-data permissions, then try again."
+                "Fovea couldn't save the license on this computer. Check free disk space and app-data permissions, then try again."
             }
             AppError::Unexpected { .. } => "Something went wrong. The application log may help.",
         }
@@ -211,6 +220,7 @@ fn other_detail(err: &AppError) -> &str {
         | AppError::ModelCorrupt { detail }
         | AppError::UnsupportedScale { detail }
         | AppError::Cancelled { detail }
+        | AppError::ExportLimit { detail }
         | AppError::LicenseInvalid { detail }
         | AppError::LicenseExpired { detail }
         | AppError::LicenseRevoked { detail }

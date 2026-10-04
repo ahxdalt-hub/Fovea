@@ -57,15 +57,15 @@ export function TopBar({ onOpenSettings, onOpenShortcuts, onOpenAbout, onSetThem
         : IconMonitor
 
   return (
-    <header className="pixora-topbar">
-      <div className="pixora-topbar__brand">
+    <header className="fovea-topbar">
+      <div className="fovea-topbar__brand">
         <BrandMark />
-        <span className="pixora-topbar__wordmark">Pixora</span>
+        <span className="fovea-topbar__wordmark">Fovea</span>
       </div>
 
-      <div className="pixora-topbar__trailing">
+      <div className="fovea-topbar__trailing">
         <StatusDot status={state.coreStatus} />
-        <div className="pixora-topbar__divider" aria-hidden="true" />
+        <div className="fovea-topbar__divider" aria-hidden="true" />
         <Menu
           label="Theme"
           trigger={
@@ -92,7 +92,7 @@ export function TopBar({ onOpenSettings, onOpenShortcuts, onOpenAbout, onSetThem
               <IconMore size="sm" />
             </ChromeIcon>
           }
-          items={[{ id: 'about', label: 'About Pixora', onSelect: onOpenAbout }]}
+          items={[{ id: 'about', label: 'About Fovea', onSelect: onOpenAbout }]}
         />
         <Tooltip content="Settings (Ctrl+,)" side="bottom" align="end">
           <button

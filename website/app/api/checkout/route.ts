@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { resolveProvider, type TierId } from '@/lib/commerce';
+import { ProviderConfigError } from '@/lib/providers/stripe';
 
 const ALLOWED: readonly string[] = ['pro', 'studio', 'evaluate'];
 
@@ -11,7 +12,19 @@ function reject(tier: unknown): NextResponse | null {
 }
 
 async function begin(tier: TierId, origin: string): Promise<NextResponse> {
-  const result = await resolveProvider().startCheckout({ tier, successUrl: origin });
+  let result;
+  try {
+    result = await resolveProvider().startCheckout({ tier, successUrl: origin });
+  } catch (err) {
+    // A misconfigured processor must fail loudly, never silently downgrade to
+    // the free manual path (which would sell a license nobody delivers).
+    const status = err instanceof ProviderConfigError ? 503 : 502;
+    console.error(`[checkout] ${tier}:`, err);
+    return NextResponse.json(
+      { error: 'checkout unavailable', detail: err instanceof Error ? err.message : String(err) },
+      { status },
+    );
+  }
   const target =
     result.kind === 'redirect' ? result.url : new URL(result.redirectTo, origin).toString();
   return NextResponse.redirect(target, 303);

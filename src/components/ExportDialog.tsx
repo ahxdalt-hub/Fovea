@@ -5,10 +5,13 @@
  * 1. Format — PNG (lossless copy of the master), JPEG, or WebP.
  * 2. Quality — a real knob for the lossy formats; PNG hides it because
  *    there is no quality to trade (the export is byte-identical).
- * 3. Where — Pixora's export folder by default; the native folder picker
- *    changes it. The webview never touches the filesystem: the dialog
- *    returns a path and the Rust side resolves the committed master
- *    server-side by image id.
+ * 3. Where — Fovea's own folder (`Documents/Fovea`) by default; the native
+ *    folder picker changes it for this export. The webview never touches
+ *    the filesystem: the dialog returns a path and the Rust side resolves
+ *    the committed master server-side by image id.
+ *
+ * Once the file is on disk the Rust side opens File Explorer on it — the
+ * user lands on what they just made, in the folder the app named.
  *
  * Stage 10: the starting point for all three is the persisted export
  * defaults — and a *change made here is for this export only*. The
@@ -20,7 +23,7 @@
  * center stage while the file is written.
  */
 import { useCallback, useState } from 'react'
-import { exportEnhancedImage, pickExportFolder } from '../ipc/bridge'
+import { exportEnhancedImage, openExportFolder, pickExportFolder } from '../ipc/bridge'
 import { FORMATS } from '../lib/catalog'
 import { useAppState } from '../state/useAppState'
 import { useNotify } from '../ui/notificationContext'
@@ -78,6 +81,10 @@ function ExportDialogBody({
   const [error, setError] = useState<string | null>(null)
 
   const lossy = format !== 'png'
+  /** Fovea's own folder, named by the native layer (`Documents/Fovea`).
+   * Empty until that answer exists — the label then stays generic. */
+  const foveaFolder = state.systemInfo?.defaultExportDir ?? ''
+  const shownFolder = folder || foveaFolder
 
   const chooseFolder = useCallback(async () => {
     try {
@@ -99,6 +106,14 @@ function ExportDialogBody({
         'success',
         `Saved ${result.fileName} (${formatBytes(result.bytes)}) — ${result.folder}`,
       )
+      // Land the user on the file they just made. The folder is the one the
+      // native layer wrote to, so this can never open an arbitrary place;
+      // a refused Explorer window is reported, never swallowed.
+      try {
+        await openExportFolder()
+      } catch (err) {
+        notify('warning', `${toAppError(err).message} — ${result.folder}`)
+      }
       onExported?.(result)
       onClose()
     } catch (err) {
@@ -141,7 +156,7 @@ function ExportDialogBody({
       <div className="pix-export">
         <SegmentedField
           label="Format"
-          name="pixora-export-format"
+          name="fovea-export-format"
           value={format}
           onChange={(value) => setFormat(value as ExportFormatKey)}
           options={FORMATS.map((f) => ({ value: f.value, label: f.label }))}
@@ -150,11 +165,11 @@ function ExportDialogBody({
 
         {lossy && (
           <div className="pix-field pix-export__quality">
-            <label className="pix-field__label" htmlFor="pixora-export-quality">
+            <label className="pix-field__label" htmlFor="fovea-export-quality">
               Quality <span className="u-tabular">{quality}</span>
             </label>
             <input
-              id="pixora-export-quality"
+              id="fovea-export-quality"
               className="pix-range"
               type="range"
               min={1}
@@ -172,8 +187,8 @@ function ExportDialogBody({
         <div className="pix-field">
           <span className="pix-field__label">Save to</span>
           <div className="pix-export__folder">
-            <span className="pix-export__path" title={folder || undefined}>
-              {folder || "Pixora's export folder"}
+            <span className="pix-export__path" title={shownFolder || undefined}>
+              {shownFolder || "Fovea's export folder"}
             </span>
             <Button
               variant="secondary"
@@ -186,8 +201,9 @@ function ExportDialogBody({
           </div>
           <p className="pix-field__message">
             {folder
-              ? 'A chosen folder on this machine.'
-              : 'The app data folder — change it to save anywhere.'}
+              ? 'A folder you chose on this machine.'
+              : "Fovea's own folder inside your Documents."}{' '}
+            File Explorer opens on the file as soon as it is saved.
           </p>
         </div>
       </div>

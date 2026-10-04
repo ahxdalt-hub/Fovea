@@ -1,8 +1,8 @@
-//! Vendor tooling — issues Pixora license keys. NOT part of the app.
+//! Vendor tooling — issues Fovea license keys. NOT part of the app.
 //!
 //! This is the "License issued" step of the commercial chain, and the
 //! only place a *private* signing key is ever used. The private key is
-//! taken from `PIXORA_LICENSE_PRIVATE_KEY` (hex seed) or `--seed`; for
+//! taken from `FOVEA_LICENSE_PRIVATE_KEY` (hex seed) or `--seed`; for
 //! dev builds `--dev` uses the committed dev seed, which release binaries
 //! deliberately cannot verify against (debug-only key, see
 //! `services/license/keys.rs`).
@@ -42,10 +42,10 @@ fn main() {
         DEV_SEED_HEX.to_string()
     } else if let Some(s) = value("--seed") {
         s
-    } else if let Ok(s) = std::env::var("PIXORA_LICENSE_PRIVATE_KEY") {
+    } else if let Ok(s) = std::env::var("FOVEA_LICENSE_PRIVATE_KEY") {
         s
     } else {
-        die("no seed: pass --dev, --seed <hex>, or PIXORA_LICENSE_PRIVATE_KEY");
+        die("no seed: pass --dev, --seed <hex>, or FOVEA_LICENSE_PRIVATE_KEY");
     };
     let seed = hex32(&seed_hex);
 
@@ -76,7 +76,7 @@ fn main() {
 
     let payload = LicensePayload {
         v: 1,
-        product: "pixora".into(),
+        product: "fovea".into(),
         edition,
         license_id: id.clone(),
         holder: holder.clone(),
@@ -109,7 +109,7 @@ fn generate() {
     println!("seed (private, guard this) : {}", hex(pair.sk.as_ref()));
     println!("public key (build-time env): {}", hex(pair.pk.as_ref()));
     println!(
-        "→ rebuild the app with PIXORA_LICENSE_PUBKEYS=\"{}\"",
+        "→ rebuild the app with FOVEA_LICENSE_PUBKEYS=\"{}\"",
         hex(pair.pk.as_ref())
     );
 }

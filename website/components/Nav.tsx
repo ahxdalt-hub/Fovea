@@ -23,7 +23,7 @@ export function Nav() {
       }`}
     >
       <nav className="container-page flex h-16 items-center justify-between" aria-label="Primary">
-        <a href="#top" className="text-ink" aria-label="Pixora home">
+        <a href="#top" className="text-ink" aria-label="Fovea home">
           <Wordmark />
         </a>
 

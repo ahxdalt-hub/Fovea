@@ -7,10 +7,11 @@
  * correctness) is proven in appReducer.test, this proves the view maps
  * state to honest UI.
  */
-import { render, screen, fireEvent } from '@testing-library/react'
+import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 import { useEffect } from 'react'
 import { describe, expect, it, vi } from 'vitest'
 import type { BatchItemDto } from '../types/ipc'
+import { openExportFolder } from '../ipc/bridge'
 import { AppStateProvider } from '../state/AppState'
 import { useAppState } from '../state/useAppState'
 import { NotificationProvider } from '../ui/Notifications'
@@ -19,6 +20,7 @@ import type { BatchApi } from '../state/useBatch'
 
 vi.mock('../ipc/bridge', () => ({
   pickExportFolder: vi.fn(() => Promise.resolve('')),
+  openExportFolder: vi.fn(() => Promise.resolve('C:/out')),
 }))
 
 function item(overrides: Partial<BatchItemDto> & { id: string }): BatchItemDto {
@@ -139,5 +141,15 @@ describe('BatchView', () => {
     renderBatch([item({ id: 'a', state: 'completed' })], false, api)
     fireEvent.click(screen.getByRole('button', { name: /^clear$/i }))
     expect(api.dismiss).toHaveBeenCalled()
+  })
+
+  it('reveals the folder a finished run wrote to', async () => {
+    ;(window as { __TAURI_INTERNALS__?: unknown }).__TAURI_INTERNALS__ = {}
+    renderBatch([item({ id: 'a', state: 'completed' })], false)
+    fireEvent.click(screen.getByRole('button', { name: /open folder/i }))
+    const reveal = vi.mocked(openExportFolder)
+    await waitFor(() => expect(reveal).toHaveBeenCalled())
+    expect(await screen.findByText(/opened c:\/out/i)).toBeInTheDocument()
+    delete (window as { __TAURI_INTERNALS__?: unknown }).__TAURI_INTERNALS__
   })
 })
