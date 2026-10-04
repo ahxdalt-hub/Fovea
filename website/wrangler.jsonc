@@ -1,0 +1,23 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "pixora-website",
+  "main": ".open-next/worker.js",
+  "account_id": "263638586a79f58c60922fe09323935b",
+  "compatibility_date": "2026-01-01",
+  "compatibility_flags": ["nodejs_compat"],
+  "workers_dev": true,
+  "assets": {
+    "directory": ".open-next/assets",
+    "binding": "ASSETS"
+  },
+  // Server-side only — never exposed to the browser. Defaults: manual
+  // checkout (no payment secret), no installer URL yet, so /download shows
+  // the honest "not published" state. Flip these when the launch is ready.
+  "vars": {
+    "PIXORA_PAYMENT_PROVIDER": "manual"
+  }
+,
+  "routes": [
+    { "pattern": "pixora.caelmont.in", "custom_domain": true, "zone_id": "92a841adaa6883716e87795e513d2cf1" }
+  ]
+}

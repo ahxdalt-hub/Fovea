@@ -4,6 +4,9 @@ node_modules
 out
 build
 dist
+.open-next
+.wrangler
+.dev.vars
 
 # Env + debug
 .env*
