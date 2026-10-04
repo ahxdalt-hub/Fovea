@@ -1,4 +1,4 @@
-# Pixora
+# Fovea
 
 Premium Windows-first desktop app for local AI image enhancement and upscaling.
 Your images are processed on your own machine and never uploaded.
@@ -25,7 +25,7 @@ install → activate → enhance → export, all verified end-to-end.
 
 - **Payment behind a seam, not an API.** `website/lib/commerce.ts` defines a
   `PaymentProvider` interface and `resolveProvider()` reads
-  `PIXORA_PAYMENT_PROVIDER` at request time. The default `ManualProvider`
+  `FOVEA_PAYMENT_PROVIDER` at request time. The default `ManualProvider`
   needs no secret and no network — it redirects to
   `/download?tier=…&source=checkout`. A real provider plugs in as its own
   file under `lib/providers/`; nothing else changes. No provider assumptions
@@ -36,8 +36,8 @@ install → activate → enhance → export, all verified end-to-end.
   (`ƒ`) so env is read per request.
 - **Delivery + activation.** `website/app/download/page.tsx` shows what was
   purchased, the exact in-app activation steps (gear or `Ctrl+,` → Settings →
-  License → paste the `PIXORA1.` key → Activate — offline), real system
-  requirements, and help. When `PIXORA_DOWNLOAD_URL` is unset it shows an
+  License → paste the `FOVEA1.` key → Activate — offline), real system
+  requirements, and help. When `FOVEA_DOWNLOAD_URL` is unset it shows an
   honest pre-launch note rather than a broken button.
 - **Concise docs.** `website/app/docs/page.tsx` covers install, activation,
   import, enhancement, batch, export, troubleshooting — deliberately short,
@@ -69,19 +69,19 @@ Purchase → License issued (vendor Ed25519 signature) → Activation
 ```
 
 - **Signed keys, not a server.** A license is
-  `PIXORA1.<base64url(payload)>.<base64url(ed25519-sig)>`. The payload
+  `FOVEA1.<base64url(payload)>.<base64url(ed25519-sig)>`. The payload
   carries product, edition (Pro/Studio), holder, id, issued/expiry, and an
   optional machine binding. The desktop app embeds only the **public**
   keys and re-verifies the signature over the exact embedded payload bytes
   on every read — stored data is never trusted for its claims.
 - **Keys stay out of the repo.** Production verification keys are injected
-  at build time via `PIXORA_LICENSE_PUBKEYS` (comma-separated hex, written
+  at build time via `FOVEA_LICENSE_PUBKEYS` (comma-separated hex, written
   to `OUT_DIR` by `build.rs`); a development keypair is compiled in **only**
   under `cfg(debug_assertions)`. No secret ever ships inside the app.
   `examples/issue_license.rs` is the vendor-side issuance tool (`--generate`
   a keypair, then sign a key), so real keys are minted off-machine.
 - **Secure storage where appropriate.** The signed key text is stored in
-  Windows Credential Manager (a generic credential, `pixora/license`) and
+  Windows Credential Manager (a generic credential, `fovea/license`) and
   falls back to an atomic `license.key` file when the store isn't
   answering. Non-secret bookkeeping (`license-state.json`) records when the
   key was activated and the highest clock ever seen. The credential path is
@@ -260,7 +260,7 @@ service ladder (every job):
   | hires   | 4032×3024 | DirectML GPU | 64   | 49.9 s | 3.9         | 319 MB   |
 
   The last row reproduces low-VRAM conditions for real
-  (`PIXORA_BUDGET_MB=16`): the adaptive planner drops to 64 px tiles and
+  (`FOVEA_BUDGET_MB=16`): the adaptive planner drops to 64 px tiles and
   the job completes ~2.5× slower — degraded, never broken.
 
 - **The honest cap moved to the output:** `MAX_ENHANCE_OUTPUT_PIXELS` =
@@ -277,9 +277,9 @@ service ladder (every job):
   — a panicking inference task now surfaces as an error to the UI
   instead of taking the app down.
 - **Detection doors for QA (dev env vars, same family as
-  `PIXORA_MODELS_DIR`):** `PIXORA_FORCE_CPU=1` runs the CPU path on a GPU
-  machine (reproducible "unsupported GPU"), `PIXORA_TILE` pins the tile
-  ceiling, `PIXORA_BUDGET_MB` squeezes the budgets (reproducible
+  `FOVEA_MODELS_DIR`):** `FOVEA_FORCE_CPU=1` runs the CPU path on a GPU
+  machine (reproducible "unsupported GPU"), `FOVEA_TILE` pins the tile
+  ceiling, `FOVEA_BUDGET_MB` squeezes the budgets (reproducible
   low-VRAM). Production defaults are the detected budgets.
 - **UX:** the status bar keeps its one-word device readout (GPU / CPU);
   the job panel adds a small pill following the engine's own `device`
@@ -522,7 +522,7 @@ Design-system rules for future stages:
   they never hard-code colors, spacing, radii, durations, or z-layers.
 - **`src/ui` owns every primitive.** Views compose them; they don't define
   new button/field/badge styles inline.
-- **Motion:** entries use the `pixora-*` keyframes from `motion.css` with
+- **Motion:** entries use the `fovea-*` keyframes from `motion.css` with
   `--ease-decelerate`; state changes use `--ease-standard` at
   `--duration-fast/base`. Nothing bounces; reduced motion is handled globally.
 - **State:** feature stores follow `appReducer.ts` — typed actions, one pure
@@ -558,3 +558,4 @@ Design-system rules for future stages:
 │   └── tauri.conf.json   # window, CSP, bundling
 └── assets/               # source assets (app icon master SVG)
 ```
+"# Fovea" 
