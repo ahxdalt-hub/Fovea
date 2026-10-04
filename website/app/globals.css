@@ -4,7 +4,7 @@
  * Fovea website design tokens.
  *
  * Derived directly from the desktop app's tokens.css — the same calm slate
- * palette, the same single restrained blue accent (#2f6fed), the same motion
+ * palette, the same single restrained teal accent (#0b8e7e), the same motion
  * curves and near-invisible elevation. The product and its marketing should
  * look like one thing. No neon, no purple AI gradient, no glass.
  */
@@ -28,9 +28,9 @@
   --color-ink-3: #828891;
 
   /* The one accent, plus a muted steel from the app icon */
-  --color-accent: #2f6fed;
-  --color-accent-strong: #2560d4;
-  --color-accent-soft: #e8effd;
+  --color-accent: #0b8e7e;
+  --color-accent-strong: #087265;
+  --color-accent-soft: #dcf3ef;
   --color-steel: #5b7a99;
   --color-steel-light: #9fb3c8;
 

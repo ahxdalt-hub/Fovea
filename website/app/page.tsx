@@ -64,7 +64,7 @@ export default function Home() {
           className="pointer-events-none absolute inset-0 opacity-70"
           style={{
             background:
-              'radial-gradient(120% 80% at 80% -10%, #1d2733 0%, rgba(29,39,51,0) 55%), radial-gradient(80% 60% at 0% 0%, rgba(47,111,237,0.16) 0%, rgba(47,111,237,0) 60%)',
+              'radial-gradient(120% 80% at 80% -10%, #1d2733 0%, rgba(29,39,51,0) 55%), radial-gradient(80% 60% at 0% 0%, rgba(47,212,190,0.16) 0%, rgba(47,212,190,0) 60%)',
           }}
           aria-hidden="true"
         />

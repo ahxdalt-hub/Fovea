@@ -21,6 +21,18 @@
       "icons-studio/128x128.png",
       "icons-studio/128x128@2x.png",
       "icons-studio/icon.ico"
-    ]
+    ],
+    "windows": {
+      "webviewInstallMode": {
+        "type": "embedBootstrapper",
+        "silent": true
+      },
+      "nsis": {
+        "installerIcon": "icons-studio/icon.ico",
+        "uninstallerIcon": "icons-studio/icon.ico",
+        "headerImage": "icons-studio/nsis-header.bmp",
+        "sidebarImage": "icons-studio/nsis-sidebar.bmp"
+      }
+    }
   }
 }

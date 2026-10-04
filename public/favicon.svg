@@ -4,20 +4,63 @@
       <stop offset="0" stop-color="#26313f"/>
       <stop offset="1" stop-color="#0f141b"/>
     </linearGradient>
-    <radialGradient id="glow" cx="0.5" cy="0.5" r="0.5">
-      <stop offset="0" stop-color="#5b8def" stop-opacity="0.32"/>
-      <stop offset="1" stop-color="#5b8def" stop-opacity="0"/>
-    </radialGradient>
+    <linearGradient id="crisp" x1="0" y1="1" x2="1" y2="0">
+      <stop offset="0" stop-color="#0f9d8a"/>
+      <stop offset="0.55" stop-color="#2fd4be"/>
+      <stop offset="1" stop-color="#b8fff2"/>
+    </linearGradient>
     <radialGradient id="core" cx="0.38" cy="0.34" r="0.95">
-      <stop offset="0" stop-color="#dbe7ff"/>
-      <stop offset="0.45" stop-color="#8ab1ff"/>
-      <stop offset="1" stop-color="#4d80f2"/>
+      <stop offset="0" stop-color="#eafffb"/>
+      <stop offset="0.45" stop-color="#5fe3d0"/>
+      <stop offset="1" stop-color="#12a892"/>
     </radialGradient>
+    <radialGradient id="glow" cx="0.5" cy="0.5" r="0.5">
+      <stop offset="0" stop-color="#2fd4be" stop-opacity="0.26"/>
+      <stop offset="1" stop-color="#2fd4be" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="seam" x1="1" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#2fd4be" stop-opacity="0"/>
+      <stop offset="0.4" stop-color="#7ff3e4" stop-opacity="0.85"/>
+      <stop offset="0.6" stop-color="#2fd4be" stop-opacity="0.85"/>
+      <stop offset="1" stop-color="#2fd4be" stop-opacity="0"/>
+    </linearGradient>
+    <clipPath id="tile"><rect width="1024" height="1024" rx="192"/></clipPath>
+    <clipPath id="soft"><path d="M 0 0 H 1024 L 0 1024 Z"/></clipPath>
+    <clipPath id="sharp"><path d="M 1024 0 V 1024 H 0 Z"/></clipPath>
   </defs>
   <rect width="1024" height="1024" rx="192" fill="url(#bg)"/>
-  <circle cx="512" cy="512" r="360" fill="url(#glow)"/>
-  <circle cx="512" cy="512" r="448" fill="none" stroke="#3d5169" stroke-width="30" opacity="0.5"/>
-  <path d="M 805.1 283 A 372 372 0 1 1 563.8 143.6" fill="none" stroke="#58728f" stroke-width="56" stroke-linecap="round"/>
-  <circle cx="512" cy="512" r="228" fill="none" stroke="#7f98b5" stroke-width="62"/>
-  <circle cx="512" cy="512" r="104" fill="url(#core)"/>
+  <g clip-path="url(#tile)">
+    <circle cx="660" cy="660" r="400" fill="url(#glow)"/>
+    <g clip-path="url(#soft)">
+      <g fill="none" stroke-linecap="round">
+        <g stroke="#7e8a99" opacity="0.13">
+          <rect x="152" y="152" width="720" height="720" rx="136" stroke-width="112"/>
+          <circle cx="512" cy="512" r="244" stroke-width="96"/>
+        </g>
+        <g stroke="#687484" opacity="0.18" transform="translate(-10 -7)">
+          <rect x="176" y="176" width="672" height="672" rx="120" stroke-width="84"/>
+          <circle cx="512" cy="512" r="244" stroke-width="72"/>
+        </g>
+        <g stroke="#8f9aa9" opacity="0.20" transform="translate(9 11)">
+          <rect x="176" y="176" width="672" height="672" rx="120" stroke-width="76"/>
+          <circle cx="512" cy="512" r="244" stroke-width="66"/>
+        </g>
+        <g stroke="#aab4c0" opacity="0.34">
+          <rect x="176" y="176" width="672" height="672" rx="120" stroke-width="62"/>
+          <circle cx="512" cy="512" r="244" stroke-width="54"/>
+        </g>
+      </g>
+      <circle cx="512" cy="512" r="96" fill="#9aa4b2" opacity="0.30"/>
+      <circle cx="512" cy="512" r="130" fill="#9aa4b2" opacity="0.12"/>
+    </g>
+    <g clip-path="url(#sharp)">
+      <g fill="none" stroke="url(#crisp)">
+        <rect x="176" y="176" width="672" height="672" rx="120" stroke-width="58"/>
+        <circle cx="512" cy="512" r="244" stroke-width="50"/>
+      </g>
+      <circle cx="512" cy="512" r="88" fill="url(#core)"/>
+    </g>
+    <path d="M 1024 0 L 0 1024" stroke="#0b1017" stroke-width="16" opacity="0.5"/>
+    <path d="M 1024 0 L 0 1024" stroke="url(#seam)" stroke-width="8"/>
+  </g>
 </svg>

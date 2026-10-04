@@ -10,14 +10,18 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 ICONS = ROOT / "icons"
-ACCENT = (47, 111, 237, 255)  # --accent, light theme
+INK = (15, 20, 27, 255)  # --bg deep end, so the word sits flat on the pill
+AQUA = (47, 212, 190, 255)  # the lit half of the mark
 WHITE = (255, 255, 255, 255)
+OUTLINE = (11, 16, 23, 255)  # keeps the pill separable over the mark's strokes
 FONT = "C:/Windows/Fonts/arialbd.ttf"
 
-TIERS = {"pro": "PRO", "studio": "STUDIO"}
+# Pro wears white, Studio wears the brand aqua; both are legible on the dark
+# tile and on the grey/aqua halves of the mark.
+TIERS = {"pro": ("PRO", WHITE), "studio": ("STUDIO", AQUA)}
 
 
-def badge(word: str) -> Image.Image:
+def badge(word: str, pill_color: Image.Image) -> Image.Image:
     img = Image.open(ICONS / "icon.png").convert("RGBA")
     w, h = img.size
     draw = ImageDraw.Draw(img)
@@ -35,22 +39,24 @@ def badge(word: str) -> Image.Image:
     draw.rounded_rectangle(
         (x0, y0, x0 + pill_w, y0 + pill_h),
         radius=pill_h // 2,
-        fill=ACCENT,
+        fill=pill_color,
+        outline=OUTLINE,
+        width=int(h * 0.008),
     )
     draw.text(
         (x0 + (pill_w - text_w) // 2 - bbox[0], y0 + (pill_h - text_h) // 2 - bbox[1]),
         word,
         font=font,
-        fill=WHITE,
+        fill=INK,
     )
     return img
 
 
 def main() -> None:
-    for tier, word in TIERS.items():
+    for tier, (word, pill_color) in TIERS.items():
         out = ROOT / f"icons-{tier}"
         out.mkdir(exist_ok=True)
-        badge(word).save(out / "icon.png")
+        badge(word, pill_color).save(out / "icon.png")
         print(f"wrote {out / 'icon.png'}")
 
 

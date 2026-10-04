@@ -1,6 +1,6 @@
 [package]
 name = "local-ai-image-upscaler"
-version = "1.1.0"
+version = "1.2.0"
 description = "Fovea — professional local AI image enhancement for Windows. Your images never leave your machine."
 authors = ["Fovea"]
 edition = "2024"
