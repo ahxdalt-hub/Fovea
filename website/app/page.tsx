@@ -76,8 +76,8 @@ export default function Home() {
             </h1>
             <p className="mt-6 max-w-xl text-lg leading-relaxed text-steel-light">
               Fovea rebuilds detail in your photos with a real AI model that runs entirely on your
-              machine. No uploads, no cloud, no subscription server — just bigger, sharper images
-              you can trust.
+              machine. No uploads, no cloud processing, no subscription — just bigger, sharper
+              images you can trust.
             </p>
             <div className="mt-9 flex flex-wrap items-center gap-4">
               <Cta href="/download?tier=evaluate" variant="light">

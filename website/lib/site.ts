@@ -499,6 +499,6 @@ export const faqs = [
   },
   {
     q: 'Why is it a one-time price instead of a subscription?',
-    a: 'Because there is no service to pay for. The model runs on your hardware, so a subscription would be rent for a server we never use. You buy a license once and it keeps working offline.',
+    a: 'Because the work happens on your hardware. A subscription would be rent for a service your pictures do not use — what we run on our side is a counter for the free plan’s month, nothing more. You buy a key once and it keeps working offline.',
   },
 ] as const;

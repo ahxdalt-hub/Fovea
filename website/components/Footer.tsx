@@ -30,7 +30,7 @@ export function Footer() {
           <p>
             © {new Date().getFullYear()} {site.name}. All rights reserved.
           </p>
-          <p>Works fully offline. Your images never leave your machine.</p>
+          <p>Your images never leave your machine — and a paid plan needs no connection at all.</p>
         </div>
       </div>
     </footer>
