@@ -1,6 +1,6 @@
 {
   "name": "fovea-website",
-  "version": "1.1.0",
+  "version": "1.3.0",
   "private": true,
   "description": "Fovea — marketing and sales website for the local AI image enhancement app.",
   "scripts": {

@@ -97,7 +97,8 @@ Purchase → License issued (vendor Ed25519 signature) → Activation
 - **Anti-tamper that fails closed, not cranky.** A clock-rollback watermark
   (with a one-hour grace) stops an expired key being revived by winding the
   clock back; a machine-bound key only activates on the same machine
-  (machine id = hashed Windows `MachineGuid`, never sent anywhere); a
+  (machine id = hashed Windows `MachineGuid`, sent only as the free plan's
+  meter `install_id` and never as anything image-shaped); a
   damaged local record reports `tampered` and invites a re-paste rather
   than unlocking access.
 - **Licensing never gates the local engine.** The feature-access seam
@@ -359,10 +360,14 @@ enhanced/job-*.png (app-data) + display view for the compare slider
   in-flight ONNX run is terminated via `RunOptions::terminate()`, the
   `.part` file is deleted, the job slot releases.
 - **Privacy:** image bytes, model bytes, and output bytes never leave the
-  process or the disk. `ureq`/TLS crates in the tree are **build-script
-  only** (ORT binary download); the app's runtime capability list is
-  unchanged (`core:default` + `log:default` — no network). ONNX Runtime's
-  Windows telemetry is explicitly disabled at init.
+  process or the disk, and nothing image-shaped is ever sent. `ureq`/TLS
+  crates in the tree are **build-script only** (ORT binary download); the
+  app's runtime capability list is unchanged (`core:default` +
+  `log:default` — the WebView has no network). The one outbound request is
+  Rust-side, through WinHTTP (`services/http.rs`): the free plan's meter read
+  to `fovea.caelmont.in`, carrying a hashed install id and a count. HTTPS
+  only, no redirects followed, and a paid plan makes it never at all. ONNX
+  Runtime's Windows telemetry is explicitly disabled at init.
 - **Model:** `realesr-general-x4v3.onnx` (Standard/Detail) and
   `realesr-general-wdn-x4v3.onnx` (Natural) — Real-ESRGAN general 4× and
   its WDN denoising variant, BSD-3-Clause (see `src-tauri/models/README.md`).

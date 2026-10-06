@@ -90,14 +90,15 @@ export default function Product() {
             </h2>
             <p className="mt-6 text-lg leading-relaxed text-ink-2">
               This isn’t a policy promise — it’s how the software is built. There is no upload path,
-              no analytics beacon, and no account. Once Fovea is installed it works entirely
-              offline; even license activation is verified on your machine.
+              no analytics beacon, and no account. License activation is verified on your machine,
+              and the only thing the app ever reports to us is a number: the free plan’s monthly
+              count, under a hashed install id.
             </p>
             <div className="mt-8 grid gap-4 sm:grid-cols-3">
               {[
                 { t: 'No upload', b: 'Nothing sends your file anywhere.' },
                 { t: 'No account', b: 'Open it and work. No login.' },
-                { t: 'No server', b: 'The model ships in the app.' },
+                { t: 'No cloud processing', b: 'The model ships in the app.' },
               ].map((c) => (
                 <div key={c.t} className="rounded-card border border-line bg-surface p-5">
                   <div className="font-semibold">{c.t}</div>
@@ -110,14 +111,16 @@ export default function Product() {
             <div className="relative rounded-card bg-canvas p-8 text-white shadow-lift">
               <div className="flex items-center gap-2 text-sm text-steel-light">
                 <span className="inline-block h-2 w-2 rounded-full bg-accent" />
-                Network activity while enhancing
+                Image bytes sent while enhancing
               </div>
               <div className="mt-8 text-center">
                 <div className="font-display text-6xl font-semibold">0</div>
-                <p className="mt-2 text-steel-light">bytes sent · runs on your hardware only</p>
+                <p className="mt-2 text-steel-light">not one · runs on your hardware only</p>
               </div>
               <p className="mt-8 text-sm leading-relaxed text-white/70">
-                After the one-time download and install, enhancement, batch runs, export and even
+                The model is inside the app. A paid plan makes no network call at all; the free
+                plan’s only traffic is its monthly count — a hashed install id and a number, never a
+                file — and the app caches the balance, so enhancement, batch runs, export and even
                 activation all complete without a connection.
               </p>
             </div>

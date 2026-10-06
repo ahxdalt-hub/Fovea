@@ -1,26 +1,44 @@
-# Fovea v1.2.0 — Production Release (Stage 21)
+# Fovea v1.3.0 — Production Release (Stage 22)
 
-Released: 2026-10-04 · This document is the release record: what was built,
+Released: 2026-10-06 · This document is the release record: what was built,
 where the artifacts are, how to reproduce the build, and the exact launch
 steps left to the vendor.
 
-v1.2.0 is the rebrand release: the same engine and the same tier matrix as
-v1.1.0, with a new mark (a frame split on the diagonal — soft above the seam,
-lit below it) and a teal accent replacing the blue one. The change is driven
-by `assets/app-icon.svg`, which is the source of truth for the installer icon,
-the in-app `BrandMark`, the site `Logo`, both favicons and the three plan icon
-variants; `src/styles/tokens.css` and `website/app/globals.css` carry the
-matching accent. v1.1.0 stays published and untouched at its own tag.
+v1.3.0 is the release that makes the paid plans visible and takes the free
+allowance out of the buyer's hands. Three changes, none of them to the engine:
+
+- **The build names its plan.** `FOVEA_BUILD_PLAN` is compiled in per tier, so
+  a Pro installer says "Fovea Pro" in the window title and the License page
+  states what a paid installer owes its key. Identity, not entitlement — an
+  unactivated Pro build still runs the free plan.
+- **The month is counted on our server.** `/api/usage` (Postgres `now()`,
+  `free_monthly_limit()`, a row per install) is the only place the calendar
+  month, the ceiling and the balance are written from. The app caches the last
+  reply and spends that down offline, queueing what it spent for the next
+  successful contact.
+- **Every finishing look is proven.** Tests run all eleven looks at full
+  strength and compare each against the other ten, and one ignored test runs
+  them through the real model. Portrait's copy is corrected along the way: it
+  is the one look tuned for skin, not face detection.
+
+The same engine and the same tier matrix as v1.2.0, whose split-frame mark and
+teal accent carry over unchanged (`assets/app-icon.svg` remains the source of
+truth for the installer icon, the in-app `BrandMark`, the site `Logo`, both
+favicons and the three plan icon variants; `src/styles/tokens.css` and
+`website/app/globals.css` carry the accent). v1.2.0 and v1.1.0 stay published
+and untouched at their own tags.
 
 ## Version
 
-v1.2.0, set consistently in:
+v1.3.0, set consistently in:
 
 - `package.json` (root app)
 - `src-tauri/Cargo.toml` + `Cargo.lock`
 - `src-tauri/tauri.conf.json` (`version`, embedded in the installer and the
   in-app About/diagnostics view via `config.rs`)
 - `website/package.json`
+- `website/wrangler.jsonc` (`FOVEA_DOWNLOAD_VERSION` and the six per-plan
+  download URLs, which point at the `v1.3.0` tag's assets)
 
 ## Release artifacts
 
@@ -30,20 +48,27 @@ binary name, window title and icon, and archives the result in `installers/`:
 
 | Artifact                   | Location                                                |
 | -------------------------- | ------------------------------------------------------- |
-| Free build (NSIS, primary) | `installers/Fovea-1.2.0-x64.exe`                        |
-| Free build (MSI)           | `installers/Fovea-1.2.0-x64.msi`                        |
-| Pro build (NSIS)           | `installers/Fovea-Pro-1.2.0-x64.exe`                    |
-| Pro build (MSI)            | `installers/Fovea-Pro-1.2.0-x64.msi`                    |
-| Studio build (NSIS)        | `installers/Fovea-Studio-1.2.0-x64.exe`                 |
-| Studio build (MSI)         | `installers/Fovea-Studio-1.2.0-x64.msi`                 |
-| Website production build   | `website/.next` (Next.js static + 2 dynamic routes)     |
+| Free build (NSIS, primary) | `installers/Fovea-1.3.0-x64.exe`                        |
+| Free build (MSI)           | `installers/Fovea-1.3.0-x64.msi`                        |
+| Pro build (NSIS)           | `installers/Fovea-Pro-1.3.0-x64.exe`                    |
+| Pro build (MSI)            | `installers/Fovea-Pro-1.3.0-x64.msi`                    |
+| Studio build (NSIS)        | `installers/Fovea-Studio-1.3.0-x64.exe`                 |
+| Studio build (MSI)         | `installers/Fovea-Studio-1.3.0-x64.msi`                 |
+| Website production build   | `website/.next` (Next.js static + dynamic API routes)   |
 | Cloudflare Workers package | `website/.open-next` (`npm run build:cf` → `deploy:cf`) |
 | License configuration      | vendor keypair — see below                              |
 
 The paid builds are rebrandings, not different programs: all three keep
 `identifier: com.fovea.desktop`, so an activated key, the settings file and
 the month's meter survive installing one over another. The plan in force is
-decided by `services::license` at runtime, never by which installer ran. Icon
+decided by `services::license` at runtime, never by which installer ran. Each
+build does, however, compile in the plan it was branded for —
+`build-tiers.mjs` passes `FOVEA_BUILD_PLAN=free|pro|studio`, `build.rs` writes
+it to `config.rs`, and `get_config` reports it with a product name derived
+from the same marker (a Rust test pins that name to each tier's
+`productName`). The window therefore says "Fovea Pro" when the installer does,
+the License page says plainly what a paid installer owes its key, and the
+marker grants nothing: an unactivated Pro build runs the free plan. Icon
 variants are generated by `src-tauri/scripts/tier_icons.py` (a plan pill low on
 the tile — white for Pro, brand teal for Studio, ink text with a dark keyline
 so it stays separable over the mark's own strokes) and expanded with
@@ -147,10 +172,24 @@ release binary cannot verify those keys, so it will not sign them either.
 
 ## Test status at release
 
-- 227 JS tests (20 files) — pass
-- 173 Rust tests (3 ignored, machine-bound) — pass, plus the
+- 242 JS tests (21 files) — pass
+- 195 Rust tests (4 ignored) — pass, plus the
   `#[cfg(not(debug_assertions))]` release-config assertion in
-  `services/license/keys.rs` (runs only under `cargo test --lib --release`)
+  `services/license/keys.rs` (runs only under `cargo test --lib --release`,
+  verified green with the vendor pubkey in the environment)
+- Finishing looks: `every_look_does_real_work_and_none_is_a_relabel_of_another`
+  runs all eleven at full strength over a known field and refuses a dead
+  switch or a duplicate; `the_combined_looks_deliver_every_move_they_claim`
+  checks the composites against their own recipes (Portrait against
+  soften-warm-lift _minus_ its desaturation step, Product against a pure
+  tonal push); `the_status_list_offers_every_look_with_its_own_words` pins the
+  UI list at eleven unique keys. The fourth ignored test,
+  `real_filters_each_change_the_written_master_in_their_own_way`, runs them
+  through ONNX Runtime and the bundled model, writes eleven masters from one
+  96×64 source and asserts each one's measured stats — luma, warm/cool split,
+  chroma spread, local roughness, shadow and highlight behaviour — say what
+  the look's own copy says. Run it with
+  `cargo test --lib -- --ignored real_filters --nocapture`.
 - `cargo clippy -D warnings` + `cargo fmt --check` — clean
 - `oxlint` + `prettier --check` — clean (app, website, and root both). Two
   prettier configs by design: the root `.prettierrc.json` (`semi: false`)
@@ -174,11 +213,22 @@ import + export (lossless PNG, quality control JPEG/WebP, WebP's hard
 16383 px ceiling refused with a clear message), true 2× and 4×
 (`product_scales_for` — factors only genuinely delivered by the bundled
 models), three real modes (Standard/Natural/Detail), DirectML on any DX12
-GPU with automatic CPU fallback (never a crash), zero network I/O in the
-desktop app (no HTTP client in the dependency tree; CSP allows only
-self/IPC), offline activation, logs never contain image paths. Website
+GPU with automatic CPU fallback (never a crash), offline activation, logs never contain image paths. Website
 metadata points at the live origin `https://fovea.caelmont.in` (canonical
 `site.url`, OG, sitemap, robots). No unsupported claims found.
+
+Correction (2026-10-06, Stage 22): "zero network I/O in the desktop app" no
+longer holds, and the site copy dropped it. The app now makes exactly one kind
+of request — `GET https://fovea.caelmont.in/api/usage?install_id=…`, the free
+meter — from Rust (`services/http.rs`, TLS-only, no third-party client in the
+dependency tree), never from the WebView (CSP still allows only `'self'` /
+IPC). The one value it carries is the install id — a 128-bit hash of the
+Windows `MachineGuid`, the same identity machine-bound keys already use — and
+nothing else: no image data, no filename, no computer name. The engine path
+itself still makes no calls: the meter is read once per install before the
+first image and thereafter only to settle queued spends.
+Anything that promises "the app never contacts a server" is a claim about
+v1.2.0 and earlier.
 
 Correction (2026-10-04, Stage 20): the 4× factor, the Natural and Detail
 restorations, the Portrait look, the hardware controls and an uncounted
@@ -190,13 +240,23 @@ the Free / Pro / Studio matrix before this build is published.
 
 ## Launch steps left to the vendor (deliberately not automated)
 
-1. Publish the builds: create tag `v1.2.0` and a GitHub Release on
-   `ahxdalt-hub/Fovea` carrying the six files in `installers/`, then set
-   `FOVEA_DOWNLOAD_VERSION=1.2.0` plus a
-   `FOVEA_DOWNLOAD_URL` / `FOVEA_DOWNLOAD_MSI_URL` / `FOVEA_DOWNLOAD_SIZE`
-   triple for each plan (unsuffixed = free, `_PRO`, `_STUDIO`) on the
-   deployed site. Until a plan's URL is set, its button honestly shows "not
-   published yet" — by design, not a defect.
+**Release gate for this version specifically:** since Stage 22 the free plan's
+meter is the server's (`services::quota`), and a brand-new install that cannot
+get an answer from `/api/usage` is refused its first enhancement —
+"this install has never been counted" — rather than assuming a balance. The
+endpoint answers 500 until `website/supabase/schema.sql` is applied, so that
+paste has to happen before this build is advertised to anyone. v1.2.0 and
+earlier are unaffected; they still count locally.
+
+1. Publish the builds: push `main`, tag `v1.3.0`, then hand the six files in
+   `installers/` to a GitHub Release on `ahxdalt-hub/Fovea` in one command —
+   `GITHUB_TOKEN=*** node scripts/publish-release.mjs v1.3.0 installers/Fovea-1.3.0-x64.exe …`
+   (it creates the release if the tag has none, re-uploads assets that are
+   already attached, and prints each upload). `website/wrangler.jsonc` already
+   carries the matching `FOVEA_DOWNLOAD_VERSION` and all six per-plan
+   `FOVEA_DOWNLOAD_URL` / `_MSI_URL` / `_SIZE` entries, so step 3 is what
+   points the site at them. Until a plan's URL is set, its button honestly
+   shows "not published yet" — by design, not a defect.
 2. Connect Dodo Payments (`FOVEA_PAYMENT_PROVIDER=dodo`, already the default in
    `website/wrangler.jsonc`). The seam (`website/lib/commerce.ts`) has three real
    adapters beside the manual default:
@@ -236,6 +296,15 @@ the Free / Pro / Studio matrix before this build is published.
      signed with the wrong pair (or with edited claims) cannot be imported, so
      the pool cannot contain a license the shipped app would reject.
 3. `npm run deploy:cf` after the OpenNext build to push this release live.
+4. Apply `website/supabase/schema.sql` to the project in the Supabase
+   dashboard (SQL editor → paste → Run) — nothing else in the repo can reach
+   that host, and step 3's meter depends on it. Then import the pre-issued keys
+   so a paid test order can be fulfilled automatically (25 Pro + 25 Studio in
+   `~/fovea-vendor/pool/`, one file per edition):
+   `cd website && node --env-file=.env.local scripts/import-license-keys.mjs --file ~/fovea-vendor/pool/keys-pro.txt`
+   and again for `keys-studio.txt`. Then one Dodo test purchase end to end:
+   checkout → webhook → `/download?ref=…` shows the installer plus the key, and
+   `/api/usage` answers 200 with a `period`/`limit`/`remaining` body.
 
 ## Known limitations (v1 scope, accepted)
 
@@ -254,13 +323,18 @@ the Free / Pro / Studio matrix before this build is published.
   already written stays readable and exportable whatever the record says
   later.
 - Enforcement is one boundary in the desktop app (`commands/inference.rs`,
-  `commands/batch.rs`) against a locally verified key — no activation server,
-  no phone home. The trade-off that goes with that is honesty about DRM: a
+  `commands/batch.rs`) against a locally verified key — no activation server
+  and no DRM. The trade-off that goes with that is honesty about DRM: a
   determined user with a hex editor can patch that boundary. The key's real
   job is to make an honest purchase work on the buyer's machine and to keep
   the app offline; it is not a copy-protection system, and it is not
-  advertised as one.
-- Clock rollback is treated as a lapse (`clock_suspect`), not punished:
+  advertised as one. One thing does leave the machine: the free plan's month is
+  counted by `/api/usage` under this install's hashed id, so an unactivated
+  copy needs the meter reachable once, at its first image. A paid plan is
+  never counted and never calls.
+- Clock rollback still cannot buy a month: the calendar period comes from the
+  server's `now()`, and nothing in `services::quota` refills a balance locally.
+  The license clock's own suspect state is treated as a lapse, not punished —
   enhancement stays available on the free plan and the paid options reopen by
   itself once the real date passes the stored watermark.
 - Screenshots cannot be captured in this QA environment (browser-use has no

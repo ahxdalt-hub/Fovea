@@ -23,6 +23,7 @@ export const docs: DocSection[] = [
       'Run the downloaded installer (`.exe`) and follow the two prompts.',
       'Launch Fovea from the Start menu or its desktop shortcut.',
       'The AI model is already inside the app — there is nothing separate to install.',
+      'On the free plan, let the first launch reach the internet once. Fovea asks our server what is left in your month and caches the answer; every launch after that works with no connection.',
     ],
     note: 'Fovea works on Windows 10 and 11, 64-bit.',
   },
@@ -138,6 +139,10 @@ export const troubleshooting: { q: string; a: string }[] = [
   {
     q: 'A clock warning appears.',
     a: 'Fovea remembers the latest time it has seen. Correct the date and time in Windows settings; once the clock is right the warning clears on its own.',
+  },
+  {
+    q: 'Fovea says it needs one internet connection.',
+    a: 'That is the free plan’s month being opened. The allowance is counted on our server rather than in a file on your disk, so a brand-new install asks once — it sends a hashed machine id and how many images it wrote, never a picture or a filename. After that first answer Fovea keeps the balance locally, enhances offline, and reports anything it spent while disconnected the next time it is online. A paid plan never asks.',
   },
   {
     q: 'Enhancement is slow.',

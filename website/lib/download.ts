@@ -99,6 +99,9 @@ export const systemRequirements = [
     k: 'WebView2',
     v: 'Present on current Windows 11; the installer fetches the runtime itself if it is missing',
   },
-  { k: 'Internet', v: 'Only for the one-time download and install — everything else runs offline' },
+  {
+    k: 'Internet',
+    v: 'For the download and install, and once more to open the free plan’s month — after that the balance is cached and everything runs offline',
+  },
   { k: 'Developer tools', v: 'Not needed — Node, Rust, Git, Python and CUDA are all irrelevant' },
 ] as const;

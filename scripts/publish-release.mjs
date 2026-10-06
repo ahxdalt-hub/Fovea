@@ -1,4 +1,4 @@
-// Publish the six v1.2.0 installer artifacts as a GitHub Release.
+// Publish the six installer artifacts for a version as a GitHub Release.
 // Usage: GITHUB_TOKEN=*** node scripts/publish-release.mjs <tag> <files...>
 import { readFileSync, statSync } from 'node:fs'
 import { basename } from 'node:path'
@@ -15,9 +15,9 @@ const version = tag.replace(/^v/, '')
 
 const body = `## Fovea ${version}
 
-The rebrand release. Same engine, same plan matrix — new mark, new accent, and the installer now carries its own branding.
+The paid plans became visible, and the free counter stopped trusting the machine it runs on.
 
-The mark is a frame cut on the diagonal: the same aperture drawn twice, out of focus above the seam and lit below it. The accent moved from royal blue to the mark's teal.
+Each installer now compiles in the plan it was branded for, so a Pro build says "Fovea Pro" in its title bar and the License page states plainly what a paid installer owes its key. The marker is identity, not entitlement: an unactivated Pro build still runs the free plan until a key is entered. The monthly free allowance is now counted on our server against your install id rather than a local clock.
 
 ### Which build to download
 
@@ -26,20 +26,19 @@ All three run the identical engine. The plan you bought decides what unlocks at 
 | Plan | Price | What the key unlocks |
 | --- | --- | --- |
 | Free | $0 | 2x Standard mode, 10 enhancements a calendar month, all finishing looks except Portrait |
-| Pro | $49 once | 4x, Advanced restoration, Face enhancement, unlimited processing |
+| Pro | $49 once | 4x, Advanced restoration, the Portrait look, unlimited processing |
 | Studio | $129 once | Everything in Pro, plus the engine controls (provider, device, precision, threads, tiling), and one key on up to 5 machines |
 
 \`Fovea-${version}-x64.exe\` is the primary build for everyone; the \`.msi\` exists for enterprise deployment.
 
-### What's in this release
+### Also in this release
 
-- \`Fovea-${version}-x64.exe\` / \`.msi\` — Free
-- \`Fovea-Pro-${version}-x64.exe\` / \`.msi\` — Pro
-- \`Fovea-Studio-${version}-x64.exe\` / \`.msi\` — Studio
+- Every finishing look is now covered by tests that run it at full strength and compare it against the other ten: each one changes the image in its own way, and none is another look under a new name. Verified against the real model end to end, writing eleven distinct masters from one source.
+- Portrait's description corrected — it is the one look tuned for skin (a global soften-warm-lift pass), not face detection.
 
 Requires Windows 10 or later, x64, with a DirectX 12 GPU (Intel, NVIDIA or AMD) for acceleration; it falls back to the CPU otherwise. Nothing is uploaded — images are processed on your machine.
 
-Previous release: [v1.1.0](https://github.com/ahxdalt-hub/Fovea/releases/tag/v1.1.0).`
+Previous release: [v1.2.0](https://github.com/ahxdalt-hub/Fovea/releases/tag/v1.2.0).`
 
 const gh = async (url, opts = {}) => {
   const res = await fetch(url, {

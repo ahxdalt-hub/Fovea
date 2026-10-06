@@ -33,7 +33,7 @@ function heading(tier: Tier | undefined) {
     return {
       eyebrow: 'Get started',
       title: 'Download Fovea',
-      note: 'Fovea works the moment it is installed — no account, no key, nothing to phone home for. The free plan runs Standard mode at 2× and ten enhancements a calendar month. Activating a key lifts those ceilings.',
+      note: 'Fovea works the moment it is installed — no account and no key to start. The free plan runs Standard mode at 2× and ten enhancements a calendar month, counted on our server so a changed clock buys nothing; it asks the meter once, then runs on that cached balance. Activating a key lifts those ceilings and stops the asking.',
     };
   }
   return {

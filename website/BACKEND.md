@@ -100,12 +100,14 @@ which bypasses RLS. Nothing here is called from the browser.
    salt unset the meter still works; it just skips the network ceiling, which is
    the one thing that stops a fleet of fresh install ids.
 4. **Fill the license pool** — mint keys offline and import them:
+
    ```bash
    cargo run --release --manifest-path ../src-tauri/Cargo.toml \
      --example issue_license -- --holder "orders@caelmont.in" --edition pro --id PL-2026-000001
    # …collect the printed FOVEA1.… keys into keys-pro.txt (one per line), then:
    cd website && node --env-file=.env.local scripts/import-license-keys.mjs --file keys-pro.txt
    ```
+
    Edition and license id are read from the signed payload itself, so a
    mislabeled file is rejected rather than trusted. Re-running is safe
    (duplicates are skipped). Keys signed with the committed `--dev` pair are
@@ -116,12 +118,14 @@ which bypasses RLS. Nothing here is called from the browser.
    `~/fovea-vendor/pool/keys-pro.txt` and `keys-studio.txt`. That directory is
    outside the repo on purpose: a keys file is inventory, never a commit. After
    step 1, both files import with:
+
    ```bash
    cd website
    export FOVEA_LICENSE_PUBKEYS=$(cat ~/fovea-vendor/fovea-license-public.hex)
    node --env-file=.env.local scripts/import-license-keys.mjs --file ~/fovea-vendor/pool/keys-pro.txt
    node --env-file=.env.local scripts/import-license-keys.mjs --file ~/fovea-vendor/pool/keys-studio.txt
    ```
+
 5. **Connect Dodo** — one command does the catalog and the endpoint:
    ```bash
    cd website

@@ -326,7 +326,9 @@ mod tests {
                     Err(err) => return Err(err),
                 }
             };
-            stream.set_nonblocking(false).expect("a blocking connection");
+            stream
+                .set_nonblocking(false)
+                .expect("a blocking connection");
             stream
                 .set_read_timeout(Some(Duration::from_secs(5)))
                 .expect("a read timeout");

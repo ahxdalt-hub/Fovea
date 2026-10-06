@@ -71,7 +71,7 @@ export const features = [
   },
   {
     title: 'Fully local',
-    body: 'The model ships inside the app. There is no upload step, no account, and no network call while you work.',
+    body: 'The model ships inside the app. There is no upload step, no account, and no image byte leaves while you work.',
   },
   {
     title: 'Multiple export formats',
@@ -133,7 +133,7 @@ export const planRows: PlanRow[] = [
   },
   {
     label: 'Finishing looks',
-    note: 'Ten pixel-math looks plus “original”. Portrait is the face-specific one, and it needs Pro.',
+    note: 'Ten pixel-math looks plus “original”. Portrait is the one tuned for skin, and it needs Pro.',
     free: 'All but Portrait',
     pro: 'All eleven',
     studio: 'All eleven',
@@ -188,11 +188,11 @@ export const planRows: PlanRow[] = [
     studio: 'None',
   },
   {
-    label: 'Works fully offline',
-    note: 'Including activation — the key is verified on your machine.',
-    free: true,
-    pro: true,
-    studio: true,
+    label: 'Works offline',
+    note: 'The key is verified on your machine, with no activation server. The free plan opens its month with one read from our meter; after that it spends the cached balance, connection or not.',
+    free: 'After one check-in',
+    pro: 'Always',
+    studio: 'Always',
   },
   {
     label: 'Signed license key',
@@ -355,7 +355,7 @@ export const tiers: Tier[] = [
     highlights: [
       '4× upscaling, Natural and Detail modes, the Portrait look',
       'No monthly cap — run as many images as you want',
-      'Signed offline key — verified on your machine, no server',
+      'Signed offline key — verified on your machine, no activation server',
       'Cleared for client, commercial and business work',
       'Re-issued key if you replace that machine',
     ],
@@ -443,7 +443,7 @@ export const faqs = [
   },
   {
     q: 'Does it need an internet connection?',
-    a: 'No. After the one-time download and install, Fovea works fully offline — enhancement, batch, export, and even license activation all complete without a connection. ONNX Runtime’s Windows telemetry is explicitly switched off at startup, and the app has no HTTP client at run time.',
+    a: 'A paid plan needs none — after the one-time download and install, enhancement, batch, export and license activation all complete without a connection. The free plan asks our server once per install to open its month, because the ten-image allowance is counted there rather than in a file you could edit; the balance it returns is cached, so the train, the plane and the dead network all keep working, and what you spent offline is reported when the connection comes back. ONNX Runtime’s Windows telemetry is explicitly switched off at startup, and nothing that leaves is ever a picture, a filename or a path.',
   },
   {
     q: 'What Windows versions are supported?',
@@ -495,7 +495,7 @@ export const faqs = [
   },
   {
     q: 'Is my history or usage reported to you?',
-    a: 'Never. History is a plain JSON file inside Fovea’s own app folder on your disk, and no network code in the app can read it. You can clear the journal from Settings, and doing so deletes records only — your images are untouched.',
+    a: 'Your history never leaves. It is a plain JSON file inside Fovea’s own app folder on your disk, and you can clear it from Settings — doing so deletes records only, your images are untouched. The one thing the app does report is the free plan’s monthly total: a number of images written, under a hashed install id. No filename, no path, no thumbnail, no record — and a paid plan reports nothing at all.',
   },
   {
     q: 'Why is it a one-time price instead of a subscription?',
