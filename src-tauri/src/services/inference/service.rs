@@ -2459,4 +2459,247 @@ mod tests {
             "Detail edges ({det_edge}) should be at least as strong as Standard ({std_edge})"
         );
     }
+
+    /// ── Real end-to-end for the Look dropdown ───────────────────────
+    ///
+    /// Every filter the UI offers, run through the actual ONNX pipeline on
+    /// one source at the free plan's 2×: each must complete, each must
+    /// change the *written master* relative to Original, and no two may
+    /// write the same file. The unit tests in `finish` prove the math; this
+    /// proves the math survives tiling, the band resample and the PNG
+    /// encode — which is where a look could quietly be dropped.
+    ///   cargo test --lib -- --ignored real_filters
+    #[test]
+    #[ignore = "requires ONNX Runtime binaries + the bundled model file"]
+    fn real_filters_each_change_the_written_master_in_their_own_way() {
+        use crate::services::inference::backend::OnnxBackend;
+        let manifest = Path::new(env!("CARGO_MANIFEST_DIR"));
+        let registry = ModelRegistry::new(vec![manifest.join("models")]);
+        let (root, _models, out_dir) = harness("real-filters");
+        let source = {
+            // A neutral grey ramp (so every tonal claim is measured against
+            // a picture with no cast of its own) plus one warm and one cool
+            // block, so the saturation looks have colour to act on.
+            let mut img = RgbaImage::new(96, 64);
+            for (x, y, p) in img.enumerate_pixels_mut() {
+                let v = (24.0 + (x as f32 / 95.0) * 208.0) as u8;
+                let mut rgb = [v, v, v];
+                if (6..22).contains(&y) && (6..34).contains(&x) {
+                    rgb = [200, 120, 70];
+                } else if (40..58).contains(&y) && (60..88).contains(&x) {
+                    rgb = [70, 120, 200];
+                }
+                *p = Rgba([rgb[0], rgb[1], rgb[2], 255]);
+            }
+            let mut out = Cursor::new(Vec::new());
+            DynamicImage::ImageRgba8(img)
+                .write_to(&mut out, ImageFormat::Png)
+                .expect("encode");
+            let path = root.join("ramp.png");
+            std::fs::write(&path, out.into_inner()).expect("write");
+            path
+        };
+        let config = EngineConfig {
+            tile: 32,
+            pad: 8,
+            ..Default::default()
+        };
+
+        let run = |filter: Filter| -> image::RgbImage {
+            let jobs = JobRegistry::new();
+            let token = Arc::new(CancelToken::new());
+            let job_id = jobs.next_job_id();
+            jobs.begin(&job_id, Arc::clone(&token)).expect("begin");
+            let result = enhance(
+                &source.to_string_lossy(),
+                EnhanceMode::Standard,
+                2,
+                filter,
+                100,
+                &registry,
+                &config,
+                &out_dir,
+                &jobs,
+                &job_id,
+                &token,
+                |_| {},
+                OnnxBackend::load_with,
+            )
+            .expect("real enhancement must succeed");
+            assert!(jobs.active_count() == 0, "the slot must be released");
+            image::open(&result.file_path)
+                .expect("output decodes")
+                .into_rgb8()
+        };
+
+        /// One reading of a written master: the numbers each look claims to
+        /// move, measured on the file rather than on the tile buffer.
+        #[derive(Debug, Clone, Copy)]
+        struct Stats {
+            luma: f64,
+            warm: f64,
+            chroma: f64,
+            rough: f64,
+            dark_luma: f64,
+            dark_warm: f64,
+            bright_warm: f64,
+        }
+        let stats = |img: &image::RgbImage| -> Stats {
+            let mut luma = 0f64;
+            let mut warm = 0f64;
+            let mut chroma = 0f64;
+            let mut pixels: Vec<(f64, f64)> = Vec::new();
+            for p in img.pixels() {
+                let (r, g, b) = (f64::from(p[0]), f64::from(p[1]), f64::from(p[2]));
+                let l = 0.2126 * r + 0.7152 * g + 0.0722 * b;
+                luma += l;
+                warm += r - b;
+                chroma += (r - l).abs() + (g - l).abs() + (b - l).abs();
+                pixels.push((l, r - b));
+            }
+            let n = pixels.len() as f64;
+            // Mean absolute neighbour difference per channel: local detail.
+            let (w, h) = (img.width() as usize, img.height() as usize);
+            let mut rough = 0f64;
+            for y in 0..h {
+                for x in 1..w {
+                    let a = img.get_pixel(x as u32 - 1, y as u32);
+                    let b = img.get_pixel(x as u32, y as u32);
+                    rough += (f64::from(a[0]) - f64::from(b[0])).abs()
+                        + (f64::from(a[1]) - f64::from(b[1])).abs()
+                        + (f64::from(a[2]) - f64::from(b[2])).abs();
+                }
+            }
+            pixels.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap());
+            let tenth = ((n / 10.0) as usize).max(1);
+            let dark: Vec<(f64, f64)> = pixels.iter().take(tenth).copied().collect();
+            let bright_warm: f64 =
+                pixels.iter().rev().take(tenth).map(|p| p.1).sum::<f64>() / tenth as f64;
+            Stats {
+                luma: luma / n,
+                warm: warm / n,
+                chroma: chroma / n,
+                rough: rough / (n * 3.0),
+                dark_luma: dark.iter().map(|p| p.0).sum::<f64>() / tenth as f64,
+                dark_warm: dark.iter().map(|p| p.1).sum::<f64>() / tenth as f64,
+                bright_warm,
+            }
+        };
+
+        let original = run(Filter::Original);
+        let mut done: Vec<(Filter, image::RgbImage)> = Vec::new();
+        for filter in Filter::ALL {
+            let img = if filter == Filter::Original {
+                original.clone()
+            } else {
+                run(filter)
+            };
+            assert_eq!(img.dimensions(), original.dimensions());
+            if filter == Filter::Original {
+                assert_eq!(img.as_raw(), original.as_raw());
+            } else {
+                assert_ne!(
+                    img.as_raw(),
+                    original.as_raw(),
+                    "{filter:?} wrote the same file as Original — the look never reached the master"
+                );
+                for (other, other_img) in &done {
+                    assert_ne!(
+                        img.as_raw(),
+                        other_img.as_raw(),
+                        "{filter:?} and {other:?} wrote identical masters"
+                    );
+                }
+            }
+            let s = stats(&img);
+            println!(
+                "{:>10}  luma {:6.1}  warm {:7.1}  chroma {:6.1}  rough {:7.2}  dark {:6.1}/{:7.1}  hi-warm {:7.1}",
+                filter.key(),
+                s.luma,
+                s.warm,
+                s.chroma,
+                s.rough,
+                s.dark_luma,
+                s.dark_warm,
+                s.bright_warm
+            );
+            done.push((filter, img));
+        }
+        assert_eq!(done.len(), 11);
+
+        let get = |key: &str| -> &image::RgbImage {
+            done.iter()
+                .find(|(f, _)| f.key() == key)
+                .map(|(_, i)| i)
+                .expect("filter ran above")
+        };
+        let base = stats(&original);
+
+        // Full-strength Black & White is monochrome in the *file*, not just
+        // in the tile buffer.
+        for p in get("mono").pixels() {
+            assert!(
+                p[0] == p[1] && p[1] == p[2],
+                "mono master kept colour: {p:?}"
+            );
+        }
+        // Each look's signature, measured on the written master.
+        assert!(
+            stats(get("warm")).warm > base.warm,
+            "warm master is not warmer"
+        );
+        assert!(
+            stats(get("cool")).warm < base.warm,
+            "cool master is not cooler"
+        );
+        let (natural, vivid) = (stats(get("natural")), stats(get("vivid")));
+        assert!(
+            natural.chroma > base.chroma,
+            "natural did not open the colour"
+        );
+        assert!(
+            vivid.chroma > natural.chroma,
+            "vivid must out-saturate natural"
+        );
+        // Softening must survive the encode: less neighbour variation than
+        // the untouched model result.
+        assert!(
+            stats(get("soft")).rough < base.rough,
+            "soft master is no smoother than the original"
+        );
+        assert!(
+            stats(get("sharp")).rough > base.rough,
+            "sharp master is not crisper"
+        );
+        assert!(
+            stats(get("product")).rough > base.rough,
+            "product clarity did not reach the master"
+        );
+        let portrait = stats(get("portrait"));
+        assert!(portrait.warm > base.warm, "portrait did not warm");
+        assert!(portrait.rough < base.rough, "portrait did not soften");
+        let filmic = stats(get("cinematic"));
+        assert!(
+            filmic.dark_luma > base.dark_luma,
+            "cinematic must lift the blacks (got {} over {})",
+            filmic.dark_luma,
+            base.dark_luma
+        );
+        // The split tone, measured where it is claimed: the ramp's darkest
+        // and brightest pixels start neutral, so their red-minus-blue axis
+        // must move apart — teal into the shadows, warm into the
+        // highlights — instead of the whole frame going one way.
+        assert!(
+            filmic.dark_warm < base.dark_warm,
+            "cinematic shadows must go teal (got {} over {})",
+            filmic.dark_warm,
+            base.dark_warm
+        );
+        assert!(
+            filmic.bright_warm > base.bright_warm,
+            "cinematic highlights must go warm (got {} over {})",
+            filmic.bright_warm,
+            base.bright_warm
+        );
+    }
 }

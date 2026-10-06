@@ -108,8 +108,8 @@ export interface LookFieldsProps {
   filters: FilterStatusDto[] | null
   disabled?: boolean
   /** The plan a look needs, or `null` when this plan can run it. Portrait is
-   * the one filter with a face-detection pass behind it, so it is the one a
-   * plan can hold back. */
+   * the one look Pro holds back — the rest are the same pixel math on any
+   * plan — so it is the one option that can arrive disabled. */
   lockFor?: (filter: FilterKey) => PlanTier | null
   onChange: (patch: { filter?: FilterKey; intensity?: number }) => void
 }

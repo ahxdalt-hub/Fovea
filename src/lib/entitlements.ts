@@ -62,6 +62,64 @@ const REQUIRED: Record<Capability, PlanTier | null> = {
 /** What a lock is worth to the user, as it appears on a control. */
 const TIER_BADGE: Record<PlanTier, string> = { pro: 'Pro', studio: 'Studio' }
 
+/** One row of the "what each plan runs" table, in native's policy order
+ * (`ALL_FEATURES` in `services/license`). The `capability` key is what the
+ * cell's value is *computed* from — this list carries no ✓ marks of its own,
+ * so the table cannot claim something the gate does not grant.
+ *
+ * `detail` earns its vertical space only on a row the plans disagree about,
+ * so the four baseline rows carry none. */
+export interface PlanRow {
+  readonly capability: Capability
+  readonly label: string
+  readonly detail?: string
+  /** True for the row whose free-plan answer is the monthly count, which
+   * only native knows the size of. */
+  readonly metered?: boolean
+}
+
+export const PLAN_ROWS: readonly PlanRow[] = [
+  { capability: 'enhance', label: 'Enhance images' },
+  { capability: 'export', label: 'Export results' },
+  { capability: 'batch', label: 'Batch a folder' },
+  { capability: 'journal', label: 'History journal' },
+  { capability: 'upscale_4x', label: '4× upscaling', detail: 'Above the free plan’s 2× ceiling' },
+  {
+    capability: 'advanced_restoration',
+    label: 'Natural and Detail models',
+    detail: 'Denoise-first, and the sharpening pass',
+  },
+  {
+    capability: 'face_enhancement',
+    label: 'Portrait finishing look',
+    detail: 'The one look tuned for skin',
+  },
+  {
+    capability: 'unlimited_processing',
+    label: 'Unlimited processing',
+    detail: 'The free plan counts a monthly allowance',
+    metered: true,
+  },
+  {
+    capability: 'engine_controls',
+    label: 'Hardware path and power mode',
+    detail: 'Force the processor, or use every core',
+  },
+]
+
+/** Does a plan carry a capability? Computed from `REQUIRED`, which mirrors
+ * Rust `minimum_edition` — so the table, the badges on locked controls and
+ * the native gate are three readings of one policy. */
+export function planGrants(tier: 'free' | PlanTier, capability: Capability): boolean {
+  const needed = REQUIRED[capability]
+  return needed === null || TIER_RANK[tier] >= TIER_RANK[needed]
+}
+
+/** Ascending order of the plans, for "does this build outrank that record?" */
+export function tierRank(tier: 'free' | PlanTier): number {
+  return TIER_RANK[tier]
+}
+
 export interface PlanView {
   /** False until the native license status has arrived. */
   readonly known: boolean

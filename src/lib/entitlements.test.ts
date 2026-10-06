@@ -11,6 +11,7 @@ import { PRESETS } from './presets'
 import type { FoveaSettings } from '../state/settings'
 import {
   FREE_MAX_SCALE,
+  PLAN_ROWS,
   filterLock,
   hasRepairs,
   modeLock,
@@ -18,6 +19,7 @@ import {
   meterUncounted,
   periodLabel,
   planBadge,
+  planGrants,
   planLock,
   planName,
   planQuota,
@@ -26,6 +28,7 @@ import {
   planView,
   presetLock,
   scaleLock,
+  tierRank,
   type Capability,
 } from './entitlements'
 
@@ -233,5 +236,28 @@ describe('the month meter', () => {
     expect(meterUncounted({ period: '', limit: 10, used: 0, remaining: 10, counted: false })).toBe(
       true,
     )
+  })
+})
+
+describe('the plan comparison table', () => {
+  it('covers every capability native emits, once each, in native’s order', () => {
+    const listed = PLAN_ROWS.map((row) => row.capability)
+    expect(listed).toEqual([...STUDIO])
+    expect(new Set(listed).size).toBe(listed.length)
+  })
+
+  /** A cell that disagrees with the lock helpers is a table that lies about
+   * what a plan runs, so the three records above are the source of truth. */
+  it('marks each column exactly what that plan grants', () => {
+    for (const row of PLAN_ROWS) {
+      expect(planGrants('free', row.capability)).toBe(FREE.includes(row.capability))
+      expect(planGrants('pro', row.capability)).toBe(PRO.includes(row.capability))
+      expect(planGrants('studio', row.capability)).toBe(STUDIO.includes(row.capability))
+    }
+  })
+
+  it('orders the plans so a build name can be compared with a record', () => {
+    expect(tierRank('free')).toBeLessThan(tierRank('pro'))
+    expect(tierRank('pro')).toBeLessThan(tierRank('studio'))
   })
 })

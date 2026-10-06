@@ -25,7 +25,7 @@
 //! Filters are applied to a tile's planar f32 output *including* the bleed
 //! pad, then the pad is cropped on composite. For the pointwise filters
 //! (saturation, tone curves, channel balance) position is irrelevant, so
-//! they are trivially seam-free. For the two neighbourhood filters (Soft,
+//! they are trivially seam-free. For the four neighbourhood filters (Soft,
 //! Portrait, Sharp, Product clarity) the pad supplies real neighbours for
 //! every pixel of the interior — the same argument that makes
 //! [`PostPass::Sharpen`] exact at tile borders.
@@ -463,9 +463,9 @@ mod tests {
         for y in 0..H {
             for x in 0..W {
                 let [r, g, b] = f(x, y);
-                data[0 * plane() + y * W + x] = r;
-                data[1 * plane() + y * W + x] = g;
-                data[2 * plane() + y * W + x] = b;
+                for (c, v) in [r, g, b].into_iter().enumerate() {
+                    data[c * plane() + y * W + x] = v;
+                }
             }
         }
         data
@@ -488,7 +488,7 @@ mod tests {
         data[c * plane() + y * W + x]
     }
 
-    fn run(data: &mut Vec<f32>, filter: Filter, intensity: u8) {
+    fn run(data: &mut [f32], filter: Filter, intensity: u8) {
         apply(
             data,
             W,
@@ -675,9 +675,8 @@ mod tests {
     fn vivid_increases_distance_from_grey_and_natural_does_it_gently() {
         let colored = field(|_, _| [0.8, 0.2, 0.45]);
         let l = luma(0.8, 0.2, 0.45);
-        let spread = |d: &[f32]| {
-            (d[0] - l).abs() + (d[plane() + 0] - l).abs() + (d[2 * plane() + 0] - l).abs()
-        };
+        let spread =
+            |d: &[f32]| (d[0] - l).abs() + (d[plane()] - l).abs() + (d[2 * plane()] - l).abs();
         let mut vivid = colored.clone();
         run(&mut vivid, Filter::Vivid, 100);
         let mut natural = colored.clone();
@@ -806,5 +805,141 @@ mod tests {
             prev = d;
         }
         assert!(prev > 0.0, "and full strength must actually do something");
+    }
+
+    /// The end-to-end claim behind the Look dropdown: every filter the UI
+    /// offers does real work at the strength the product defaults to, and
+    /// no two of them are the same recipe wearing a different label (the
+    /// Stage 06 rule, checked across the whole set rather than one pair).
+    #[test]
+    fn every_look_does_real_work_and_none_is_a_relabel_of_another() {
+        // A field that varies in both axes and across channels, so pointwise
+        // tonal looks, colour casts and neighbourhood passes all have
+        // something genuine to act on.
+        let base = field(|x, y| {
+            let u = x as f32 / (W - 1) as f32;
+            let v = y as f32 / (H - 1) as f32;
+            [0.15 + 0.7 * u, 0.62 - 0.45 * v, 0.25 + 0.5 * u * v]
+        });
+
+        let mut done: Vec<(Filter, Vec<f32>)> = Vec::new();
+        for filter in Filter::ALL {
+            let mut data = base.clone();
+            run(&mut data, filter, DEFAULT_INTENSITY);
+            if filter == Filter::Original {
+                assert_eq!(data, base, "Original must be the untouched result");
+                continue;
+            }
+            assert!(
+                data.iter().zip(&base).any(|(a, b)| (a - b).abs() > 1e-4),
+                "{filter:?} is a dead switch at the designed strength"
+            );
+            for (other, other_data) in &done {
+                assert!(
+                    data.iter()
+                        .zip(other_data)
+                        .any(|(a, b)| (a - b).abs() > 1e-4),
+                    "{filter:?} is {other:?} under a new name"
+                );
+            }
+            done.push((filter, data));
+        }
+        assert_eq!(done.len(), 10, "the off-switch plus ten looks");
+    }
+
+    /// Portrait and Product are the two looks that promise a *combination*
+    /// of moves, so each one is checked on all of them: Portrait softens,
+    /// warms and lifts without going clay-orange; Product gains clarity
+    /// while keeping colours at or under the source. Neither may be a one
+    /// -parameter look wearing a two-parameter description.
+    #[test]
+    fn the_combined_looks_deliver_every_move_they_claim() {
+        let skin = field(|_, _| [0.78, 0.58, 0.47]);
+        let warm_axis = |d: &[f32]| at(d, 0, 0, 0) - at(d, 2, 0, 0);
+        let spread_around_grey = |d: &[f32]| {
+            let l = luma(at(d, 0, 0, 0), at(d, 1, 0, 0), at(d, 2, 0, 0));
+            (at(d, 0, 0, 0) - l).abs() + (at(d, 1, 0, 0) - l).abs() + (at(d, 2, 0, 0) - l).abs()
+        };
+
+        let mut portrait = skin.clone();
+        run(&mut portrait, Filter::Portrait, 100);
+        assert!(
+            warm_axis(&portrait) > warm_axis(&skin),
+            "portrait must travel toward warmth"
+        );
+        let lift = |d: &[f32]| (at(d, 0, 0, 0) + at(d, 1, 0, 0) + at(d, 2, 0, 0)) / 3.0 - 0.61;
+        assert!(lift(&portrait) > 0.0, "portrait must lift exposure");
+        // The ease is judged against the same recipe with the desaturation
+        // step deleted (soften, warm, lift — nothing else). Judging it
+        // against the source would be wrong: the warmth itself widens the
+        // spread, and "skin does not go clay-orange" is a claim about the
+        // cast Portrait applies, not about the picture it started from.
+        let mut warmth_without_the_ease = skin.clone();
+        let blurred = blur3(&warmth_without_the_ease, W, H);
+        for (i, v) in warmth_without_the_ease.iter_mut().enumerate() {
+            *v = clamp01(*v + 0.28 * (blurred[i] - *v));
+        }
+        cast(
+            &mut warmth_without_the_ease,
+            1.07,
+            1.0,
+            0.98, // Portrait's own gains at full strength
+        );
+        for v in warmth_without_the_ease.iter_mut() {
+            *v = clamp01(*v + 0.04);
+        }
+        assert!(
+            spread_around_grey(&portrait) < spread_around_grey(&warmth_without_the_ease),
+            "portrait must ease the saturation its own warmth adds"
+        );
+
+        // Product promises clarity *and* colours kept honest. The tonal
+        // curve alone already separates the channels, so the claim is
+        // checked against that curve: the extra spread must come from the
+        // unsharp, and the chroma must end below a pure contrast push.
+        let mut product = skin.clone();
+        run(&mut product, Filter::Product, 100);
+        let mut contrast_only = skin.clone();
+        tone(&mut contrast_only, 1.0, 1.18);
+        assert!(
+            spread_around_grey(&product) < spread_around_grey(&contrast_only),
+            "product must hold colours below a neutral contrast push"
+        );
+
+        let mut mid_edge = field(|x, _| {
+            let v = if x < W / 2 { 0.35 } else { 0.65 };
+            [v, v, v]
+        });
+        let step = |d: &[f32]| at(d, 0, 16, 8) - at(d, 0, 15, 8);
+        let tonal_step = {
+            let mut t = mid_edge.clone();
+            tone(&mut t, 0.95, 1.18);
+            step(&t)
+        };
+        run(&mut mid_edge, Filter::Product, 100);
+        assert!(
+            step(&mid_edge) > tonal_step,
+            "product clarity must be real local contrast, not the curve alone"
+        );
+    }
+
+    /// The status list is what the UI renders, so it must carry all eleven
+    /// keys in native order with their own words — a missing entry would
+    /// silently drop a look from the dropdown.
+    #[test]
+    fn the_status_list_offers_every_look_with_its_own_words() {
+        let statuses: Vec<FilterStatus> = Filter::ALL.iter().copied().map(status_for).collect();
+        assert_eq!(statuses.len(), 11);
+        let keys: Vec<&str> = statuses.iter().map(|s| s.key).collect();
+        assert_eq!(keys[0], "original");
+        assert_eq!(
+            keys.len(),
+            keys.iter().collect::<std::collections::HashSet<_>>().len()
+        );
+        for (status, filter) in statuses.iter().zip(Filter::ALL) {
+            assert_eq!(status.label, filter.label());
+            assert_eq!(status.description, filter.description());
+            assert!(status.available, "{} is pure pixel math", filter.key());
+        }
     }
 }

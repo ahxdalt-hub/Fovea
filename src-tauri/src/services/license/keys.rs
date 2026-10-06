@@ -36,6 +36,9 @@ pub fn public_keys_hex() -> Vec<String> {
 
 #[cfg(test)]
 mod tests {
+    // Only the release-gated test below reads the parent — under `cargo test`
+    // (debug) nothing here is used, and the import would warn.
+    #[cfg(not(debug_assertions))]
     use super::*;
 
     /// The dev pair is a fixture, not a skeleton key. In a release binary the

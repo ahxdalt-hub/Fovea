@@ -222,7 +222,9 @@ pub enum Feature {
     /// The denoise-first (Natural) model and the unsharp (Detail) pass —
     /// the two restorations beyond general reconstruction.
     AdvancedRestoration,
-    /// The portrait look: the engine's only face-specific operation.
+    /// The portrait look: the one finishing filter tuned for faces (a
+    /// global soften-warm-lift pass, not face detection). The wire key
+    /// stays `face_enhancement`, which is what issued keys carry.
     FaceEnhancement,
     /// No monthly meter. Without it, enhancements are counted against
     /// [`quota::FREE_MONTHLY_ENHANCEMENTS`] in the calendar month.

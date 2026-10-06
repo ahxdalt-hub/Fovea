@@ -48,7 +48,7 @@ fn main() {
     // it is emailed to anyone, and to answer a support ticket without the
     // private key being involved at all.
     if let Some(raw) = value("--verify") {
-        verify(&raw.trim(), value("--machine").as_deref());
+        verify(raw.trim(), value("--machine").as_deref());
         return;
     }
 
