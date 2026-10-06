@@ -33,6 +33,7 @@ function mockSuccessfulCore() {
         version: '0.2.0',
         identifier: 'com.fovea.desktop',
         debug: true,
+        buildPlan: 'free',
       })
     if (cmd === 'get_system_info')
       return Promise.resolve({
@@ -177,6 +178,7 @@ describe('Fovea shell', () => {
           version: '0.2.0',
           identifier: 'com.fovea.desktop',
           debug: true,
+          buildPlan: 'free',
         })
       if (cmd === 'get_system_info')
         return Promise.resolve({

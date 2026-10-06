@@ -116,6 +116,7 @@ describe('useImport funnel', () => {
     version: '0.3.0',
     identifier: 'com.fovea.desktop',
     debug: true,
+    buildPlan: 'free',
   }
   const systemInfo = { osFamily: 'windows', arch: 'x86_64', appDataDir: 'C:/x' }
 

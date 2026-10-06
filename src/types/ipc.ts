@@ -11,6 +11,9 @@ export interface AppConfigDto {
   version: string
   identifier: string
   debug: boolean
+  /** The plan this installer was *built* as. Branding only — what the machine
+   * may run comes from the license record, never from here. */
+  buildPlan: 'free' | 'pro' | 'studio'
 }
 
 /** Serialized `SystemInfo` from Rust. */

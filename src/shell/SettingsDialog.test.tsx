@@ -89,6 +89,7 @@ function Harness({ onClose = () => {} }: { onClose?: () => void }) {
         version: '1.2.3',
         identifier: 'com.fovea.desktop',
         debug: false,
+        buildPlan: 'free',
       },
       systemInfo,
     })

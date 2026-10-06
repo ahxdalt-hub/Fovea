@@ -97,10 +97,11 @@ pub fn run() {
         .setup(|app| {
             let cfg = config::AppConfig::from_build();
             log::info!(
-                "{} v{} starting (debug={})",
+                "{} v{} starting (debug={}, build plan={})",
                 cfg.product_name,
                 cfg.version,
-                cfg.debug
+                cfg.debug,
+                cfg.build_plan
             );
             // Surface a visible failure early rather than a silent half-start.
             if let Err(err) = app.path().app_data_dir() {

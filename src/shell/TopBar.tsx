@@ -9,6 +9,7 @@
 import type { ReactNode } from 'react'
 import { useAppState } from '../state/useAppState'
 import type { ThemePreference } from '../state/settings'
+import { planBadge, planView } from '../lib/entitlements'
 import { Menu, type MenuItem } from '../ui/Menu'
 import { Tooltip } from '../ui/Tooltip'
 import { StatusDot } from '../components/StatusDot'
@@ -41,6 +42,14 @@ export interface TopBarProps {
 
 export function TopBar({ onOpenSettings, onOpenShortcuts, onOpenAbout, onSetTheme }: TopBarProps) {
   const { state } = useAppState()
+  // The name comes from the bundle, so a Fovea Pro install says Fovea Pro and
+  // a dev run says Fovea. Native is the only place the product name lives.
+  const productName = state.config?.productName ?? 'Fovea'
+  const plan = planView(state.license)
+  const planChipTier =
+    plan.known && plan.tier !== 'free' && !productName.toLowerCase().includes(plan.tier)
+      ? plan.tier
+      : null
 
   const themeItems: MenuItem[] = (['system', 'light', 'dark'] as const).map((t) => ({
     id: t,
@@ -60,7 +69,15 @@ export function TopBar({ onOpenSettings, onOpenShortcuts, onOpenAbout, onSetThem
     <header className="fovea-topbar">
       <div className="fovea-topbar__brand">
         <BrandMark />
-        <span className="fovea-topbar__wordmark">Fovea</span>
+        <span className="fovea-topbar__wordmark">{productName}</span>
+        {/* The plan in force, when the name on the bar does not already carry
+            it: an activated key is worth a mark you can see without opening
+            Settings. */}
+        {planChipTier && (
+          <span className="fovea-topbar__plan" data-tier={planChipTier}>
+            {planBadge(planChipTier)}
+          </span>
+        )}
       </div>
 
       <div className="fovea-topbar__trailing">
@@ -92,7 +109,7 @@ export function TopBar({ onOpenSettings, onOpenShortcuts, onOpenAbout, onSetThem
               <IconMore size="sm" />
             </ChromeIcon>
           }
-          items={[{ id: 'about', label: 'About Fovea', onSelect: onOpenAbout }]}
+          items={[{ id: 'about', label: `About ${productName}`, onSelect: onOpenAbout }]}
         />
         <Tooltip content="Settings (Ctrl+,)" side="bottom" align="end">
           <button

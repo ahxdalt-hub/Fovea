@@ -7,6 +7,12 @@
 // `com.fovea.desktop` across all three, which is what lets an activated key,
 // settings and the month's meter survive a switch between builds.
 //
+// Each tier also compiles `FOVEA_BUILD_PLAN` into the binary (src-tauri/
+// build.rs), so the running app knows which installer it came from and can
+// name itself that way — and can tell a Pro buyer whose key is not yet
+// pasted exactly what they own. The marker grants nothing; the license
+// record remains the only authority over what a machine may do.
+//
 //   node scripts/build-tiers.mjs                # all three
 //   node scripts/build-tiers.mjs pro studio     # a subset
 
@@ -59,7 +65,12 @@ for (const tier of tiers) {
   const args = ['run', 'tauri', 'build']
   if (tier.config) args.push('--', '--config', tier.config)
   console.log(`\n── building ${tier.name} ──`)
-  execFileSync('npm', args, { cwd: root, stdio: 'inherit', shell: process.platform === 'win32' })
+  execFileSync('npm', args, {
+    cwd: root,
+    stdio: 'inherit',
+    shell: process.platform === 'win32',
+    env: { ...process.env, FOVEA_BUILD_PLAN: tier.id },
+  })
   for (const dest of collect(tier)) console.log(`  → ${dest}`)
 }
 

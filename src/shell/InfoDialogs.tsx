@@ -7,6 +7,7 @@
 import { Dialog } from '../ui/Dialog'
 import { BrandMark } from './BrandMark'
 import { useAppState } from '../state/useAppState'
+import { planName, planView } from '../lib/entitlements'
 import { Badge } from '../ui/Badge'
 import './Dialogs.css'
 
@@ -109,20 +110,40 @@ export function ShortcutsDialog({ open, onClose }: { open: boolean; onClose: () 
 
 export function AboutDialog({ open, onClose }: { open: boolean; onClose: () => void }) {
   const { state } = useAppState()
+  const name = state.config?.productName ?? 'Fovea'
+  const plan = planView(state.license)
+  // The build's own plan and the plan in force are different facts, and a
+  // paid installer running unactivated is exactly the case where telling them
+  // apart matters: the customer owns the thing they cannot yet see.
+  const buildPlan = state.config?.buildPlan ?? 'free'
   return (
-    <Dialog open={open} onClose={onClose} title="About Fovea">
+    <Dialog open={open} onClose={onClose} title={`About ${name}`}>
       <div className="fovea-about">
         <BrandMark size={48} />
         <div className="fovea-about__text">
           <div className="fovea-about__name">
-            <span className="fovea-about__title">Fovea</span>
+            <span className="fovea-about__title">{name}</span>
             {state.config && <span className="u-tabular">v{state.config.version}</span>}
           </div>
           <p>
             Professional image enhancement that runs entirely on your computer. Your photos are
             never uploaded.
           </p>
+          {plan.known && (
+            <p>
+              {plan.tier === 'free'
+                ? `This copy is running the free plan${
+                    buildPlan === 'free'
+                      ? ''
+                      : `, although the installer it came from is ${name} — its key is pasted under Settings → License`
+                  }.`
+                : `The ${planName(plan.tier)} plan is in force on this machine.`}
+            </p>
+          )}
           <div className="fovea-about__meta">
+            <Badge tone={plan.tier === 'free' ? 'neutral' : 'success'}>
+              {plan.tier === 'free' ? 'Free plan' : planName(plan.tier)}
+            </Badge>
             <Badge tone="accent">Tauri · Rust · React</Badge>
             {state.config?.debug && <Badge tone="warning">Debug build</Badge>}
           </div>

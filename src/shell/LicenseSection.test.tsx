@@ -6,10 +6,15 @@
  * boundary; the real cryptographic behaviour it mirrors is covered by the
  * Rust suite (services/license).
  */
-import { fireEvent, render, screen } from '@testing-library/react'
+import { fireEvent, render, screen, within } from '@testing-library/react'
 import { useEffect } from 'react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import type { ActivationResultDto, LicenseStatusDto } from '../types/ipc'
+import type {
+  ActivationResultDto,
+  AppConfigDto,
+  LicenseStatusDto,
+  SystemInfoDto,
+} from '../types/ipc'
 
 const activateLicense = vi.fn()
 const deactivateLicense = vi.fn()
@@ -65,20 +70,47 @@ const asResult = (status: LicenseStatusDto, alreadyActive = false): ActivationRe
   alreadyActive,
 })
 
+/** What the installer reports about itself (Stage 20 packaging): the free
+ * build, and the two branded ones. `productName` follows the build, exactly
+ * as `config.rs` derives both from one marker. */
+const systemInfo: SystemInfoDto = {
+  osFamily: 'windows',
+  arch: 'x86_64',
+  appDataDir: 'C:/Users/test/AppData',
+  logsDir: 'C:/Users/test/AppData/logs',
+  defaultExportDir: 'C:/Users/test/Documents/Fovea',
+  defaultBatchExportDir: 'C:/Users/test/Documents/Fovea/Batch',
+}
+
+function build(plan: AppConfigDto['buildPlan']): AppConfigDto {
+  return {
+    productName: plan === 'free' ? 'Fovea' : `Fovea ${plan === 'pro' ? 'Pro' : 'Studio'}`,
+    version: '1.3.0',
+    identifier: 'com.fovea.desktop',
+    debug: false,
+    buildPlan: plan,
+  }
+}
+
+const FREE_BUILD = build('free')
+const PRO_BUILD = build('pro')
+const STUDIO_BUILD = build('studio')
+
 /** The section reads the shell's license record, so the tests seed it the
  * way the bootstrap does — by dispatch, never by reaching into state. */
-function Harness({ seed }: { seed: LicenseStatusDto | null }) {
+function Harness({ seed, installer }: { seed: LicenseStatusDto | null; installer: AppConfigDto }) {
   const { dispatch } = useAppState()
   useEffect(() => {
+    dispatch({ type: 'core/ready', config: installer, systemInfo })
     dispatch(seed === null ? { type: 'license/error' } : { type: 'license/set', status: seed })
-  }, [dispatch, seed])
+  }, [dispatch, seed, installer])
   return <LicenseSection />
 }
 
-function renderSection(seed: LicenseStatusDto | null = unactivated) {
+function renderSection(seed: LicenseStatusDto | null = unactivated, installer = FREE_BUILD) {
   return render(
     <AppStateProvider>
-      <Harness seed={seed} />
+      <Harness seed={seed} installer={installer} />
     </AppStateProvider>,
   )
 }
@@ -232,5 +264,62 @@ describe('License section', () => {
     renderSection(unactivated)
     expect(await screen.findByText(/never interrupted by a license question/i)).toBeInTheDocument()
     expect(screen.getByText(/verified on this machine, never online/i)).toBeInTheDocument()
+  })
+
+  it('shows every plan side by side, computed from the one policy table', async () => {
+    renderSection(unactivated)
+    const table = await screen.findByRole('table')
+    // Nine capabilities, in native's order, none of them dropped.
+    expect(within(table).getAllByRole('row')).toHaveLength(10)
+    expect(within(table).getByRole('columnheader', { name: /in force/i })).toHaveTextContent(
+      /free/i,
+    )
+    // The Studio-only row: two plans short, one plan that has it.
+    const hardware = within(table).getByRole('row', {
+      name: /hardware path and power mode/i,
+    })
+    expect(within(hardware).getAllByText('Not included')).toHaveLength(2)
+    expect(within(hardware).getByText('Included')).toBeInTheDocument()
+    // The metered row answers with native's own number on the side that does
+    // not have the capability — never a figure this screen invented.
+    const meter = within(table).getByRole('row', { name: /unlimited processing/i })
+    expect(within(meter).getByText('10/mo')).toBeInTheDocument()
+  })
+
+  describe('a paid installer ahead of its key', () => {
+    it('names what the build owes and how to open it', async () => {
+      renderSection(unactivated, PRO_BUILD)
+      expect(await screen.findByText('Fovea Pro installer')).toBeInTheDocument()
+      expect(
+        screen.getByText(/takes its paid options from a license key, not from the installer/i),
+      ).toBeInTheDocument()
+      expect(
+        screen.getByText(/4× upscaling, the natural and detail models, the portrait look/i),
+      ).toBeInTheDocument()
+      // The one action the notice offers points at the box below it.
+      fireEvent.click(screen.getByRole('button', { name: 'Paste the key now' }))
+      expect(screen.getByLabelText('License key')).toHaveFocus()
+    })
+
+    it('says so differently once a shorter key is in force', async () => {
+      renderSection(active, STUDIO_BUILD)
+      expect(
+        await screen.findByText(/one plan short of what this installer is named for/i),
+      ).toBeInTheDocument()
+      expect(screen.getByText(/choosing the hardware path and the power mode/i)).toBeInTheDocument()
+    })
+
+    it('goes quiet when the build’s own key is the one in force', async () => {
+      renderSection(active, PRO_BUILD)
+      expect(await screen.findByText('Fovea Pro')).toBeInTheDocument()
+      expect(screen.queryByText(/nothing is wrong with this download/i)).not.toBeInTheDocument()
+      expect(screen.queryByRole('button', { name: 'Paste the key now' })).not.toBeInTheDocument()
+    })
+
+    it('never appears in the free build, which owes its user nothing', async () => {
+      renderSection(unactivated, FREE_BUILD)
+      expect(await screen.findByText(/running unactivated/i)).toBeInTheDocument()
+      expect(screen.queryByText(/nothing is wrong with this download/i)).not.toBeInTheDocument()
+    })
   })
 })

@@ -26,6 +26,7 @@ export function previewInvoke(cmd: string): Promise<unknown> {
     version: '0.0.0-preview',
     identifier: 'com.fovea.desktop',
     debug: true,
+    buildPlan: 'free',
   }
   const systemInfo: SystemInfoDto = {
     osFamily: 'browser',

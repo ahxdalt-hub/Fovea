@@ -17,10 +17,22 @@
  * by a license question, and every file already written stays yours whatever
  * the record later says.
  */
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import { activateLicense, deactivateLicense } from '../ipc/bridge'
 import { toAppError, type LicenseStatusDto } from '../types/ipc'
-import { FREE_MAX_SCALE, periodLabel, planName, planQuota, planView } from '../lib/entitlements'
+import {
+  FREE_MAX_SCALE,
+  PLAN_ROWS,
+  periodLabel,
+  planBadge,
+  planGrants,
+  planName,
+  planQuota,
+  planView,
+  tierRank,
+  type PlanTier,
+  type PlanView,
+} from '../lib/entitlements'
 import { useAppState } from '../state/useAppState'
 import { Badge, type BadgeTone } from '../ui/Badge'
 import { Button } from '../ui/Button'
@@ -74,6 +86,14 @@ const STATE_TONE: Record<LicenseStatusDto['state'], BadgeTone> = {
   clock_suspect: 'warning',
 }
 
+/** What a build's name promises but a lower plan cannot deliver, in the words
+ * the rest of the app uses for those same options. Keyed by the plan the
+ * installer was branded for. */
+const OWED_BY_BUILD: Record<PlanTier, string> = {
+  pro: '4× upscaling, the Natural and Detail models, the Portrait look and no monthly count',
+  studio: 'choosing the hardware path and the power mode yourself, on top of everything in Pro',
+}
+
 function formatDate(epochSeconds: number): string {
   return new Date(epochSeconds * 1000).toLocaleDateString(undefined, {
     year: 'numeric',
@@ -97,6 +117,8 @@ export function LicenseSection() {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [success, setSuccess] = useState<string | null>(null)
+  // The paid-build notice offers one action, and it points at the box below.
+  const keyBox = useRef<HTMLTextAreaElement>(null)
 
   const activate = async () => {
     setBusy(true)
@@ -166,9 +188,41 @@ export function LicenseSection() {
   const showsDetail =
     status.edition !== null || isActive || status.state === 'expired' || status.state === 'revoked'
 
+  // The plan this installer was branded as, and the plan the record puts in
+  // force, are separate facts. A paid build ahead of its key is the case
+  // where telling them apart matters most: the customer has paid, opened the
+  // app, and cannot yet see what they bought.
+  const buildPlan = state.config?.buildPlan ?? 'free'
+  const buildName = state.config?.productName ?? 'Fovea'
+  const plan = planView(status)
+  const owedTier =
+    buildPlan !== 'free' && plan.known && tierRank(buildPlan) > tierRank(plan.tier)
+      ? buildPlan
+      : null
+
   return (
     <>
       <SectionIntro />
+
+      {owedTier && (
+        <div className="pix-license__owed" data-build={owedTier}>
+          <Badge tone="accent">{`${buildName} installer`}</Badge>
+          <p className="pix-settings__note">
+            {plan.tier === 'free'
+              ? `Nothing is wrong with this download. ${buildName} takes its paid options from a license key, not from the installer — and this machine has no key yet.`
+              : `The key in force here runs ${planName(plan.tier)}, one plan short of what this installer is named for.`}{' '}
+            Paste the key from your order below and {OWED_BY_BUILD[owedTier]} open on this machine
+            straight away — no restart, and no second download. Until this machine holds that key it
+            runs {plan.tier === 'free' ? 'the free plan' : planName(plan.tier)}, which is why the
+            options marked {planBadge(owedTier)} are disabled.
+          </p>
+          <div className="pix-license__actions">
+            <Button variant="primary" size="sm" onClick={() => keyBox.current?.focus()}>
+              Paste the key now
+            </Button>
+          </div>
+        </div>
+      )}
 
       <div className="pix-settings__group">
         <div className="pix-license__head">
@@ -180,6 +234,8 @@ export function LicenseSection() {
         <p className="pix-settings__note">{STATE_SENTENCE[status.state]}</p>
 
         <PlanSummary status={status} />
+
+        <PlanMatrix plan={plan} monthlyLimit={status.quota?.limit ?? null} />
 
         {showsDetail && (
           <div className="pix-settings__diag">
@@ -209,6 +265,7 @@ export function LicenseSection() {
         </label>
         <textarea
           id="fovea-license-key"
+          ref={keyBox}
           className="pix-input pix-license__key"
           rows={3}
           spellCheck={false}
@@ -297,6 +354,78 @@ function PlanSummary({ status }: { status: LicenseStatusDto }) {
           )}
         </p>
       )}
+    </div>
+  )
+}
+
+/** The whole commercial model on one screen, as three columns.
+ *
+ * Every cell is computed by `planGrants` from the table that also drives the
+ * badges on locked controls and, in native, the gates themselves — so this
+ * list is the policy read a fourth time, never a fourth copy of it. The
+ * column for the plan in force is marked, and no row is ever dropped: a
+ * difference you cannot see is a difference that does not exist.
+ */
+function PlanMatrix({ plan, monthlyLimit }: { plan: PlanView; monthlyLimit: number | null }) {
+  const columns: Array<'free' | PlanTier> = ['free', 'pro', 'studio']
+  // Short column words: the table is a comparison, and "Fovea Pro" repeated
+  // nine times down a column is the kind of noise that makes a table unread.
+  const heading = (tier: 'free' | PlanTier) => (tier === 'free' ? 'Free' : planBadge(tier))
+  return (
+    <div className="pix-plan-matrix">
+      <span className="pix-field__label">What each plan runs</span>
+      <table>
+        <thead>
+          <tr>
+            <th scope="col" className="pix-plan-matrix__head">
+              <span className="u-visually-hidden">Feature</span>
+            </th>
+            {columns.map((tier) => (
+              <th key={tier} scope="col" data-in-force={tier === plan.tier || undefined}>
+                {heading(tier)}
+                {tier === plan.tier && (
+                  <span className="u-visually-hidden"> — in force on this machine</span>
+                )}
+              </th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {PLAN_ROWS.map((row) => (
+            <tr key={row.capability}>
+              <th scope="row">
+                <span className="pix-plan-matrix__label">{row.label}</span>
+                {row.detail && <span className="pix-plan-matrix__detail">{row.detail}</span>}
+              </th>
+              {columns.map((tier) => {
+                const granted = planGrants(tier, row.capability)
+                // The meter is the one row with a number worth showing on the
+                // side that does not have it — and native owns that number.
+                const count = !granted && row.metered ? monthlyLimit : null
+                return (
+                  <td key={tier} data-granted={granted || undefined}>
+                    <span aria-hidden="true">
+                      {granted ? '✓' : count !== null ? `${count}/mo` : '—'}
+                    </span>
+                    <span className="u-visually-hidden">
+                      {granted
+                        ? 'Included'
+                        : count !== null
+                          ? `Allowed ${count} a month`
+                          : 'Not included'}
+                    </span>
+                  </td>
+                )
+              })}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      <p className="pix-settings__note">
+        The same rule holds inside the app: an option a plan cannot run stays visible, marked with
+        the plan that opens it. Nothing is hidden, and switching builds never costs a reactivation —
+        one identifier holds the key, the settings and this month's count across all three.
+      </p>
     </div>
   )
 }

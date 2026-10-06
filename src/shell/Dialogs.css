@@ -430,3 +430,110 @@
   gap: var(--space-2);
   margin-top: calc(-1 * var(--space-2));
 }
+
+/* A paid installer running ahead of its key (Stage 20): the one state where
+   the customer has paid and cannot yet see it, so it is the only note on this
+   screen given the accent border. It never hides the rest of the section —
+   the record, the meter and the plan table stay below it, in the same order. */
+.pix-license__owed {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--space-3);
+  padding: var(--space-4);
+  border: 1px solid var(--accent);
+  border-radius: var(--radius-md);
+  background: var(--accent-soft);
+}
+
+.pix-license__owed .pix-settings__note {
+  margin: 0;
+  color: var(--text-primary);
+}
+
+.pix-license__owed .pix-license__actions {
+  margin-top: 0;
+}
+
+/* ── The plan comparison ───────────────────────────────────────────────
+   Three columns of the same policy the gates read. Numbers are tabular so
+   the ✓ / — column edges line up, and the plan in force is marked by more
+   than colour: its heading carries the words for a screen reader. */
+.pix-plan-matrix {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.pix-plan-matrix table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--text-sm);
+}
+
+.pix-plan-matrix th,
+.pix-plan-matrix td {
+  padding: var(--space-2) var(--space-3);
+  border-bottom: 1px solid var(--border-subtle);
+  text-align: center;
+  vertical-align: top;
+}
+
+.pix-plan-matrix tbody tr:last-child th,
+.pix-plan-matrix tbody tr:last-child td {
+  border-bottom: 0;
+}
+
+/* The feature column reads as a row title with a quiet explainer under it,
+   left-aligned because it is prose, not a value. */
+.pix-plan-matrix thead .pix-plan-matrix__head {
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.pix-plan-matrix tbody th {
+  text-align: left;
+  font-weight: var(--weight-medium, 500);
+  color: var(--text-primary);
+}
+
+.pix-plan-matrix__label {
+  display: block;
+}
+
+.pix-plan-matrix__detail {
+  display: block;
+  margin-top: 2px;
+  font-weight: 400;
+  font-size: var(--text-xs);
+  line-height: var(--leading-normal);
+  color: var(--text-tertiary);
+}
+
+.pix-plan-matrix thead th {
+  font-size: var(--text-xs);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-secondary);
+}
+
+.pix-plan-matrix thead th[data-in-force] {
+  color: var(--accent);
+}
+
+.pix-plan-matrix td {
+  padding-inline: var(--space-2);
+  font-variant-numeric: tabular-nums;
+  color: var(--text-tertiary);
+}
+
+.pix-plan-matrix td[data-granted] {
+  color: var(--text-primary);
+}
+
+/* The feature column takes most of the measure; the three value columns hold
+   a mark each. The settings card is ~410px wide in a 980px window, and this
+   split is what keeps a row title on one line there. */
+.pix-plan-matrix thead .pix-plan-matrix__head,
+.pix-plan-matrix tbody th {
+  width: 58%;
+}

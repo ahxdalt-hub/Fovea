@@ -7,6 +7,7 @@ const config: AppConfigDto = {
   version: '0.1.0',
   identifier: 'test.example',
   debug: true,
+  buildPlan: 'free',
 }
 
 const systemInfo: SystemInfoDto = {
