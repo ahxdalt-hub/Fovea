@@ -115,6 +115,132 @@ body {
   }
 }
 
+/* ── Plan build cards (/download) ─────────────────────────────────────
+   One engine, three named installs. The centre card is the preferred
+   plan, so it is the only dark card on a light section and the only one
+   that lifts; the glow is a 7-second breath, not a beacon, and reduced
+   motion flattens all of it back to a static grid. */
+.plan-card {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  border-radius: var(--radius-card);
+  border: 1px solid var(--color-line);
+  background: var(--color-surface);
+  color: var(--color-ink);
+  box-shadow: var(--shadow-soft);
+  transition:
+    transform 0.45s var(--ease-out),
+    box-shadow 0.45s var(--ease-out),
+    border-color 0.3s var(--ease-standard);
+}
+@media (hover: hover) {
+  .plan-card:hover {
+    transform: translateY(-5px);
+    box-shadow: var(--shadow-lift);
+    border-color: var(--color-line-strong);
+  }
+}
+
+.plan-card[data-featured='true'] {
+  background: var(--color-canvas);
+  border-color: var(--color-accent);
+  color: #fff;
+  box-shadow:
+    0 0 0 1px var(--color-accent),
+    var(--shadow-lift);
+  animation: plan-breath 7s var(--ease-standard) infinite;
+}
+@media (min-width: 1024px) {
+  .plan-card[data-featured='true'] {
+    transform: translateY(-16px);
+  }
+  .plan-card[data-featured='true']:hover {
+    transform: translateY(-21px);
+  }
+}
+@keyframes plan-breath {
+  0%,
+  100% {
+    box-shadow:
+      0 0 0 1px var(--color-accent),
+      var(--shadow-lift);
+  }
+  50% {
+    box-shadow:
+      0 0 0 1px var(--color-accent),
+      0 10px 40px rgb(11 142 126 / 0.22),
+      var(--shadow-lift);
+  }
+}
+
+/* A build the visitor arrived for — from checkout, or the free install they
+   are about to run — gets a quiet marker that does not compete with featured. */
+.plan-card[data-current='true']:not([data-featured='true']) {
+  border-color: var(--color-accent);
+  box-shadow:
+    0 0 0 3px var(--color-accent-soft),
+    var(--shadow-soft);
+}
+
+.plan-badge {
+  position: absolute;
+  top: -13px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 1;
+  padding: 4px 14px;
+  border-radius: var(--radius-pill);
+  background: var(--color-accent);
+  color: #fff;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+.plan-badge-quiet {
+  background: var(--color-accent-soft);
+  color: var(--color-accent-strong);
+}
+
+/* Each card's hook carries its own rule, which draws out on hover — the one
+   flourish per card, and what makes three separate offers rather than one
+   table read as a choice. */
+.plan-hook {
+  position: relative;
+  padding-bottom: 14px;
+  color: var(--color-ink-2);
+}
+.plan-hook::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  bottom: 0;
+  height: 2px;
+  width: 40px;
+  border-radius: 2px;
+  background: var(--color-accent);
+  transition: width 0.55s var(--ease-out);
+}
+.plan-card:hover .plan-hook::after {
+  width: 96px;
+}
+.plan-card[data-featured='true'] .plan-hook {
+  color: var(--color-steel-light);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .plan-card[data-featured='true'] {
+    animation: none;
+  }
+  .plan-card,
+  .plan-card:hover {
+    transform: none;
+  }
+}
+
 /* ── Parallax photo bands ───────────────────────────────────────────────
    Sections set a background-image inline; the fixed attachment makes the
    photo stay put while the section scrolls over it — a quiet depth effect

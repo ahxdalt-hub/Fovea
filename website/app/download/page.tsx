@@ -1,7 +1,8 @@
 import type { Metadata } from 'next';
 import { Cta } from '@/components/Cta';
+import { PlanBuilds } from '@/components/PlanBuilds';
 import { Reveal } from '@/components/Reveal';
-import { planFacts, site, tiers, type Tier } from '@/lib/site';
+import { site, tiers, type Tier } from '@/lib/site';
 import { downloadInfo, systemRequirements, type PlanId } from '@/lib/download';
 import { supabaseConfigured, getOrderByExternalId, type OrderRow } from '@/lib/supabase';
 
@@ -23,16 +24,10 @@ function findTier(id: string | undefined): Tier | undefined {
   return tiers.find((t) => t.id === id);
 }
 
-/** Which ceiling table this visit is about. A buyer arriving from checkout
- * sees the plan they paid for; anyone else sees the free plan they are
- * about to run — which is also the honest first screen of a paid install,
- * because a key is only a paste away. */
-function planKey(tier: Tier | undefined): 'evaluate' | 'pro' | 'studio' {
-  if (tier?.id === 'pro') return 'pro';
-  if (tier?.id === 'studio') return 'studio';
-  return 'evaluate';
-}
-
+/** Which build this visit is about. A buyer arriving from checkout sees their
+ * own plan marked on its card; anyone else sees the free build they are about
+ * to run — which is also the honest first screen of a paid install, because a
+ * key is only a paste away. */
 function heading(tier: Tier | undefined) {
   if (!tier || tier.id === 'evaluate') {
     return {
@@ -66,14 +61,9 @@ export default async function DownloadPage(props: {
   const tier = findTier(tierParam);
   const h = heading(tier);
   const dl = downloadInfo();
-  const facts = planFacts[planKey(tier)];
   const paid = tier !== undefined && tier.id !== 'evaluate';
-  // The button downloads the build branded for the plan this visit is about.
+  // The card marked as the visitor's own is the build this visit is about.
   const plan: PlanId = paid ? (tier!.id as PlanId) : 'free';
-  const build = dl.builds[plan];
-  const others = (['free', 'pro', 'studio'] as PlanId[]).filter(
-    (p) => p !== plan && dl.builds[p].published,
-  );
 
   // Stripe returns the buyer with the Checkout Session id; Dodo and Lemon Squeezy
   // with the reference id our checkout minted (a provider's own order id can be
@@ -101,86 +91,33 @@ export default async function DownloadPage(props: {
           </Reveal>
 
           <Reveal className="mt-8" delay={80}>
-            {build.published ? (
-              <div className="flex flex-wrap items-center gap-4">
-                <a
-                  href={build.exeUrl ?? '#'}
-                  className="inline-flex items-center gap-2 rounded-pill bg-white px-7 py-3.5 text-[1rem] font-semibold text-canvas shadow-soft transition hover:-translate-y-0.5"
-                >
-                  Download {build.name} for Windows
-                  {build.size ? <span className="text-canvas/60">· {build.size}</span> : null}
-                </a>
-                {build.msiUrl ? (
-                  <a
-                    href={build.msiUrl}
-                    className="inline-flex items-center gap-2 rounded-pill px-5 py-3.5 text-[0.95rem] font-semibold text-white ring-1 ring-white/30 transition hover:ring-white/60"
-                  >
-                    MSI package
-                  </a>
-                ) : null}
-                <div className="text-sm text-steel-light">
-                  {dl.version ? `Version ${dl.version} · ` : ''}Windows 10 &amp; 11, 64-bit
-                </div>
-              </div>
-            ) : (
-              <div className="rounded-card border border-white/15 bg-canvas-2/60 p-6">
-                <p className="font-semibold text-white">
-                  The {build.name} build isn’t published yet.
-                </p>
-                <p className="mt-2 text-[0.95rem] leading-relaxed text-steel-light">
-                  This is a pre-launch note, not a broken link. When a build is uploaded, the
-                  download button and its direct link appear here automatically. What you bought and
-                  the activation steps below are already accurate.
-                </p>
-              </div>
-            )}
-            {others.length > 0 ? (
-              <p className="mt-4 text-sm text-steel-light">
-                The same engine, branded for another plan:{' '}
-                {others.map((p, i) => (
-                  <span key={p}>
-                    {i > 0 ? ', ' : ''}
-                    <a
-                      href={dl.builds[p].exeUrl ?? '#'}
-                      className="font-semibold text-white underline decoration-white/30 underline-offset-4 transition hover:decoration-white"
-                    >
-                      {dl.builds[p].name}
-                    </a>
-                  </span>
-                ))}
-                . A key moves a machine between plans, so switching builds never costs a
-                reactivation.
-              </p>
-            ) : null}
+            <p className="text-[0.95rem] text-steel-light">
+              Three installs are waiting below, each with its own download and the features that
+              build actually runs.{' '}
+              {paid
+                ? `${tier?.name} is marked as your build.`
+                : 'The free build is marked, because that is what installs tonight.'}
+            </p>
           </Reveal>
+        </div>
+      </section>
 
-          <Reveal className="mt-10" delay={140}>
-            <div className="rounded-card border border-white/15 bg-canvas-2/50 p-6 sm:p-7">
-              <h2 className="font-display text-xl font-semibold text-white">
-                {paid
-                  ? `${tier?.name} runs this on your machine`
-                  : 'The free plan runs this on your machine'}
-              </h2>
-              <dl className="mt-5 grid gap-x-10 gap-y-2 sm:grid-cols-2">
-                {facts.map((f) => (
-                  <div
-                    key={f.k}
-                    className="flex items-baseline justify-between gap-4 border-b border-white/10 pb-2"
-                  >
-                    <dt className="text-[0.78rem] font-semibold uppercase tracking-[0.1em] text-steel">
-                      {f.k}
-                    </dt>
-                    <dd className="text-right text-[0.95rem] font-semibold text-white">{f.v}</dd>
-                  </div>
-                ))}
-              </dl>
-              <p className="mt-5 text-[0.9rem] leading-relaxed text-steel-light">
-                {paid
-                  ? 'Settings → License shows this month’s count and the edition in force. Nothing phones home: the key is verified on the machine, and the ceiling lifts the moment it is accepted.'
-                  : 'Settings → License shows how many of this month’s ten you have used — and pasting a key there lifts the ceiling without reinstalling anything.'}
-              </p>
-            </div>
+      {/* The three branded builds, each with its own download and its own ceiling */}
+      <section className="bg-app py-16 sm:py-20">
+        <div className="container-page">
+          <Reveal className="mx-auto max-w-2xl text-center">
+            <h2 className="font-display text-3xl font-semibold leading-tight sm:text-4xl">
+              Choose your Fovea
+            </h2>
+            <p className="mt-4 text-[1.02rem] leading-relaxed text-ink-2">
+              Same engine, same models, three named installs. What changes between them is the
+              ceiling the app enforces on this machine — and the download button on each card is
+              that build, nothing else.
+            </p>
           </Reveal>
+          <div className="mt-16">
+            <PlanBuilds dl={dl} current={plan} />
+          </div>
         </div>
       </section>
 
