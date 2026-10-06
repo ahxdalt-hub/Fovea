@@ -64,7 +64,9 @@ pub struct EngineState {
 /// Stage 20: the recipe is checked against the license in force before the
 /// job slot is taken (see `services::license` for the policy table), and
 /// the free plan's monthly meter is charged when an image is written —
-/// never when a job is merely asked for.
+/// never when a job is merely asked for. The count itself is the server's
+/// (`services::quota`); this machine holds a cached balance and reports what
+/// it wrote back to the meter.
 #[tauri::command]
 pub async fn enhance_image(
     app: AppHandle,

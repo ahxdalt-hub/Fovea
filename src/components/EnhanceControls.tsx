@@ -41,6 +41,8 @@ import { availableFilterKeys, MODE_HINT, MODE_LABEL, MODE_ORDER } from '../lib/c
 import {
   filterLock,
   modeLock,
+  meterLine,
+  meterUncounted,
   periodLabel,
   planBadge,
   planName,
@@ -172,11 +174,17 @@ export function EnhanceControls({
     runnableFilters.includes(choices.filter)
 
   // The free plan's month meter (Stage 20). `null` means this plan is not
-  // metered — Pro and Studio simply never see a counter.
+  // metered — Pro and Studio simply never see a counter. The count is kept on
+  // Fovea's server, so an install that has never reached it has nothing to
+  // spend, and says so instead of advertising an allowance it would refuse.
   const quota = planQuota(plan)
-  const outOfCredits = quota !== null && quota.remaining <= 0
-  const spentMessage = quota
-    ? `You have used all ${quota.limit} free enhancements in ${periodLabel(quota.period)} — the count resets on the 1st, or ${planName('pro')} lifts it`
+  const meterSetup = meterUncounted(quota)
+  const outOfCredits = quota !== null && quota.counted && quota.remaining <= 0
+  const meterBlocked = outOfCredits || meterSetup
+  const meterMessage = quota
+    ? meterSetup
+      ? 'Fovea needs one internet connection to set up this month’s free allowance — after that, enhancing works offline'
+      : `You have used all ${quota.limit} free enhancements in ${periodLabel(quota.period)} — the count resets on the 1st, or ${planName('pro')} lifts it`
     : ''
 
   // The preset whose four values the strip currently shows. A hand-tuned
@@ -344,16 +352,16 @@ export function EnhanceControls({
             report and stays silent. */}
         {quota && (
           <span
-            className={cx('pix-enhance__meter', outOfCredits && 'pix-enhance__meter--spent')}
+            className={cx('pix-enhance__meter', meterBlocked && 'pix-enhance__meter--spent')}
             title={
-              outOfCredits
-                ? 'The count resets on the 1st of next month'
-                : 'Each finished image uses one; the count resets on the 1st'
+              meterSetup
+                ? 'The month is counted on Fovea’s server, so the first enhancement needs a connection; every one after that works offline'
+                : outOfCredits
+                  ? 'The count resets on the 1st of next month'
+                  : 'Each finished image uses one; the count resets on the 1st'
             }
           >
-            {outOfCredits
-              ? `All ${quota.limit} free enhancements used in ${periodLabel(quota.period)}`
-              : `${quota.remaining} of ${quota.limit} free enhancements left in ${periodLabel(quota.period)}`}
+            {meterLine(quota)}
           </span>
         )}
 
@@ -377,8 +385,8 @@ export function EnhanceControls({
                 ? 'Install the enhancement model first'
                 : active
                   ? 'An enhancement is already running'
-                  : outOfCredits
-                    ? spentMessage
+                  : meterBlocked
+                    ? meterMessage
                     : !recipeRunnable
                       ? 'No installed model offers an option this plan can run — see Settings → Processing'
                       : undefined
@@ -390,7 +398,7 @@ export function EnhanceControls({
             size="md"
             iconStart={active ? <Spinner /> : <IconSparkle size="sm" />}
             disabled={
-              !native || !modelReady || active || !selectedId || outOfCredits || !recipeRunnable
+              !native || !modelReady || active || !selectedId || meterBlocked || !recipeRunnable
             }
             onClick={startEnhance}
           >

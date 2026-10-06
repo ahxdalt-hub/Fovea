@@ -35,7 +35,7 @@ const unactivated: LicenseStatusDto = {
   machineBound: false,
   capabilities: ['enhance', 'export', 'batch', 'journal'],
   machineHint: 'd442e094',
-  quota: { period: '2026-10', limit: 10, used: 3, remaining: 7 },
+  quota: { period: '2026-10', limit: 10, used: 3, remaining: 7, counted: true },
 }
 
 const active: LicenseStatusDto = {

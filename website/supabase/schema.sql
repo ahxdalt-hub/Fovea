@@ -114,12 +114,173 @@ $$;
 revoke all on function public.merge_order_metadata(uuid, jsonb) from public, anon, authenticated;
 grant execute on function public.merge_order_metadata(uuid, jsonb) to service_role;
 
+-- ── Free plan usage meter ───────────────────────────────────────────────
+-- The free allowance is 10 source images per calendar month, and this table is
+-- the authority on that count — not the user's machine. Two properties matter:
+--
+--   * `period` is assigned from the SERVER's clock inside the RPC. Winding a
+--     Windows clock back to the 1st cannot reopen a month that is already spent,
+--     because the month is not the client's to name.
+--   * `FREE_MONTHLY_LIMIT` lives here, not in the request. A client that sends
+--     no limit cannot raise one.
+--
+-- Identity is `install_id`: a stable per-machine hash the app derives from the
+-- Windows MachineGuid (services/license/machine.rs). It survives deleting app
+-- data and reinstalling the app, which is what a local quota.json file could not
+-- do. It does not survive deliberately rewriting the registry key — that is the
+-- remaining, and much higher, bar. No personal data: it is a hash, not a name.
+--
+-- The desktop app never talks to Supabase. It calls /api/usage on this site,
+-- which calls these functions as service_role.
+create table if not exists public.free_usage (
+  install_id  text primary key check (install_id ~ '^[a-z0-9]{8,64}$'),
+  period      text not null check (period ~ '^[0-9]{4}-(0[1-9]|1[0-2])$'),
+  used        integer not null default 0 check (used >= 0),
+  created_at  timestamptz not null default now(),
+  updated_at  timestamptz not null default now()
+);
+
+-- The single source of truth for the free plan's allowance. The shipped app
+-- reads this value back in every response; src-tauri/src/services/quota.rs
+-- keeps the same number as its offline ceiling.
+create or replace function public.free_monthly_limit()
+returns integer
+language sql
+immutable
+set search_path = ''
+as $$
+  select 10;
+$$;
+
+-- A second, wider ceiling per source network. Without it this whole meter is
+-- trivial to beat: the meter id is a client-supplied string, so minting a new
+-- one would mint a fresh allowance. A household or office NAT legitimately
+-- carries several machines, so this bucket sits well above the per-install
+-- allowance — it is a spam brake, not a device census.
+--
+-- The route hashes the requester's address with a server-side salt and passes
+-- that as the meter id (prefix `iph`), so no raw address is ever stored.
+create or replace function public.free_ip_monthly_limit()
+returns integer
+language sql
+immutable
+set search_path = ''
+as $$
+  select 30;
+$$;
+
+-- Which allowance a meter id answers to, decided by its own prefix. A server
+-- decision: no request carries a limit, so no client can raise its own.
+create or replace function public.limit_for_meter(p_meter_id text)
+returns integer
+language sql
+stable
+set search_path = ''
+as $$
+  select case
+    when p_meter_id like 'iph%' then public.free_ip_monthly_limit()
+    else public.free_monthly_limit()
+  end;
+$$;
+
+-- Spend `p_count` credits on one meter. Atomic: the month rollover and the
+-- increment happen in one statement, so two concurrent batches cannot both see
+-- the pre-increment balance and overrun it.
+--
+-- The output column is named monthly_limit: `limit` is a reserved word and
+-- cannot be an unquoted column name, so this function would not even create.
+create or replace function public.spend_credits(p_meter_id text, p_count integer)
+returns table (period text, used integer, remaining integer, monthly_limit integer)
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+  v_now        text    := to_char((now() at time zone 'utc'), 'YYYY-MM');
+  v_limit      integer := public.limit_for_meter(p_meter_id);
+  v_row_period text;
+  v_row_used   integer;
+begin
+  if p_meter_id is null or p_meter_id !~ '^[a-z0-9]{8,64}$' then
+    raise exception 'invalid meter id';
+  end if;
+  -- An upper bound here, so one request cannot write an absurd balance. A full
+  -- batch is well below it; src-tauri's own batch cap is the real ceiling.
+  if p_count is null or p_count < 1 or p_count > 1000 then
+    raise exception 'invalid credit count: %', p_count;
+  end if;
+
+  insert into public.free_usage as u (install_id, period, used, updated_at)
+  values (p_meter_id, v_now, p_count, now())
+  on conflict (install_id) do update
+    set period     = excluded.period,
+        -- A new server month resets the count; the same month accumulates.
+        -- `u` is the row as it was before this update, so the comparison reads
+        -- the stored period against the server period, not against what this
+        -- statement is about to write.
+        used       = (case when u.period = excluded.period then u.used else 0 end)
+                     + excluded.used,
+        updated_at = now()
+  returning u.period, u.used into v_row_period, v_row_used;
+
+  return query select v_row_period, v_row_used,
+                       greatest(v_limit - v_row_used, 0), v_limit;
+end;
+$$;
+
+-- Read the meter without spending — the app calls this at startup to show the
+-- balance and to learn the authoritative date.
+create or replace function public.peek_credits(p_meter_id text)
+returns table (period text, used integer, remaining integer, monthly_limit integer)
+language plpgsql
+stable
+security definer
+set search_path = ''
+as $$
+declare
+  v_now        text    := to_char((now() at time zone 'utc'), 'YYYY-MM');
+  v_limit      integer := public.limit_for_meter(p_meter_id);
+  v_row_period text;
+  v_row_used   integer;
+begin
+  if p_meter_id is null or p_meter_id !~ '^[a-z0-9]{8,64}$' then
+    raise exception 'invalid meter id';
+  end if;
+
+  select u.period, u.used into v_row_period, v_row_used
+    from public.free_usage u
+   where u.install_id = p_meter_id;
+
+  -- No row yet, or the server month has turned over: a full allowance either
+  -- way. A SELECT INTO with no rows leaves both targets null, which is exactly
+  -- the branch an unseen meter falls into.
+  if v_row_period is null or v_row_period <> v_now then
+    return query select v_now, 0, v_limit, v_limit;
+  end if;
+
+  return query select v_now, v_row_used, greatest(v_limit - v_row_used, 0), v_limit;
+end;
+$$;
+
+revoke all on function public.free_monthly_limit()           from public, anon, authenticated;
+revoke all on function public.free_ip_monthly_limit()        from public, anon, authenticated;
+revoke all on function public.limit_for_meter(text)          from public, anon, authenticated;
+revoke all on function public.spend_credits(text, integer)   from public, anon, authenticated;
+revoke all on function public.peek_credits(text)             from public, anon, authenticated;
+grant execute on function public.free_monthly_limit()        to service_role;
+grant execute on function public.free_ip_monthly_limit()     to service_role;
+grant execute on function public.limit_for_meter(text)       to service_role;
+grant execute on function public.spend_credits(text, integer) to service_role;
+grant execute on function public.peek_credits(text)          to service_role;
+
 -- ── Lock it down ──────────────────────────────────────────────────────────
 -- RLS on with zero policies = deny all for anon/authenticated. The site's
 -- server uses service_role (bypasses RLS). Admin day-to-day happens through
 -- the Supabase dashboard, which also uses the service role.
 alter table public.orders       enable row level security;
 alter table public.license_pool enable row level security;
+alter table public.free_usage        enable row level security;
 
 revoke all on public.orders       from anon, authenticated;
 revoke all on public.license_pool from anon, authenticated;
+revoke all on public.free_usage        from anon, authenticated;

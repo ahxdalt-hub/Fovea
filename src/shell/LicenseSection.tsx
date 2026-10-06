@@ -251,7 +251,10 @@ export function LicenseSection() {
       <p className="pix-settings__footnote">
         A key changes which options Fovea offers you, and nothing else. It is verified on this
         machine, never online. An enhancement in progress is never interrupted by a license
-        question, and every file already written stays yours whatever this record later says.
+        question, and every file already written stays yours whatever this record later says. The
+        one exception is the free plan's monthly count, which Fovea's server keeps so that this
+        machine's clock cannot mint an allowance; nothing about your images is sent, and paid plans
+        make no call at all.
       </p>
     </>
   )
@@ -278,9 +281,20 @@ function PlanSummary({ status }: { status: LicenseStatusDto }) {
       <p className="pix-settings__note">{line}</p>
       {quota && (
         <p className="pix-settings__note">
-          {quota.remaining} of {quota.limit} free enhancements left in {periodLabel(quota.period)}.
-          One is used per finished image, so a run that fails or is cancelled uses none; the count
-          resets on the 1st.
+          {quota.counted ? (
+            <>
+              {quota.remaining} of {quota.limit} free enhancements left in{' '}
+              {periodLabel(quota.period)}. One is used per finished image, so a run that fails or is
+              cancelled uses none; the count resets on the 1st.
+            </>
+          ) : (
+            <>
+              The free plan allows {quota.limit} enhancements a month. That count is kept on Fovea's
+              server rather than on this machine's clock, so the first enhancement needs one
+              internet connection — after that it works offline, and the allowance resets on the
+              1st.
+            </>
+          )}
         </p>
       )}
     </div>

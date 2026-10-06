@@ -197,9 +197,22 @@ the Free / Pro / Studio matrix before this build is published.
    triple for each plan (unsuffixed = free, `_PRO`, `_STUDIO`) on the
    deployed site. Until a plan's URL is set, its button honestly shows "not
    published yet" — by design, not a defect.
-2. Connect a payment provider. The seam (`website/lib/commerce.ts`) now has
-   two real adapters beside the manual default, selected by
-   `FOVEA_PAYMENT_PROVIDER`:
+2. Connect Dodo Payments (`FOVEA_PAYMENT_PROVIDER=dodo`, already the default in
+   `website/wrangler.jsonc`). The seam (`website/lib/commerce.ts`) has three real
+   adapters beside the manual default:
+   - `dodo` — Dodo is the merchant of record (hosted checkout, tax, payouts).
+     `node website/scripts/dodo-setup.mjs`, with only `FOVEA_DODO_API_KEY`
+     exported, creates the Pro/Studio one-time products, registers
+     `/api/webhooks/dodo` and reads back its signing secret, then prints every
+     env value to paste (`FOVEA_DODO_BUSINESS_ID`, `FOVEA_DODO_PRODUCT_PRO` /
+     `_STUDIO`, `FOVEA_DODO_WEBHOOK_SECRET`). A random per-order reference id is
+     minted before the payment and rides through as checkout `metadata`, so
+     fulfillment and the `/download?ref=…` lookup key on _our_ id. The webhook
+     verifies the Standard Webhooks signature over the raw body
+     (`{webhook-id}.{webhook-timestamp}.{body}`, HMAC-SHA256, constant-time,
+     five-minute window) and ignores events from any other `business_id`, so a
+     sandbox payment cannot drain a real key. `total_amount` arrives in the
+     currency's smallest unit — the scale the orders table already stores.
    - `stripe` — creates a Checkout Session; needs `FOVEA_STRIPE_SECRET_KEY`
      and `FOVEA_STRIPE_WEBHOOK_SECRET`, posting to
      `/api/webhooks/stripe`.
@@ -213,7 +226,7 @@ the Free / Pro / Studio matrix before this build is published.
      `/api/webhooks/lemonsqueezy`. Lemon Squeezy reports `total` in major
      currency units while the orders table stores cents, so the adapter
      normalises it.
-     Both webhooks claim a key from the pre-issued pool via the
+     All three webhooks claim a key from the pre-issued pool via the
      `claim_license_key` RPC and never mint one; a dry pool leaves the order
      `paid` for manual delivery. `providerIsConfigured()` fails loudly rather
      than silently degrading to the manual path, which would sell a license

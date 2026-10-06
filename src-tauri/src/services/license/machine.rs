@@ -1,5 +1,5 @@
-//! This machine's fingerprint — used only to check machine-bound license
-//! keys, and never sent anywhere.
+//! This machine's fingerprint — for machine-bound license keys, and as the
+//! install id the free plan's monthly allowance is counted under.
 //!
 //! Derivation order (Windows):
 //! 1. SHA-256 of the OS `MachineGuid` (the same value every Windows
@@ -10,8 +10,11 @@
 //! 3. If neither exists, this machine reports `None` and bound keys fail
 //!    closed — an unidentified machine never satisfies a binding.
 //!
-//! Nothing personal is used, nothing leaves the process, and the value is
-//! a hash: the raw GUID is never stored or displayed.
+//! Nothing personal is used and the value is a hash: the raw GUID is never
+//! stored or displayed. It does leave the process in exactly one place —
+//! [`crate::services::quota`] sends it as `install_id`, so the server can
+//! count a month per machine — and nowhere else. A hash of a machine
+//! identifier identifies a machine, not a person.
 
 use std::sync::OnceLock;
 

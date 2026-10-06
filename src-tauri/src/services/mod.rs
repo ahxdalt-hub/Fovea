@@ -9,6 +9,7 @@ pub mod batch;
 pub mod export;
 pub mod hardware;
 pub mod history;
+pub mod http;
 pub mod import;
 pub mod inference;
 pub mod license;

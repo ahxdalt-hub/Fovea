@@ -4,7 +4,6 @@ import { Reveal } from '@/components/Reveal';
 import { planFacts, site, tiers, type Tier } from '@/lib/site';
 import { downloadInfo, systemRequirements, type PlanId } from '@/lib/download';
 import { supabaseConfigured, getOrderByExternalId, type OrderRow } from '@/lib/supabase';
-import type { TierId } from '@/lib/commerce';
 
 export const metadata: Metadata = {
   title: 'Download & activate',
@@ -76,11 +75,11 @@ export default async function DownloadPage(props: {
     (p) => p !== plan && dl.builds[p].published,
   );
 
-  // Stripe returns the buyer with the Checkout Session id; Lemon Squeezy with
-  // the reference id our checkout minted (its own integer order id is too small
-  // to be a secret). Either is a random string only the buyer and the provider
-  // know, so it doubles as the lookup token for the license the webhook claimed
-  // on payment — and it is exactly the `external_id` that handler stored.
+  // Stripe returns the buyer with the Checkout Session id; Dodo and Lemon Squeezy
+  // with the reference id our checkout minted (a provider's own order id can be
+  // too small to be a secret). Either is a random string only the buyer and the
+  // provider know, so it doubles as the lookup token for the license the webhook
+  // claimed on payment — and it is exactly the `external_id` that handler stored.
   const orderRef = sessionId ?? refParam ?? orderId;
   const order: OrderRow | null =
     orderRef && supabaseConfigured()

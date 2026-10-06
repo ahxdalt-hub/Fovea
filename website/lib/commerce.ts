@@ -14,13 +14,14 @@
  *
  * Provider APIs change and differ, so none are hard-coded. A provider is a
  * tiny interface with one method; concrete adapters live in `./providers/*`
- * and are selected by env (`FOVEA_PAYMENT_PROVIDER`). The default provider
- * needs no secret and makes no network call — it records the intent and hands
- * the buyer to the download/activation flow, which is the truthful launch path
- * until a real processor is connected.
+ * and are selected by env (`FOVEA_PAYMENT_PROVIDER`), which is `dodo` in
+ * production: Dodo Payments is the merchant of record, so the site never sees a
+ * card number. `manual` remains the secret-free fallback for a fresh clone, and
+ * `stripe` / `lemonsqueezy` stay wired as alternatives.
  */
 
 import { ManualProvider } from './providers/manual';
+import { DodoProvider } from './providers/dodo';
 import { LemonSqueezyProvider } from './providers/lemonsqueezy';
 import { ProviderConfigError, StripeProvider } from './providers/stripe';
 
@@ -68,8 +69,9 @@ export interface PaymentProvider {
 export function resolveProvider(): PaymentProvider {
   const id = (process.env.FOVEA_PAYMENT_PROVIDER ?? 'manual').trim().toLowerCase();
   switch (id) {
-    // Real adapters (Paddle, Gumroad webhook, …) would get their own files
-    // under ./providers/* and a case here.
+    // Production processor. Stripe and Lemon Squeezy stay wired as alternatives.
+    case 'dodo':
+      return new DodoProvider();
     case 'stripe':
       return new StripeProvider();
     case 'lemonsqueezy':
@@ -88,6 +90,19 @@ export function resolveProvider(): PaymentProvider {
 export function providerIsConfigured(): boolean {
   const id = (process.env.FOVEA_PAYMENT_PROVIDER ?? 'manual').trim().toLowerCase();
   if (id === 'manual') return true;
+  if (id === 'dodo') {
+    // A sale needs the API key and a catalog product per paid tier to start, the
+    // webhook secret to be fulfilled, and the business id so a test-mode payment
+    // cannot drain a real license from the pool. Missing any of them sells a
+    // license nobody can deliver, so all five are required.
+    return !!(
+      process.env.FOVEA_DODO_API_KEY?.trim() &&
+      process.env.FOVEA_DODO_PRODUCT_PRO?.trim() &&
+      process.env.FOVEA_DODO_PRODUCT_STUDIO?.trim() &&
+      process.env.FOVEA_DODO_WEBHOOK_SECRET?.trim() &&
+      process.env.FOVEA_DODO_BUSINESS_ID?.trim()
+    );
+  }
   if (id === 'stripe') return !!process.env.FOVEA_STRIPE_SECRET_KEY?.trim();
   if (id === 'lemonsqueezy') {
     // A sale needs a Fast Link per paid tier to start, and needs the webhook

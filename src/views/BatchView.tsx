@@ -29,6 +29,8 @@ import { FORMATS, FILTER_LABEL, availableFilterKeys } from '../lib/catalog'
 import {
   filterLock,
   modeLock,
+  meterLine,
+  meterUncounted,
   periodLabel,
   planBadge,
   planName,
@@ -167,7 +169,8 @@ export function BatchView({ batchApi, onGoToEnhance }: BatchViewProps) {
   // what is left this month is refused whole — never started and stopped
   // half-way through.
   const quota = planQuota(plan)
-  const creditsShort = quota !== null && images.length > quota.remaining
+  const meterSetup = meterUncounted(quota)
+  const creditsShort = quota !== null && quota.counted && images.length > quota.remaining
 
   // Output settings — default to the configured export choice (folder:
   // "" = Fovea's own batch folder inside Documents, named by the native
@@ -385,10 +388,15 @@ export function BatchView({ batchApi, onGoToEnhance }: BatchViewProps) {
                 plan, two surfaces, one sentence. A batch spends one credit per
                 finished image, so the queue size is stated next to it. */}
             {quota && (
-              <span className={cx('pix-batch__meter', creditsShort && 'pix-batch__meter--short')}>
+              <span
+                className={cx(
+                  'pix-batch__meter',
+                  (meterSetup || creditsShort) && 'pix-batch__meter--short',
+                )}
+              >
                 {creditsShort
                   ? `Needs ${images.length} of the ${quota.remaining} free enhancements left in ${periodLabel(quota.period)}`
-                  : `${quota.remaining} of ${quota.limit} free enhancements left in ${periodLabel(quota.period)}`}
+                  : meterLine(quota)}
               </span>
             )}
             <Tooltip
@@ -399,11 +407,13 @@ export function BatchView({ batchApi, onGoToEnhance }: BatchViewProps) {
                     ? 'Import images first'
                     : running
                       ? 'A batch is already running'
-                      : creditsShort
-                        ? `A batch of ${images.length} spends ${images.length} enhancements and only ${quota?.remaining ?? 0} are left this month — ${planName('pro')} lifts the count`
-                        : !recipeRunnable
-                          ? 'No installed model offers an option this plan can run — change the preset above'
-                          : undefined
+                      : meterSetup
+                        ? 'Fovea needs one internet connection to set up this month’s free allowance — after that, batch works offline'
+                        : creditsShort
+                          ? `A batch of ${images.length} spends ${images.length} enhancements and only ${quota?.remaining ?? 0} are left this month — ${planName('pro')} lifts the count`
+                          : !recipeRunnable
+                            ? 'No installed model offers an option this plan can run — change the preset above'
+                            : undefined
               }
               side="bottom"
             >
@@ -412,7 +422,12 @@ export function BatchView({ batchApi, onGoToEnhance }: BatchViewProps) {
                 size="md"
                 iconStart={running ? <Spinner /> : <IconLayers size="sm" />}
                 disabled={
-                  !native || running || images.length === 0 || creditsShort || !recipeRunnable
+                  !native ||
+                  running ||
+                  images.length === 0 ||
+                  meterSetup ||
+                  creditsShort ||
+                  !recipeRunnable
                 }
                 onClick={runBatch}
               >

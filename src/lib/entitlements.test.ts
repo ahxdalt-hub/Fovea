@@ -14,6 +14,8 @@ import {
   filterLock,
   hasRepairs,
   modeLock,
+  meterLine,
+  meterUncounted,
   periodLabel,
   planBadge,
   planLock,
@@ -198,7 +200,7 @@ describe('a stored preference the plan cannot honour', () => {
 
 describe('the month meter', () => {
   it('shows a free plan its own numbers', () => {
-    const quota = { period: '2026-10', limit: 10, used: 3, remaining: 7 }
+    const quota = { period: '2026-10', limit: 10, used: 3, remaining: 7, counted: true }
     const plan = planView(record({ state: 'not_activated', capabilities: FREE, quota }))
     expect(planQuota(plan)).toEqual(quota)
     expect(planQuota(pro)).toBeNull()
@@ -208,5 +210,28 @@ describe('the month meter', () => {
     expect(periodLabel('2026-10')).toBe('October 2026')
     expect(periodLabel('2027-01')).toBe('January 2027')
     expect(periodLabel('nonsense')).toBe('nonsense')
+  })
+
+  it('lines up the three things a meter can say', () => {
+    expect(meterLine({ period: '2026-10', limit: 10, used: 3, remaining: 7, counted: true })).toBe(
+      '7 of 10 free enhancements left in October 2026',
+    )
+    expect(meterLine({ period: '2026-10', limit: 10, used: 10, remaining: 0, counted: true })).toBe(
+      'All 10 free enhancements used in October 2026',
+    )
+    // Never counted: a full-looking balance that cannot be spent yet.
+    expect(
+      meterLine({ period: '2026-10', limit: 10, used: 0, remaining: 10, counted: false }),
+    ).toContain('one internet connection')
+  })
+
+  it('only an uncounted install is waiting on the meter', () => {
+    expect(meterUncounted(null)).toBe(false)
+    expect(
+      meterUncounted({ period: '2026-10', limit: 10, used: 9, remaining: 1, counted: true }),
+    ).toBe(false)
+    expect(meterUncounted({ period: '', limit: 10, used: 0, remaining: 10, counted: false })).toBe(
+      true,
+    )
   })
 })

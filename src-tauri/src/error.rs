@@ -86,10 +86,17 @@ pub enum AppError {
     /// names the feature and the plan that carries it — log only, since
     /// the UI already knows which control the user touched.
     FeatureLocked { detail: String },
-    /// The free plan's monthly enhancement allowance is used up. The
-    /// meter is local and resets with the calendar month; this is a
+    /// The free plan's monthly enhancement allowance is used up. The count
+    /// is kept on Fovea's server and cached here, so a different calendar
+    /// month is the server's decision, not this machine's clock. This is a
     /// commercial boundary, not a fault with the user's file.
     QuotaExceeded { detail: String },
+    /// The meter could not be reached, and this install has never spoken to
+    /// it. Only the server's reply says which month is current and what is
+    /// left in it, so a first run with no network cannot honestly grant an
+    /// allowance — unlike a machine that has synced, which keeps working on
+    /// its cached balance offline.
+    MeterUnreachable { detail: String },
     /// Anything that did not fit the expected failure categories.
     Unexpected { detail: String },
 }
@@ -121,6 +128,7 @@ impl AppError {
             AppError::LicenseStoreUnavailable { .. } => "license_store_unavailable",
             AppError::FeatureLocked { .. } => "feature_locked",
             AppError::QuotaExceeded { .. } => "quota_exceeded",
+            AppError::MeterUnreachable { .. } => "meter_unreachable",
             AppError::Unexpected { .. } => "unexpected_error",
         }
     }
@@ -195,6 +203,9 @@ impl AppError {
             AppError::QuotaExceeded { .. } => {
                 "You've used this month's free enhancements. The count resets at the start of next month, or upgrade for unlimited processing."
             }
+            AppError::MeterUnreachable { .. } => {
+                "Fovea needs one internet connection to set up this month's free allowance. Connect, then try again — after that, enhancing works offline."
+            }
             AppError::Unexpected { .. } => "Something went wrong. The application log may help.",
         }
     }
@@ -217,6 +228,15 @@ impl AppError {
     /// Convenience constructor for genuinely unexpected failures.
     pub fn unexpected(context: impl std::fmt::Display) -> Self {
         AppError::Unexpected {
+            detail: context.to_string(),
+        }
+    }
+
+    /// The free-plan meter returned no answer. Detail names the transport
+    /// reason; the message the user sees is the same either way, because
+    /// "DNS failed" and "connection reset" ask the same fix of them.
+    pub fn meter_unreachable(context: impl std::fmt::Display) -> Self {
+        AppError::MeterUnreachable {
             detail: context.to_string(),
         }
     }
@@ -247,6 +267,7 @@ fn other_detail(err: &AppError) -> &str {
         | AppError::LicenseStoreUnavailable { detail }
         | AppError::FeatureLocked { detail }
         | AppError::QuotaExceeded { detail }
+        | AppError::MeterUnreachable { detail }
         | AppError::Unexpected { detail } => detail,
     }
 }
@@ -342,6 +363,7 @@ mod tests {
                 AppError::QuotaExceeded { detail: "x".into() },
                 "quota_exceeded",
             ),
+            (AppError::meter_unreachable("x"), "meter_unreachable"),
             (AppError::unexpected("boom"), "unexpected_error"),
         ];
         for (err, code) in cases {

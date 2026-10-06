@@ -56,6 +56,7 @@ export interface AppErrorPayload {
     | 'license_store_unavailable'
     | 'feature_locked'
     | 'quota_exceeded'
+    | 'meter_unreachable'
     | 'unexpected_error'
   message: string
 }
@@ -759,6 +760,9 @@ export interface LicenseQuotaDto {
   limit: number
   used: number
   remaining: number
+  /** Has Fovea's server confirmed this balance? `false` means the numbers are
+   * the plan's shape, not credit to spend: one connection sets it up. */
+  counted: boolean
 }
 
 /** Serialized `LicenseStatusDto` from Rust. */

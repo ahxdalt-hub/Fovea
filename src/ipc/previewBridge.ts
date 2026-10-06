@@ -71,6 +71,7 @@ export function previewInvoke(cmd: string): Promise<unknown> {
           limit: 10,
           used: 0,
           remaining: 10,
+          counted: true,
         },
       })
     }

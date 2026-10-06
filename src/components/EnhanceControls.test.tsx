@@ -397,7 +397,7 @@ function licenseStatus(over: Partial<LicenseStatusDto>): LicenseStatusDto {
     machineBound: false,
     capabilities: FREE_CAPS,
     machineHint: 'abcd1234',
-    quota: { period: '2026-10', limit: 10, used: 3, remaining: 7 },
+    quota: { period: '2026-10', limit: 10, used: 3, remaining: 7, counted: true },
     ...over,
   }
 }
@@ -469,11 +469,23 @@ describe('EnhanceControls under a plan lock (Stage 20)', () => {
 
   it('says so in words when the month is spent', async () => {
     const spent = licenseStatus({
-      quota: { period: '2026-10', limit: 10, used: 10, remaining: 0 },
+      quota: { period: '2026-10', limit: 10, used: 10, remaining: 0, counted: true },
     })
     renderHarness(readyStatus, spent)
     const meter = await screen.findByText(/all 10 free enhancements used in October 2026/i)
     expect(meter).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /enhance 2×/i })).toBeDisabled()
+  })
+
+  it('asks for one connection before pretending the month is full', async () => {
+    // The count lives on the server: an install that has never reached it has
+    // no balance, so the strip must not show '10 of 10' and then refuse.
+    const fresh = licenseStatus({
+      quota: { period: '2026-10', limit: 10, used: 0, remaining: 10, counted: false },
+    })
+    renderHarness(readyStatus, fresh)
+    expect(await screen.findByText(/one internet connection sets this month/i)).toBeInTheDocument()
+    expect(screen.queryByText(/10 of 10 free enhancements left/i)).not.toBeInTheDocument()
     expect(screen.getByRole('button', { name: /enhance 2×/i })).toBeDisabled()
   })
 

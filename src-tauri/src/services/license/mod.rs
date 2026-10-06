@@ -157,10 +157,16 @@ impl LicenseStatusDto {
     }
 }
 /// The meter the UI should show for an in-force edition: `None` when the
-/// edition removes the cap, otherwise this month's local count.
+/// edition removes the cap, otherwise this month's server-counted balance as
+/// this machine last heard it. The month label is filled from `now` only while
+/// the meter has never answered — see [`quota::display_period`].
 fn meter(app_data: &Path, edition: Option<Edition>, now: u64) -> Option<quota::Snapshot> {
-    let limit = monthly_limit(edition)?;
-    Some(quota::peek(app_data, limit, now))
+    monthly_limit(edition)?;
+    let mut snapshot = quota::peek(app_data);
+    if snapshot.period.is_empty() {
+        snapshot.period = quota::display_period(now);
+    }
+    Some(snapshot)
 }
 
 // ── Provider seam (issuance / future online checks) ──────────────────
@@ -365,19 +371,23 @@ impl Entitlement {
 
     /// May `count` more enhancements be produced this month? Says no
     /// without spending; [`Entitlement::spend`] is what actually charges.
+    /// On a metered plan this can mean one blocking read from the meter —
+    /// which is why commands call it before the job, not after.
     pub fn check(&self, count: u32) -> AppResult<()> {
         match self.monthly_limit() {
             None => Ok(()),
-            Some(limit) => quota::check(&self.app_data, limit, now_secs(), count),
+            Some(_) => quota::check(&self.app_data, count),
         }
     }
 
     /// Charge `count` enhancements. Call *after* the images exist: a
-    /// failed or cancelled job must not cost the user a credit.
+    /// failed or cancelled job must not cost the user a credit. The local
+    /// deduction is synchronous and the report to the meter is not, so this
+    /// never blocks on the network and never refuses finished work.
     pub fn spend(&self, count: u32) -> AppResult<()> {
         match self.monthly_limit() {
             None => Ok(()),
-            Some(limit) => quota::take(&self.app_data, limit, now_secs(), count),
+            Some(_) => quota::take(&self.app_data, count),
         }
     }
 
@@ -1054,25 +1064,41 @@ mod tests {
         );
     }
 
+    /// What the entitlement owns is the *decision to consult* the meter; the
+    /// counting itself is `services::quota`'s, and its own suite drives that
+    /// through a fake transport. These are the assertions that need no
+    /// network: a cached balance the meter already granted, and a queue bigger
+    /// than the whole month, which no server would allow.
     #[test]
-    fn the_meter_charges_only_after_the_images_exist() {
+    fn the_free_plan_is_the_one_the_meter_counts() {
         let dir = scratch("meter");
         let ent = entitlement_at(&dir, T0);
         assert_eq!(ent.monthly_limit(), Some(10));
-        ent.check(10).expect("ten fit this month");
         assert_eq!(
-            ent.check(11).expect_err("eleven do not").code(),
-            "quota_exceeded"
+            ent.snapshot().expect("the free plan is metered").remaining,
+            10,
+            "an uncounted install shows the advertised allowance"
         );
-        // A refused queue spent nothing…
-        assert_eq!(entitlement_at(&dir, T0).snapshot().unwrap().used, 0);
-        // …and nine written images cost nine.
-        ent.spend(9).unwrap();
-        let now = entitlement_at(&dir, T0);
-        assert_eq!(now.snapshot().unwrap().remaining, 1);
-        now.spend(1).unwrap();
+
+        // Eight already used this month — the meter's number, not this file's.
+        let answered = |_url: &str, _body: Option<&str>| {
+            Ok(crate::services::http::Reply {
+                status: 200,
+                body: r#"{"period":"2025-10","used":8,"remaining":2,"limit":10,
+                          "allowed":true,"server_time":1760000000}"#
+                    .to_string(),
+            })
+        };
+        quota::sync_with(&dir, &answered).expect("a counted install");
+        let snapshot = ent.snapshot().expect("still metered");
         assert_eq!(
-            entitlement_at(&dir, T0).check(1).expect_err("empty").code(),
+            (snapshot.used, snapshot.remaining),
+            (8, 2),
+            "the balance the server reported"
+        );
+        ent.check(2).expect("two are cached and spendable");
+        assert_eq!(
+            ent.check(11).expect_err("eleven never fit in ten").code(),
             "quota_exceeded"
         );
     }

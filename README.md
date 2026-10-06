@@ -26,11 +26,13 @@ install → activate → enhance → export, all verified end-to-end.
 
 - **Payment behind a seam, not an API.** `website/lib/commerce.ts` defines a
   `PaymentProvider` interface and `resolveProvider()` reads
-  `FOVEA_PAYMENT_PROVIDER` at request time. The default `ManualProvider`
-  needs no secret and no network — it redirects to
-  `/download?tier=…&source=checkout`. A real provider plugs in as its own
-  file under `lib/providers/`; nothing else changes. No provider assumptions
-  are hard-coded.
+  `FOVEA_PAYMENT_PROVIDER` at request time. Production runs on **Dodo Payments**
+  (`dodo`) as merchant of record: the site opens a hosted checkout session and
+  fulfills from the signed webhook, so no card data ever reaches this server.
+  `ManualProvider` is the secret-free fallback for a fresh clone — it redirects
+  to `/download?tier=…&source=checkout`. `stripe` and `lemonsqueezy` are wired
+  alternatives; adding another provider means its own file under
+  `lib/providers/` and nothing else changes.
 - **Checkout route.** `website/app/api/checkout/route.ts` (GET + POST)
   validates the tier against `{pro, studio, evaluate}` (anything else →
   400), calls the provider, and issues a 303 redirect. Route is dynamic

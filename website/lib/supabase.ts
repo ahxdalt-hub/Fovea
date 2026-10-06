@@ -113,6 +113,13 @@ export async function mergeOrderMetadata(
   });
 }
 
+/** Orders whose metadata carries a given Dodo payment id (refund handling). */
+export async function getOrdersByDodoPayment(paymentId: string): Promise<OrderRow[]> {
+  return sb<OrderRow[]>(
+    `/rest/v1/orders?metadata->>payment_id=eq.${encodeURIComponent(paymentId)}`,
+  );
+}
+
 /** Orders whose metadata carries a given Stripe payment_intent (refund handling). */
 export async function getOrdersByPaymentIntent(paymentIntent: string): Promise<OrderRow[]> {
   return sb<OrderRow[]>(
@@ -157,4 +164,54 @@ export async function fulfillOrder(
     }),
     prefer: 'return=minimal',
   });
+}
+
+// ── Free plan meter ────────────────────────────────────────────────────────
+// The desktop app counts its free allowance here rather than in a local file,
+// so the month and the balance come from this server's clock. Both functions
+// run SECURITY DEFINER RPCs (schema.sql), which own the limit — nothing the
+// client sends can raise it.
+
+export type CreditSnapshot = {
+  /** The server's UTC calendar month being counted, `"YYYY-MM"`. */
+  period: string;
+  used: number;
+  remaining: number;
+  /** The allowance, echoed from the database, not from the request. */
+  limit: number;
+};
+
+type CreditRow = {
+  period: string;
+  used: number;
+  remaining: number;
+  monthly_limit: number;
+};
+
+function toSnapshot(row: CreditRow | undefined): CreditSnapshot | null {
+  if (!row || typeof row.period !== 'string') return null;
+  return {
+    period: row.period,
+    used: Number(row.used),
+    remaining: Number(row.remaining),
+    limit: Number(row.monthly_limit),
+  };
+}
+
+/** Spend `count` credits on one meter and return the balance after. */
+export async function spendCredits(meterId: string, count: number): Promise<CreditSnapshot | null> {
+  const rows = await sb<CreditRow[]>('/rest/v1/rpc/spend_credits', {
+    method: 'POST',
+    body: JSON.stringify({ p_meter_id: meterId, p_count: count }),
+  });
+  return toSnapshot(rows?.[0]);
+}
+
+/** Read a meter without spending. */
+export async function peekCredits(meterId: string): Promise<CreditSnapshot | null> {
+  const rows = await sb<CreditRow[]>('/rest/v1/rpc/peek_credits', {
+    method: 'POST',
+    body: JSON.stringify({ p_meter_id: meterId }),
+  });
+  return toSnapshot(rows?.[0]);
 }

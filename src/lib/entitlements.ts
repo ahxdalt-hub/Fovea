@@ -128,6 +128,26 @@ export function planQuota(plan: PlanView): LicenseQuotaDto | null {
   return plan.known ? plan.quota : null
 }
 
+/** Does this install still owe itself one conversation with the meter? The
+ * count lives on Fovea's server, so an install that has never reached it has
+ * no balance — it has a shape. Showing `10 of 10` there would promise ten
+ * enhancements and then refuse the first one. */
+export function meterUncounted(quota: LicenseQuotaDto | null): boolean {
+  return quota !== null && !quota.counted
+}
+
+/** The month as one line, in the words the strip and the batch queue share.
+ * Three states, and only the middle one is a countdown. */
+export function meterLine(quota: LicenseQuotaDto): string {
+  if (!quota.counted) {
+    return `The free plan allows ${quota.limit} enhancements a month — one internet connection sets this month’s count up`
+  }
+  if (quota.remaining <= 0) {
+    return `All ${quota.limit} free enhancements used in ${periodLabel(quota.period)}`
+  }
+  return `${quota.remaining} of ${quota.limit} free enhancements left in ${periodLabel(quota.period)}`
+}
+
 /** A stored preference the plan in force cannot honour, as the patch that
  * makes it honourable. Empty when nothing needs fixing.
  *

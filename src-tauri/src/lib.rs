@@ -167,6 +167,32 @@ pub fn run() {
                     lic.edition.unwrap_or("free"),
                     lic.machine_hint
                 );
+                // Stage 20: the free plan's month is counted on Fovea's
+                // server, so this machine reads its balance once here — on a
+                // background thread, because a first-run meter ask is a round
+                // trip and start-up must not wait on the network. A paid plan
+                // has no meter, and so makes no call at all: `lic.quota` is
+                // `None` there. Anything owed from an offline spell is posted
+                // by the same read.
+                if lic.quota.is_some() {
+                    let dir = dir.clone();
+                    if let Err(err) = std::thread::Builder::new()
+                        .name("fovea-meter-startup".to_string())
+                        .spawn(move || match services::quota::sync(&dir) {
+                            Ok(balance) => log::info!(
+                                "meter: {} of {} enhancements left in {}",
+                                balance.remaining,
+                                balance.limit,
+                                balance.period
+                            ),
+                            Err(err) => {
+                                log::warn!("meter could not be read at startup: {}", err.code())
+                            }
+                        })
+                    {
+                        log::warn!("meter read could not start: {err}");
+                    }
+                }
             }
             let registry = ModelRegistry::new(model_search_dirs(app));
             log::info!(

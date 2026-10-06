@@ -14,11 +14,31 @@
   //
   // SECRETS are not vars — set them once per environment:
   //   wrangler secret put SUPABASE_SERVICE_ROLE_KEY
-  //   wrangler secret put FOVEA_STRIPE_SECRET_KEY
-  //   wrangler secret put FOVEA_STRIPE_WEBHOOK_SECRET
+  //   wrangler secret put FOVEA_DODO_API_KEY
+  //   wrangler secret put FOVEA_DODO_WEBHOOK_SECRET
+  //   wrangler secret put FOVEA_USAGE_IP_SALT   // /api/usage network meter;
+  //   rotating it refills every network's free allowance mid-month
   // (OpenNext exposes vars + secrets to the worker as process.env.)
+  //
+  // `node scripts/dodo-setup.mjs` prints the values below (it creates the
+  // products and the webhook endpoint, then reads back the secret). Identifiers
+  // — business, brand, products, which provider — are vars; credentials are secrets.
+  //
+  // These are LIVE-mode ids and stay empty until the live catalog exists. Dodo's
+  // test catalog is a different host with different product ids, so the test
+  // values belong in website/.env.local only; putting them here would send real
+  // visitors to a sandbox checkout. Empty product ids make /api/checkout fail
+  // closed with a 503, which is the intended state until live mode is configured.
+  //
+  // brand_id matters: this Dodo business also holds the Caelmont brand, and
+  // POST /products defaults to that primary brand when brand_id is omitted.
   "vars": {
-    "FOVEA_PAYMENT_PROVIDER": "manual",
+    "FOVEA_PAYMENT_PROVIDER": "dodo",
+    "FOVEA_DODO_MODE": "live",
+    "FOVEA_DODO_BUSINESS_ID": "",
+    "FOVEA_DODO_BRAND_ID": "",
+    "FOVEA_DODO_PRODUCT_PRO": "",
+    "FOVEA_DODO_PRODUCT_STUDIO": "",
     "SUPABASE_URL": "https://ulpwhvfqhfbrjbjbvivz.supabase.co",
     "FOVEA_DOWNLOAD_VERSION": "1.2.0",
     "FOVEA_DOWNLOAD_URL": "https://github.com/ahxdalt-hub/Fovea/releases/download/v1.2.0/Fovea-1.2.0-x64.exe",
