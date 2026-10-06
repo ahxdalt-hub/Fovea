@@ -80,6 +80,11 @@ which bypasses RLS. Nothing here is called from the browser.
 1. **Create the schema** — Supabase dashboard → SQL Editor → paste
    `website/supabase/schema.sql` → Run. It is idempotent, and it creates the
    free plan's `free_usage` counter alongside the order and key tables.
+   Verified against a real Postgres 18 on 2026-10-06: it applies twice in a row,
+   the month rollover and both ceilings behave, 3 concurrent claims hand out 3
+   distinct keys, and `anon` is locked out of every table. An empty pool returns
+   a NULL row from `claim_license_key` rather than no row, which the webhook
+   already treats as "nothing to deliver".
 2. **Service role key** — dashboard → Project Settings → API keys → copy the
    `service_role` key into:
    - local dev: `website/.env.local` → `SUPABASE_SERVICE_ROLE_KEY`
@@ -105,6 +110,18 @@ which bypasses RLS. Nothing here is called from the browser.
    mislabeled file is rejected rather than trusted. Re-running is safe
    (duplicates are skipped). Keys signed with the committed `--dev` pair are
    rejected on import: a released build cannot verify them.
+
+   The launch pool is already minted — 25 Pro and 25 Studio perpetual, unbound
+   keys, each one checked against the release build's verifier — in
+   `~/fovea-vendor/pool/keys-pro.txt` and `keys-studio.txt`. That directory is
+   outside the repo on purpose: a keys file is inventory, never a commit. After
+   step 1, both files import with:
+   ```bash
+   cd website
+   export FOVEA_LICENSE_PUBKEYS=$(cat ~/fovea-vendor/fovea-license-public.hex)
+   node --env-file=.env.local scripts/import-license-keys.mjs --file ~/fovea-vendor/pool/keys-pro.txt
+   node --env-file=.env.local scripts/import-license-keys.mjs --file ~/fovea-vendor/pool/keys-studio.txt
+   ```
 5. **Connect Dodo** — one command does the catalog and the endpoint:
    ```bash
    cd website

@@ -24,21 +24,28 @@
   // products and the webhook endpoint, then reads back the secret). Identifiers
   // — business, brand, products, which provider — are vars; credentials are secrets.
   //
-  // These are LIVE-mode ids and stay empty until the live catalog exists. Dodo's
-  // test catalog is a different host with different product ids, so the test
-  // values belong in website/.env.local only; putting them here would send real
-  // visitors to a sandbox checkout. Empty product ids make /api/checkout fail
-  // closed with a 503, which is the intended state until live mode is configured.
+  // SANDBOX RIGHT NOW. These are Dodo *test* ids for the Fovea brand, so
+  // /api/checkout sends buyers to test.dodopayments.com and no real money moves.
+  // That is the intended state while the app is pre-launch and the live catalog
+  // does not exist yet. Before charging anyone: set FOVEA_DODO_MODE to "live",
+  // replace the four ids with the live business/brand/products (`node
+  // scripts/dodo-setup.mjs --mode live` prints them), re-run
+  // `wrangler secret put FOVEA_DODO_API_KEY` and `…_WEBHOOK_SECRET` with the
+  // live values, and deploy. Empty product ids make /api/checkout fail closed
+  // with a 503, so a half-flipped configuration cannot sell anything.
+  //
+  // Dodo's test catalog is a different host with different product ids, so test
+  // and live ids are never interchangeable.
   //
   // brand_id matters: this Dodo business also holds the Caelmont brand, and
   // POST /products defaults to that primary brand when brand_id is omitted.
   "vars": {
     "FOVEA_PAYMENT_PROVIDER": "dodo",
-    "FOVEA_DODO_MODE": "live",
-    "FOVEA_DODO_BUSINESS_ID": "",
-    "FOVEA_DODO_BRAND_ID": "",
-    "FOVEA_DODO_PRODUCT_PRO": "",
-    "FOVEA_DODO_PRODUCT_STUDIO": "",
+    "FOVEA_DODO_MODE": "test",
+    "FOVEA_DODO_BUSINESS_ID": "bus_0Np5C4pkhZhFlzckYplOY",
+    "FOVEA_DODO_BRAND_ID": "brnd_0Np9ISTCEKjxPOzuHAwNC",
+    "FOVEA_DODO_PRODUCT_PRO": "pdt_0Np9P4egSy05UX5mz1mUs",
+    "FOVEA_DODO_PRODUCT_STUDIO": "pdt_0Np9P4gjPofqdqM97EgIk",
     "SUPABASE_URL": "https://ulpwhvfqhfbrjbjbvivz.supabase.co",
     "FOVEA_DOWNLOAD_VERSION": "1.2.0",
     "FOVEA_DOWNLOAD_URL": "https://github.com/ahxdalt-hub/Fovea/releases/download/v1.2.0/Fovea-1.2.0-x64.exe",
